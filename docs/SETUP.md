@@ -29,8 +29,8 @@ Double-clique :
 # Orbit propre — si orbit-en contient encore nos vieux commits plugin,
 # le plus simple est un clone frais de l’upstream (garde l’ancien en backup) :
 mv /home/chat/irc/sources/orbit-en /home/chat/irc/sources/orbit-en.bak-mixed
-git clone https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit-en
-# ou ton fork Zell40/orbit une fois réaligné sur l’upstream
+git clone -b main https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit-en
+# ou : git clone -b main https://github.com/Zell40/orbit.git  (maintenant calé sur l’officiel)
 
 git clone https://github.com/Zell40/entrenous-orbit.git /home/chat/irc/sources/entrenous-orbit
 chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh

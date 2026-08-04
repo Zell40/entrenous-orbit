@@ -17,7 +17,7 @@ set -euo pipefail
 ORBIT_REPO="/home/chat/irc/sources/orbit-en"
 PLUGINS_REPO="/home/chat/irc/sources/entrenous-orbit"
 WEBROOT="/home/chat/irc/webchat-new"
-ORBIT_BRANCH="master"
+ORBIT_BRANCH="main"          # upstream Orbit default branch
 PLUGINS_BRANCH="master"
 
 # Marker records BOTH commit hashes so a change in either repo triggers a deploy.
