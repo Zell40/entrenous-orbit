@@ -1,0 +1,13 @@
+# Secrets (never commit)
+*.local.php
+*.local
+
+# OS / editor
+.DS_Store
+.idea
+.vscode
+*.sw?
+Thumbs.db
+
+# Logs
+*.log

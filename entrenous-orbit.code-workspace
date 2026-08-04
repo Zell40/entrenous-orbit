@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "name": "entrenous-orbit (plugins)",
+      "path": "."
+    },
+    {
+      "name": "orbit (upstream client)",
+      "path": "../orbit"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true
+    }
+  }
+}

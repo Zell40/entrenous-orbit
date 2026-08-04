@@ -1,0 +1,11 @@
+# Orbit always POSTs image/voice uploads to the literal same-origin path
+# `/upload` (see src/core/store/upload.ts) — it has no idea the actual PHP
+# script is called filehost-upload.php. This rewrites that one path only;
+# it does not touch anything else Apache already serves (client-side
+# routing for the SPA, static assets, room-images.php, ...).
+#
+# See server/filehost/README.md for the full setup (ircd module + this
+# script's config). If you deploy filehost-upload.php somewhere other than
+# the web root, update the target path below to match.
+RewriteEngine On
+RewriteRule ^upload$ /filehost-upload.php [L,QSA]

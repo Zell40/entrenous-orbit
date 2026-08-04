@@ -1,0 +1,78 @@
+{
+  "server": {
+    "url": "https://irc.entrenous.chat/",
+    "guestIdent": "ENuser"
+  },
+  "startup": {
+    "channels": [
+      "#EntreNous.chat"
+    ],
+    "suggestions": [
+      "#Aide.chat",
+      "#Baccalaureat.chat",
+      "#Motus.chat",
+      "#Uno.chat",
+      "#Echecs.chat",
+      "#CCAS.chat",
+      "#EDFGDF.chat",
+      "#Enedis.chat"
+    ],
+    "intents": {
+      "chat": ["#EntreNous.chat"],
+      "love": ["#EDFGDF.chat"],
+      "play": ["#Baccalaureat.chat"]
+    }
+  },
+  "branding": {
+    "name": "EntreNous",
+    "icon": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/cropped-icone_ren.png",
+    "url": "https://www.entrenous.chat",
+    "tagline": "Tchat des Electricien(ne)s et Gazier(e)s Français(es),",
+    "taglineEm": "nous vous accueillons maintenant!",
+    "subtitle": "Tchat français en direct. Choisissez un pseudo, et vous y êtes.",
+    "projectUrl": "https://www.reseau-entrenous.fr/articles/NouveauWebchat",
+    "links": [],
+    "accent": ""
+  },
+  "turnstile": {
+    "enabled": true,
+    "sitekey": "0x4AAAAAADlXGeFQ-Aj3Kitp"
+  },
+  "report": {
+    "service": "",
+    "target": "#_bo"
+  },
+  "defaults": {
+    "theme": "light",
+    "compact": false,
+    "sound": true,
+    "hideJoinQuit": false,
+    "clock24": true,
+    "lang": ""
+  },
+  "features": {
+    "push": true,
+    "imageUpload": true,
+    "register": true,
+    "linkPreviews": true,
+    "multiNetwork": false,
+    "sessionResume": true,
+    "passkeySasl": true,
+    "saslScram": true
+  },
+  "plugins": [
+    { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
+    { "url": "/app/plugins/third/orbit-radio.js", "sandbox": true, "permissions": ["storage"] },
+    "/app/plugins/third/orbit-copy.js",
+    "/app/plugins/third/orbit-invite.js",
+    "/app/plugins/third/orbit-navbar.js",
+    "/app/plugins/third/orbit-room-gallery.js?v=15"
+  ],
+  "builtins": [],
+  "analytics": {
+    "endpoint": "/accounts/api/analytics/",
+    "siteId": "",
+    "gaId": ""
+  },
+  "securityGroups": ["IRCOperateur", "enregistre", "tls", "regulier", "nouveau", "non-securise", "websocket", "bot", "user", "bouncer"]
+}
