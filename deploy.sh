@@ -3,7 +3,7 @@
 # plugins / PHP sidecars / config on top of the web root.
 #
 # Layout on the server (recommended):
-#   /home/chat/irc/sources/orbit-en          ← clean Orbit (upstream only)
+#   /home/chat/irc/sources/orbit              ← clean Orbit (matches GitHub name)
 #   /home/chat/irc/sources/entrenous-orbit   ← THIS repo
 #   /home/chat/irc/webchat-new               ← live web root
 #
@@ -14,7 +14,7 @@
 #   */5 * * * * /home/chat/irc/sources/entrenous-orbit/deploy.sh >> /var/log/orbit-deploy.log 2>&1
 set -euo pipefail
 
-ORBIT_REPO="/home/chat/irc/sources/orbit-en"
+ORBIT_REPO="/home/chat/irc/sources/orbit"
 PLUGINS_REPO="/home/chat/irc/sources/entrenous-orbit"
 WEBROOT="/home/chat/irc/webchat-new"
 ORBIT_BRANCH="main"          # upstream Orbit default branch

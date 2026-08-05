@@ -22,5 +22,5 @@ Ou copie `entrenous-orbit/config/config.json` par-dessus pour un test complet En
 
 ```bash
 ln -sf /home/chat/irc/sources/entrenous-orbit/plugins/orbit-room-gallery.js \
-       /home/chat/irc/sources/orbit-en/public/plugins/third/orbit-room-gallery.js
+       /home/chat/irc/sources/orbit/public/plugins/third/orbit-room-gallery.js
 ```

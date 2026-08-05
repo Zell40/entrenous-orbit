@@ -20,14 +20,15 @@ Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 ## Sur le serveur
 
 ```
-/home/chat/irc/sources/orbit-en            # clone propre d’Orbit (upstream only)
+/home/chat/irc/sources/orbit               # clone propre d’Orbit (même nom que GitHub)
 /home/chat/irc/sources/entrenous-orbit     # ce dépôt
 /home/chat/irc/webchat-new                 # web root live
 ```
 
 ```bash
-# Une fois : Orbit propre (remplacer l’URL si tu as un fork qui suit l’upstream)
-git clone https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit-en
+# Une fois : Orbit propre (fork Zell40 ou upstream)
+git clone -b main https://github.com/Zell40/orbit.git /home/chat/irc/sources/orbit
+# ou : git clone -b main https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit
 
 git clone https://github.com/Zell40/entrenous-orbit.git /home/chat/irc/sources/entrenous-orbit
 chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh

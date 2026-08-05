@@ -26,11 +26,12 @@ Double-clique :
 ## 3. Sur le serveur
 
 ```bash
-# Orbit propre — si orbit-en contient encore nos vieux commits plugin,
-# le plus simple est un clone frais de l’upstream (garde l’ancien en backup) :
-mv /home/chat/irc/sources/orbit-en /home/chat/irc/sources/orbit-en.bak-mixed
-git clone -b main https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit-en
-# ou : git clone -b main https://github.com/Zell40/orbit.git  (maintenant calé sur l’officiel)
+# Backup de l’ancien Orbit modifié, puis clone propre sous le nom « orbit »
+mv /home/chat/irc/sources/orbit-en /home/chat/irc/sources/orbit.bak-mixed 2>/dev/null || true
+mv /home/chat/irc/sources/orbit /home/chat/irc/sources/orbit.bak-mixed 2>/dev/null || true
+
+git clone -b main https://github.com/Zell40/orbit.git /home/chat/irc/sources/orbit
+# ou : git clone -b main https://git.devtronic.pro/orbit/orbit.git /home/chat/irc/sources/orbit
 
 git clone https://github.com/Zell40/entrenous-orbit.git /home/chat/irc/sources/entrenous-orbit
 chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh
