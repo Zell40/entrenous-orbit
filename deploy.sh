@@ -81,6 +81,11 @@ cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/orbit-room-gallery.js" \
       "$WEBROOT/$GALLERY_DIR/"
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/room-images.php" \
       "$WEBROOT/$GALLERY_DIR/"
+# PHP upload limits (FPM reads .user.ini; mod_php can use .htaccess)
+cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.user.ini" \
+      "$WEBROOT/$GALLERY_DIR/.user.ini"
+cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.htaccess" \
+      "$WEBROOT/$GALLERY_DIR/.htaccess"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
@@ -96,9 +101,16 @@ chmod 2775 "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR" 2>
 
 # One-time migration from the old web-root layout (room-images.php + uploads
 # at WEBROOT/) into plugins/third/orbit-room-gallery/.
+# Never migrate a "local" that is actually a full copy of the main PHP —
+# requiring that causes infinite recursion and HTTP 500.
 if [ -f "$WEBROOT/room-images.local.php" ] && [ ! -f "$WEBROOT/$GALLERY_DIR/room-images.local.php" ]; then
-  cp -a "$WEBROOT/room-images.local.php" "$WEBROOT/$GALLERY_DIR/room-images.local.php"
-  echo "$(date -Is) migrated room-images.local.php → $GALLERY_DIR/"
+  if cmp -s "$WEBROOT/room-images.local.php" "$WEBROOT/$GALLERY_DIR/room-images.php" 2>/dev/null \
+     || cmp -s "$WEBROOT/room-images.local.php" "$PLUGINS_REPO/plugins/orbit-room-gallery/room-images.php" 2>/dev/null; then
+    echo "$(date -Is) SKIP migrate room-images.local.php (looks like a full script copy, not secrets)"
+  else
+    cp -a "$WEBROOT/room-images.local.php" "$WEBROOT/$GALLERY_DIR/room-images.local.php"
+    echo "$(date -Is) migrated room-images.local.php → $GALLERY_DIR/"
+  fi
 fi
 if [ -d "$WEBROOT/room-images-uploads" ] && [ -z "$(find "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
   # Move contents (keep dir itself so old exclude/paths don't surprise Apache)

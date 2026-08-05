@@ -84,7 +84,15 @@ $ALLOWED_UPLOAD_MIME = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif'
 // It's simply require()'d here if present, and can override any of the
 // variables above.
 $__room_images_local = __DIR__ . '/room-images.local.php';
-if (is_file($__room_images_local)) require $__room_images_local;
+// Refuse a "local" that is actually a full copy of this script (would
+// recurse forever via the require below → HTTP 500). Secrets files are tiny.
+if (is_file($__room_images_local)
+    && filesize($__room_images_local) < 4096
+    && !str_contains((string)@file_get_contents($__room_images_local), 'function verify_extjwt')) {
+  require $__room_images_local;
+} elseif (is_file($__room_images_local)) {
+  error_log('room-images: refusing to require room-images.local.php — it looks like a full script copy, not a secrets stub');
+}
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store'); // this map changes at any time; never let a browser/proxy serve a stale GET
@@ -242,8 +250,17 @@ if ($method === 'POST') {
   // round-trip involved. Store it ourselves and record its URL.
   $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
   if (stripos($contentType, 'multipart/form-data') !== false) {
-    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-      http_response_code(400); echo json_encode(['error' => 'upload_failed']); exit;
+    if (!isset($_FILES['file'])) {
+      http_response_code(400); echo json_encode(['error' => 'upload_failed', 'detail' => 'no_file']); exit;
+    }
+    $uploadErr = (int)$_FILES['file']['error'];
+    if ($uploadErr !== UPLOAD_ERR_OK) {
+      // Surface the common php.ini case (default upload_max_filesize=2M) as
+      // too_large so the UI can say something useful instead of a generic fail.
+      if ($uploadErr === UPLOAD_ERR_INI_SIZE || $uploadErr === UPLOAD_ERR_FORM_SIZE) {
+        http_response_code(413); echo json_encode(['error' => 'too_large']); exit;
+      }
+      http_response_code(400); echo json_encode(['error' => 'upload_failed', 'detail' => $uploadErr]); exit;
     }
     $file = $_FILES['file'];
     if ($file['size'] <= 0 || $file['size'] > $MAX_UPLOAD_BYTES) {

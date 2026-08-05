@@ -29,6 +29,11 @@ Endpoint PHP (constante dans le JS) :
 /app/plugins/third/orbit-room-gallery/room-images.php
 ```
 
+## Limites PHP
+
+`.user.ini` / `.htaccess` du dossier fixent `upload_max_filesize` / `post_max_size`
+à 16M (le défaut PHP 8.1 est souvent 2M, trop bas pour les photos).
+
 ## Secrets
 
 Créer à côté du PHP déployé :

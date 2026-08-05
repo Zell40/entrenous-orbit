@@ -1,0 +1,9 @@
+# Raise upload limits when running under mod_php (PHP-FPM uses .user.ini).
+<IfModule mod_php.c>
+  php_value upload_max_filesize 16M
+  php_value post_max_size 16M
+</IfModule>
+<IfModule mod_php8.c>
+  php_value upload_max_filesize 16M
+  php_value post_max_size 16M
+</IfModule>
