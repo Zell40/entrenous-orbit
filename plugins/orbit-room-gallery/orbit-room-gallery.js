@@ -304,7 +304,13 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__pagebtn:not(:disabled):hover{border-color:var(--accent,#1452cc)}
     .rg__pageinfo{font-size:.8rem;color:var(--muted,#9aa);font-weight:700;min-width:4.5rem;text-align:center}
     .rg-ca-pic__row{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}
-    .rg-ca-pic__thumb{flex:none;width:54px;height:54px;border-radius:12px;background-size:cover;background-position:center;border:1px solid var(--border,#333);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}
+    .rg-ca-pic__thumb{flex:none;position:relative;width:54px;height:54px;border-radius:12px;background-size:cover;background-position:center;border:1px solid var(--border,#333);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden}
+    .rg-ca-pic__thumb--busy::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45)}
+    .rg-ca-pic__spin{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .rg-ca-pic__spin::before{content:"";width:22px;height:22px;border-radius:50%;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:rg-ca-spin .7s linear infinite}
+    @keyframes rg-ca-spin{to{transform:rotate(360deg)}}
+    .rg-ca-pic__status{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;font-weight:700;color:var(--muted,#9aa)}
+    .rg-ca-pic__status-dot{flex:none;width:12px;height:12px;border-radius:50%;border:2px solid var(--border,#333);border-top-color:var(--accent,#1452cc);animation:rg-ca-spin .7s linear infinite}
     .rg-ca-pic__hint{flex-basis:100%;font-size:.76rem;color:var(--muted,#9aa)}
     /* Applied by syncChannelPictures() below. React re-sets
        style={{ background: gradient }} on these nodes every render, which
@@ -545,8 +551,15 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     picSection.appendChild(row);
 
     const thumb = document.createElement('div');
-    thumb.className = 'rg-ca-pic__thumb';
+    thumb.className = 'rg-ca-pic__thumb' + (picBusy ? ' rg-ca-pic__thumb--busy' : '');
+    thumb.setAttribute('aria-busy', picBusy ? 'true' : 'false');
     if (img) thumb.style.backgroundImage = `url(${img})`; else { thumb.style.background = avatarBg(active); thumb.textContent = '#'; }
+    if (picBusy) {
+      const spin = document.createElement('span');
+      spin.className = 'rg-ca-pic__spin';
+      spin.setAttribute('aria-hidden', 'true');
+      thumb.appendChild(spin);
+    }
     row.appendChild(thumb);
 
     const pickBtn = document.createElement('button');
@@ -557,6 +570,20 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       ? orbit.i18n.pick({ fr: "Changer l'image", en: 'Change picture' })
       : orbit.i18n.pick({ fr: 'Choisir une image', en: 'Choose a picture' });
     row.appendChild(pickBtn);
+
+    if (picBusy) {
+      const status = document.createElement('span');
+      status.className = 'rg-ca-pic__status';
+      status.setAttribute('role', 'status');
+      const dot = document.createElement('span');
+      dot.className = 'rg-ca-pic__status-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      status.appendChild(dot);
+      status.appendChild(document.createTextNode(
+        orbit.i18n.pick({ fr: 'Envoi en cours…', en: 'Uploading…' }),
+      ));
+      row.appendChild(status);
+    }
 
     if (img) {
       const rmBtn = document.createElement('button');

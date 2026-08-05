@@ -98,6 +98,10 @@ cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UP
 # fails on permissions if the parent isn't ready — create + relax ownership).
 mkdir -p "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR"
 chmod 2775 "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR" 2>/dev/null || true
+# Map file must be group-writable: www-data is in group `users`, deploy runs as `chat`.
+if [ -f "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR/room-images.json" ]; then
+  chmod 664 "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR/room-images.json" 2>/dev/null || true
+fi
 
 # One-time migration from the old web-root layout (room-images.php + uploads
 # at WEBROOT/) into plugins/third/orbit-room-gallery/.

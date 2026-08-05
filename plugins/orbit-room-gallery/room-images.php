@@ -164,14 +164,23 @@ function load_map(string $file): array {
 
 function save_map(string $file, array $map): bool {
   $dir = dirname($file);
-  if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+  if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
     error_log("room-images: mkdir('$dir') for map failed — " . (error_get_last()['message'] ?? 'unknown error'));
     return false;
+  }
+  // Ensure the map stays group-writable: deploy/migration often creates it as
+  // 0644 owned by `chat`, then www-data (group users) can create new images
+  // in the setgid dir but cannot update this existing JSON → save_failed.
+  if (file_exists($file)) {
+    @chmod($file, 0664);
   }
   $fh = fopen($file, 'c+');
   if (!$fh) {
     error_log("room-images: fopen('$file') for write failed — " . (error_get_last()['message'] ?? 'unknown error'));
     return false;
+  }
+  if (!file_exists($file) || (fileperms($file) & 0666) !== 0664) {
+    @chmod($file, 0664);
   }
   flock($fh, LOCK_EX);
   ftruncate($fh, 0);
@@ -180,6 +189,7 @@ function save_map(string $file, array $map): bool {
   fflush($fh);
   flock($fh, LOCK_UN);
   fclose($fh);
+  @chmod($file, 0664);
   return true;
 }
 
