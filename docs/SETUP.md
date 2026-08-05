@@ -43,3 +43,10 @@ chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh
 ```
 
 Les `*.local.php` et dossiers d’upload dans `webchat-new/` restent en place.
+Au premier deploy avec le nouveau layout, `deploy.sh` migre
+`room-images.local.php` + `room-images-uploads/` de la racine vers
+`plugins/third/orbit-room-gallery/` si besoin.
+
+Après migration, tu peux supprimer à la main les anciens fichiers racine
+(`room-images.php`, dossier `room-images-uploads/` vide) une fois que les
+images s’affichent correctement.

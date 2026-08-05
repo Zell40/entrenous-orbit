@@ -93,12 +93,14 @@ explicitly if that guess is ever wrong for your setup.
 
 1. **ircd side** — compile the module into InspIRCd (`src/modules/`,
    `make`, `make install`), add the `<filehost>` block above, `/REHASH`.
-2. **Web side** — copy `filehost-upload.php` to your web root (next to
-   `room-images.php` if you use the room-gallery plugin too). Make sure the
-   directory is writable by PHP so it can create `files/` (matches the
-   module's own `<website>/files/<name>` assumption above).
+2. **Web side** — copy `filehost-upload.php` to your web root (stays at the
+   site root — unrelated to the gallery plugin under
+   `plugins/third/orbit-room-gallery/`). Make sure the directory is writable
+   by PHP so it can create `files/` (matches the module's own
+   `<website>/files/<name>` assumption above).
 3. Create a sibling `filehost-upload.local.php` (same directory, git-ignored,
-   never touched by `deploy.sh` — see `room-images/README.md` for why) with:
+   never touched by `deploy.sh` — see `plugins/orbit-room-gallery/README.md`
+   for the same pattern) with:
    ```php
    <?php
    $JWT_SECRET = 'a-long-random-secret-different-from-extjwt'; // same as <filehost jwt_secret="...">
@@ -153,8 +155,10 @@ can write into it.
    Then, as `chat` (no sudo needed), make the specific upload directories
    group-writable so new files/dirs created by either user work for both:
    ```
-   mkdir -p /home/chat/irc/webchat-new/files /home/chat/irc/webchat-new/room-images-uploads
-   chmod 2775 /home/chat/irc/webchat-new/files /home/chat/irc/webchat-new/room-images-uploads
+   mkdir -p /home/chat/irc/webchat-new/files \
+            /home/chat/irc/webchat-new/plugins/third/orbit-room-gallery/room-images-uploads
+   chmod 2775 /home/chat/irc/webchat-new/files \
+              /home/chat/irc/webchat-new/plugins/third/orbit-room-gallery/room-images-uploads
    ```
    (`2775` = the setgid bit, so files created later by `www-data` keep the
    `chat` group too, and vice versa.)

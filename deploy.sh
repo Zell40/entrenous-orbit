@@ -23,8 +23,11 @@ PLUGINS_BRANCH="master"
 # Marker records BOTH commit hashes so a change in either repo triggers a deploy.
 DEPLOYED_MARKER="$PLUGINS_REPO/.last-deployed-commits"
 
-ROOM_IMAGES_NAME="room-images.php"
-ROOM_IMAGES_UPLOADS_DIR="room-images-uploads"
+# Gallery plugin bundle (JS + room-images.php + uploads)
+GALLERY_DIR="plugins/third/orbit-room-gallery"
+ROOM_IMAGES_UPLOADS_DIR="$GALLERY_DIR/room-images-uploads"
+
+# Orbit core filehost (composer /upload) — stays at web root
 FILEHOST_UPLOAD_NAME="filehost-upload.php"
 FILEHOST_FILES_DIR="files"
 
@@ -58,24 +61,65 @@ npm ci --silent
 npm run test
 npm run build
 
-# --- publish Orbit dist, preserving runtime upload data ---
+# --- publish Orbit dist, preserving runtime upload data + secrets ---
 rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
-  --exclude="/$ROOM_IMAGES_NAME" --exclude="/room-images.json" --exclude="/$ROOM_IMAGES_UPLOADS_DIR" \
-  --exclude="/$FILEHOST_UPLOAD_NAME" --exclude="/$FILEHOST_FILES_DIR" \
+  --exclude="/$GALLERY_DIR/room-images.local.php" \
+  --exclude="/$GALLERY_DIR/room-images.json" \
+  --exclude="/$ROOM_IMAGES_UPLOADS_DIR" \
+  --exclude="/$FILEHOST_UPLOAD_NAME" \
+  --exclude="/filehost-upload.local.php" \
+  --exclude="/$FILEHOST_FILES_DIR" \
+  --exclude="/room-images.php" \
+  --exclude="/room-images.local.php" \
+  --exclude="/room-images.json" \
+  --exclude="/room-images-uploads" \
   "$ORBIT_REPO/dist/" "$WEBROOT/"
 
 # --- overlay EntreNous extras from THIS repo ---
-# Custom plugins land next to Orbit's own public/plugins/third/* copies.
-mkdir -p "$WEBROOT/plugins/third"
-cp -f "$PLUGINS_REPO/plugins/"*.js "$WEBROOT/plugins/third/"
+mkdir -p "$WEBROOT/$GALLERY_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/orbit-room-gallery.js" \
+      "$WEBROOT/$GALLERY_DIR/"
+cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/room-images.php" \
+      "$WEBROOT/$GALLERY_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
 cp -f "$PLUGINS_REPO/config/.htaccess" "$WEBROOT/.htaccess"
 
-# PHP sidecars (secrets stay in untouched *.local.php siblings)
-cp -f "$PLUGINS_REPO/server/room-images/room-images.php" "$WEBROOT/$ROOM_IMAGES_NAME"
+# Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
+
+# Ensure runtime upload dirs exist (PHP also mkdir's, but first deploy often
+# fails on permissions if the parent isn't ready — create + relax ownership).
+mkdir -p "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR"
+chmod 2775 "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR" 2>/dev/null || true
+
+# One-time migration from the old web-root layout (room-images.php + uploads
+# at WEBROOT/) into plugins/third/orbit-room-gallery/.
+if [ -f "$WEBROOT/room-images.local.php" ] && [ ! -f "$WEBROOT/$GALLERY_DIR/room-images.local.php" ]; then
+  cp -a "$WEBROOT/room-images.local.php" "$WEBROOT/$GALLERY_DIR/room-images.local.php"
+  echo "$(date -Is) migrated room-images.local.php → $GALLERY_DIR/"
+fi
+if [ -d "$WEBROOT/room-images-uploads" ] && [ -z "$(find "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
+  # Move contents (keep dir itself so old exclude/paths don't surprise Apache)
+  shopt -s dotglob nullglob
+  for item in "$WEBROOT/room-images-uploads"/*; do
+    mv "$item" "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR/"
+  done
+  shopt -u dotglob nullglob
+  echo "$(date -Is) migrated room-images-uploads/ → $ROOM_IMAGES_UPLOADS_DIR/"
+fi
+# Rewrite absolute URLs inside the map that still point at the old web-root path.
+# Guard against re-running: only touch maps that do not already use the new prefix.
+MAP="$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR/room-images.json"
+if [ -f "$MAP" ] \
+  && grep -q '/room-images-uploads/' "$MAP" 2>/dev/null \
+  && ! grep -q 'orbit-room-gallery/room-images-uploads' "$MAP" 2>/dev/null; then
+  sed -i \
+    -e 's|/room-images-uploads/|/app/plugins/third/orbit-room-gallery/room-images-uploads/|g' \
+    "$MAP"
+  echo "$(date -Is) rewrote legacy room-images URLs in room-images.json"
+fi
 
 echo "$COMBO" > "$DEPLOYED_MARKER"
 echo "$(date -Is) deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"

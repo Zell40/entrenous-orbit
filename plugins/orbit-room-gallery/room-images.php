@@ -1,7 +1,8 @@
 <?php
 /*
  * room-images.php — tiny same-origin store for Orbit's room-gallery plugin
- * (public/plugins/third/orbit-room-gallery.js). No database server needed:
+ * (sibling orbit-room-gallery.js in plugins/third/orbit-room-gallery/).
+ * No database server needed:
  * a single JSON file on disk, guarded by a lock for concurrent writes.
  *
  * Why this exists: a channel founder's picture needs to be visible to every
@@ -69,7 +70,7 @@ $MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB, matches the plugin's client-side ca
 // $UPLOAD_DIR somewhere not reachable at <this script's directory>/room-images-uploads.
 // (Scheme+host is prepended separately below via detect_origin() so the
 // final URL is always absolute — see its comment for why that matters.)
-$UPLOAD_URL_PATH = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/room-images.php')), '/') . '/room-images-uploads';
+$UPLOAD_URL_PATH = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/app/plugins/third/orbit-room-gallery/room-images.php')), '/') . '/room-images-uploads';
 $ALLOWED_UPLOAD_MIME = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
 
 // deploy.sh always overwrites THIS file with the latest version from git on

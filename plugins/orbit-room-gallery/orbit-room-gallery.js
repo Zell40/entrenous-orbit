@@ -47,7 +47,7 @@
  *
  * A channel's picture URL itself never travels over IRC (no topic tricks, no
  * trace for KiwiIRC/irssi/any other client to see). It lives in a tiny
- * same-origin companion endpoint — see server/room-images/room-images.php —
+ * same-origin companion endpoint — see ./room-images.php in this folder —
  * that only accepts a write when the caller proves, via a channel-scoped
  * EXTJWT (https://www.unrealircd.org/docs/Extjwt_block) signed by the ircd
  * itself, that they currently hold the founder mode on that channel. The
@@ -58,21 +58,20 @@
  * `FILEHOST` command, which most ircds don't have, so it just times out.
  *
  * Configure in config.json:
- *   "plugins": ["/app/plugins/third/orbit-room-gallery.js"]
+ *   "plugins": ["/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js"]
  *
- * And deploy server/room-images/room-images.php — see its README for setup
- * (EXTJWT secret + founder mode letter). Until it's deployed and reachable,
- * the gallery still works (grid/list browsing of LIST results), just without
- * any pictures. To point at a non-default location, edit ROOM_IMAGES_ENDPOINT
- * below.
+ * And deploy this folder's room-images.php next to the JS (see README).
+ * Until the PHP is reachable, the gallery still works (grid/list browsing),
+ * just without pictures. To point at a non-default location, edit
+ * ROOM_IMAGES_ENDPOINT below.
  */
 Orbit.plugin('room-gallery', (orbit, log) => {
   const { useState, useEffect, useRef } = orbit.React;
   const html = orbit.html;
   const t = orbit.i18n.t; // reuse the core's own modals.join.* strings (already in all 10 locales)
 
-  // Where server/room-images/room-images.php is reachable from this origin.
-  const ROOM_IMAGES_ENDPOINT = '/room-images.php';
+  // Sibling PHP in this same deployed folder (Orbit base is /app/).
+  const ROOM_IMAGES_ENDPOINT = '/app/plugins/third/orbit-room-gallery/room-images.php';
   // Display prefix for "channel founder" on most networks (UnrealIRCd,
   // Anope/Atheme default config) — used only to decide whether to *show* the
   // picture button; the real authorization check happens server-side against

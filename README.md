@@ -10,9 +10,8 @@ Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 
 | Chemin | Rôle |
 | --- | --- |
-| `plugins/orbit-room-gallery.js` | Galerie grille/liste + images de salon |
-| `server/room-images/` | Stockage des images de salon (`room-images.php`) |
-| `server/filehost/` | Endpoint `/upload` natif Orbit (composer) |
+| `plugins/orbit-room-gallery/` | Galerie + `room-images.php` (tout le plugin) |
+| `server/filehost/` | Endpoint `/upload` natif Orbit (composer) — racine web |
 | `config/config.json` | Config EntreNous (branding, plugins, IRC…) |
 | `config/.htaccess` | Réécriture Apache `/upload` → `filehost-upload.php` |
 | `deploy.sh` | Build Orbit amont + overlay de ce dépôt |
@@ -23,6 +22,17 @@ Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 /home/chat/irc/sources/orbit               # clone propre d’Orbit (même nom que GitHub)
 /home/chat/irc/sources/entrenous-orbit     # ce dépôt
 /home/chat/irc/webchat-new                 # web root live
+```
+
+Après deploy, le web root contient notamment :
+
+```
+webchat-new/
+  plugins/third/orbit-room-gallery/   ← JS + room-images.php + uploads
+  filehost-upload.php                 ← composer /upload
+  files/                              ← uploads composer
+  config.json
+  .htaccess
 ```
 
 ```bash
@@ -42,7 +52,7 @@ Puis :
 /home/chat/irc/sources/entrenous-orbit/deploy.sh --force
 ```
 
-Les dossiers runtime (`room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés.
+Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés. `deploy.sh` crée les dossiers d’upload s’ils manquent, et migre l’ancien layout racine (`/room-images.php`) vers le dossier plugin si besoin.
 
 ## En local (Cursor)
 
@@ -65,23 +75,23 @@ Dépôt amont : `https://git.devtronic.pro/orbit/orbit.git`
 cd /path/to/orbit
 git remote add upstream https://git.devtronic.pro/orbit/orbit.git   # une fois
 git fetch upstream
-git merge upstream/master   # ou rebase, selon ton habitude
+git merge upstream/main
 ```
 
 ## Secrets
 
-À côté des PHP déployés sur le web root (jamais dans git) :
+À côté des PHP déployés (jamais dans git) :
 
 ```php
 <?php
-// room-images.local.php
+// plugins/third/orbit-room-gallery/room-images.local.php
 $EXTJWT_SECRET = '…';
 $FOUNDER_CMODE = 'q';
 ```
 
 ```php
 <?php
-// filehost-upload.local.php
+// filehost-upload.local.php  (racine web)
 $JWT_SECRET = '…';
 $JWT_ISSUER = 'FILEHOST';
 ```
