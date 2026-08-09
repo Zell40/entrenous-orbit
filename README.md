@@ -56,14 +56,23 @@ Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.l
 
 ## En local (Cursor)
 
-Ouvre un workspace avec les **deux** dossiers :
+Ouvre un workspace avec les **trois** dossiers liés :
 
 ```
+C:\Users\famil\entrenous-orbit    ← plugins / config / deploy EntreNous (ce dépôt)
 C:\Users\famil\orbit              ← client Orbit (suivi upstream)
-C:\Users\famil\entrenous-orbit    ← ce dépôt (là où on développe)
+C:\Users\famil\EntreNous-web     ← site WordPress (plugins + thème MonIdentité / Anope)
 ```
+
+| Dossier | Rôle |
+| --- | --- |
+| `entrenous-orbit` | Personnalisations webchat EntreNous (plugins Orbit, sidecars PHP, `deploy.sh`) |
+| `orbit` | Client webchat amont — ne pas y mettre de logique EntreNous |
+| `EntreNous-web` | Site `reseau-entrenous.fr` : sync Anope (`wp-anope-sync`), loader, thème `customizr_enfant` (JWT SASL, MonIdentité, API profil) |
 
 Fichier fourni : `entrenous-orbit.code-workspace` — double-clique-le dans Cursor.
+
+Chaîne typique : **WordPress** (compte + JWT / API profil) → **Orbit** (client) ← overlay **entrenous-orbit** (plugins EntreNous).
 
 Règle : **ne jamais modifier `orbit/src/`** pour une feature EntreNous. Tout nouveau comportement = plugin (et sidecar PHP si besoin) ici.
 

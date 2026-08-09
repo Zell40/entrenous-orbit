@@ -7,6 +7,10 @@
     {
       "name": "orbit (upstream client)",
       "path": "../orbit"
+    },
+    {
+      "name": "EntreNous-web (site WP)",
+      "path": "../EntreNous-web"
     }
   ],
   "settings": {
