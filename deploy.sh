@@ -94,6 +94,9 @@ cp -f "$PLUGINS_REPO/config/.htaccess" "$WEBROOT/.htaccess"
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
 
+# WordPress → Orbit SASL handoff bridge (same-origin sessionStorage)
+cp -f "$PLUGINS_REPO/server/handoff/handoff.php" "$WEBROOT/handoff.php"
+
 # Ensure runtime upload dirs exist (PHP also mkdir's, but first deploy often
 # fails on permissions if the parent isn't ready — create + relax ownership).
 mkdir -p "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR"

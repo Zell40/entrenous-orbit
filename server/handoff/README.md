@@ -3,15 +3,14 @@
 `handoff.php` reçoit le JWT en **POST** depuis MonIdentité (page test Orbit),
 écrit `sessionStorage.tchatou_handoff`, puis redirige vers l’app Orbit.
 
-**Déploiement manuel** (pas via `deploy.sh`) : copier ce fichier à la racine
-du webchat Orbit, sur le shell chat, par ex. :
+Déployé automatiquement à la racine du webchat par `deploy.sh` :
 
 ```
-/home/chat/irc/webchat-new/handoff.php
+webchat-new/handoff.php
 ```
 
-Il doit être sur la **même origine** que le client Orbit (sessionStorage).
-Le site WordPress (autre shell) n’héberge pas ce fichier.
+Il doit rester sur la **même origine** que le client Orbit (sessionStorage).
+Le site WordPress (`EntreNous-web`, autre shell) se déploie à part, manuellement.
 
 Côté WordPress, constantes dans `functions.php` :
 
