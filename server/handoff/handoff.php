@@ -2,7 +2,7 @@
 /**
  * Handoff WordPress → Orbit (same-origin).
  *
- * Reçoit en POST le JWT + nick/channel depuis la page test MonIdentité Orbit,
+ * Reçoit en POST le JWT + nick/channel (+ profil) depuis MonIdentité Orbit,
  * pose le marqueur sessionStorage attendu par Orbit (`tchatou_handoff`),
  * puis redirige vers l’app Orbit (?nick=&channel=).
  *
@@ -25,6 +25,9 @@ $nick    = isset($_POST['nick'])    ? trim((string) $_POST['nick']) : '';
 $channel = isset($_POST['channel']) ? trim((string) $_POST['channel']) : '';
 $target  = isset($_POST['target'])  ? (string) $_POST['target']  : '';
 $account = isset($_POST['account']) ? trim((string) $_POST['account']) : '';
+$age     = isset($_POST['age'])     ? trim((string) $_POST['age']) : '';
+$sexe    = isset($_POST['sexe'])    ? trim((string) $_POST['sexe']) : '';
+$ville   = isset($_POST['ville'])   ? trim((string) $_POST['ville']) : '';
 
 if ($token === '' || $nick === '') {
     http_response_code(400);
@@ -42,12 +45,35 @@ if ($target === '' || !preg_match('#^https?://#i', $target)) {
     }
 }
 
+// IRC GECOS / realname — "40 - Homme - Paris" (lu par Orbit pour badges genre)
+$realname = '';
+if ($age !== '' && $sexe !== '' && $ville !== '') {
+    $sexeKey = strtoupper($sexe);
+    $label = match ($sexeKey) {
+        'H', 'M', 'HOMME', 'MALE' => 'Homme',
+        'F', 'FEMME', 'FEMALE' => 'Femme',
+        'A', 'AUTRE', 'OTHER' => 'Autre',
+        default => '',
+    };
+    if ($label === '' && preg_match('/^(homme|femme|autre)$/iu', $sexe)) {
+        $label = mb_convert_case($sexe, MB_CASE_TITLE, 'UTF-8');
+    }
+    $villeClean = preg_replace('/[\r\n]+/', ' ', $ville) ?? $ville;
+    $villeClean = mb_substr(trim($villeClean), 0, 40);
+    if ($label !== '' && preg_match('/^\d{1,3}$/', $age) && $villeClean !== '') {
+        $realname = $age . ' - ' . $label . ' - ' . $villeClean;
+    }
+}
+
 $payload = [
     'password' => $token,
     't'        => (int) round(microtime(true) * 1000),
 ];
 if ($account !== '') {
     $payload['account'] = $account;
+}
+if ($realname !== '') {
+    $payload['realname'] = $realname;
 }
 
 $handoff_json = json_encode($payload, JSON_UNESCAPED_SLASHES);
