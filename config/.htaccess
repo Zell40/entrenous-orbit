@@ -9,3 +9,6 @@
 # the web root, update the target path below to match.
 RewriteEngine On
 RewriteRule ^upload$ /filehost-upload.php [L,QSA]
+# Orbit batches avatar lookups to this path (src/platform/avatars.ts).
+# Sidecar proxies to WordPress entrenous/v1/profile (same API Kiwi uses).
+RewriteRule ^accounts/api/avatars/?$ /avatars.php [L,QSA]

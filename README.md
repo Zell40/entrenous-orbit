@@ -12,8 +12,10 @@ Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 | --- | --- |
 | `plugins/orbit-room-gallery/` | Galerie + `room-images.php` (tout le plugin) |
 | `server/filehost/` | Endpoint `/upload` natif Orbit (composer) — racine web |
+| `server/handoff/` | Bridge WordPress → Orbit (JWT / OAUTHBEARER) |
+| `server/avatars/` | Bridge avatars WP → `POST /accounts/api/avatars/` |
 | `config/config.json` | Config EntreNous (branding, plugins, IRC…) |
-| `config/.htaccess` | Réécriture Apache `/upload` → `filehost-upload.php` |
+| `config/.htaccess` | Rewrites Apache (`/upload`, `/accounts/api/avatars/`) |
 | `deploy.sh` | Build Orbit amont + overlay de ce dépôt |
 
 ## Sur le serveur
@@ -31,6 +33,8 @@ webchat-new/
   plugins/third/orbit-room-gallery/   ← JS + room-images.php + uploads
   filehost-upload.php                 ← composer /upload
   files/                              ← uploads composer
+  handoff.php                         ← WordPress → Orbit SASL
+  avatars.php                         ← WordPress → Orbit avatars
   config.json
   .htaccess
 ```
