@@ -58,7 +58,8 @@
     "multiNetwork": false,
     "sessionResume": true,
     "passkeySasl": true,
-    "saslScram": true
+    "saslScram": true,
+    "saslOauthBearer": true
   },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },

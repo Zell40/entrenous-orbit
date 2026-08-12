@@ -24,6 +24,7 @@ $token   = isset($_POST['token'])   ? (string) $_POST['token']   : '';
 $nick    = isset($_POST['nick'])    ? trim((string) $_POST['nick']) : '';
 $channel = isset($_POST['channel']) ? trim((string) $_POST['channel']) : '';
 $target  = isset($_POST['target'])  ? (string) $_POST['target']  : '';
+$account = isset($_POST['account']) ? trim((string) $_POST['account']) : '';
 
 if ($token === '' || $nick === '') {
     http_response_code(400);
@@ -41,10 +42,15 @@ if ($target === '' || !preg_match('#^https?://#i', $target)) {
     }
 }
 
-$handoff_json = json_encode(
-    ['password' => $token, 't' => (int) round(microtime(true) * 1000)],
-    JSON_UNESCAPED_SLASHES
-);
+$payload = [
+    'password' => $token,
+    't'        => (int) round(microtime(true) * 1000),
+];
+if ($account !== '') {
+    $payload['account'] = $account;
+}
+
+$handoff_json = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
 header('Content-Type: text/html; charset=UTF-8');
 header('Cache-Control: no-store');
