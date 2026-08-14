@@ -35,13 +35,15 @@ FILEHOST_FILES_DIR="files"
 cd "$ORBIT_REPO"
 git fetch --quiet origin "$ORBIT_BRANCH"
 git checkout "$ORBIT_BRANCH" --quiet
-git pull --ff-only --quiet
+git pull --ff-only --quiet origin "$ORBIT_BRANCH"
+git branch --set-upstream-to="origin/$ORBIT_BRANCH" "$ORBIT_BRANCH" >/dev/null 2>&1 || true
 ORBIT_HEAD=$(git rev-parse HEAD)
 
 cd "$PLUGINS_REPO"
 git fetch --quiet origin "$PLUGINS_BRANCH"
 git checkout "$PLUGINS_BRANCH" --quiet
-git pull --ff-only --quiet
+git pull --ff-only --quiet origin "$PLUGINS_BRANCH"
+git branch --set-upstream-to="origin/$PLUGINS_BRANCH" "$PLUGINS_BRANCH" >/dev/null 2>&1 || true
 PLUGINS_HEAD=$(git rev-parse HEAD)
 
 COMBO="${ORBIT_HEAD}+${PLUGINS_HEAD}"
@@ -90,6 +92,15 @@ cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.htaccess" \
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
 cp -f "$PLUGINS_REPO/config/.htaccess" "$WEBROOT/.htaccess"
+
+# PWA manifest (EntreNous branding) — avoid Play Store “related app” traps
+if [ -f "$PLUGINS_REPO/config/manifest.webmanifest" ]; then
+  cp -f "$PLUGINS_REPO/config/manifest.webmanifest" "$WEBROOT/manifest.webmanifest"
+fi
+# Optional branded icons (icon-192.png / icon-512.png / apple-touch-icon.png)
+if [ -d "$PLUGINS_REPO/config/pwa-icons" ]; then
+  cp -f "$PLUGINS_REPO/config/pwa-icons/"*.png "$WEBROOT/" 2>/dev/null || true
+fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
