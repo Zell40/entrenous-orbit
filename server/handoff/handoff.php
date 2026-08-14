@@ -4,12 +4,14 @@
  *
  * Reçoit en POST le JWT + nick/channel (+ profil) depuis MonIdentité Orbit,
  * pose le marqueur sessionStorage attendu par Orbit (`tchatou_handoff`),
+ * pose un cookie HttpOnly de reprise (`orbit_en_resume`) pour renouveler le JWT,
  * puis redirige vers l’app Orbit (?nick=&channel=).
  *
  * Déployer à la racine du webchat Orbit, ex. :
  *   /home/chat/irc/webchat-new/handoff.php
  *
- * Ne contient aucun secret : le JWT arrive déjà signé par WordPress.
+ * Le secret HMAC du cookie est lu dans chat-resume.local.php (même fichier que
+ * chat-resume.php) — pas de secret dans ce script.
  */
 declare(strict_types=1);
 
@@ -35,7 +37,6 @@ if ($token === '' || $nick === '') {
     exit;
 }
 
-// Cible Orbit : priorité au champ target (construit côté WP), sinon rebuild local
 if ($target === '' || !preg_match('#^https?://#i', $target)) {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -45,7 +46,6 @@ if ($target === '' || !preg_match('#^https?://#i', $target)) {
     }
 }
 
-// IRC GECOS / realname — "40 - Homme - Paris" (lu par Orbit pour badges genre)
 $realname = '';
 if ($age !== '' && $sexe !== '' && $ville !== '') {
     $sexeKey = strtoupper($sexe);
@@ -76,6 +76,28 @@ if ($realname !== '') {
     $payload['realname'] = $realname;
 }
 
+// Long-lived resume cookie (14 days) so Orbit can mint a fresh SASL JWT later.
+$resumeAccount = $account !== '' ? $account : $nick;
+$local = __DIR__ . '/chat-resume.local.php';
+if ($resumeAccount !== '' && is_readable($local)) {
+    /** @var array{jwt_secret?:string} $cfg */
+    $cfg = require $local;
+    $secret = (string)($cfg['jwt_secret'] ?? '');
+    if ($secret !== '' && $secret !== 'CHANGE_ME_SAME_AS_WORDPRESS') {
+        $exp = time() + 14 * 86400;
+        $body = $nick . "\n" . $resumeAccount . "\n" . $exp;
+        $sig = hash_hmac('sha256', $body, $secret);
+        $cookie = rtrim(strtr(base64_encode($body . "\n" . $sig), '+/', '-_'), '=');
+        setcookie('orbit_en_resume', $cookie, [
+            'expires'  => $exp,
+            'path'     => '/',
+            'secure'   => true,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+}
+
 $handoff_json = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
 header('Content-Type: text/html; charset=UTF-8');
@@ -86,10 +108,24 @@ header('Cache-Control: no-store');
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex">
-  <title>Connexion Orbit…</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion EntreNous…</title>
+  <style>
+    html,body{height:100%;margin:0;background:#eef3fb;color:#1a2740;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .splash{min-height:100%;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:1rem;padding:2rem;text-align:center}
+    .spin{width:36px;height:36px;border-radius:50%;border:3px solid #c9d7ef;
+      border-top-color:#1452cc;animation:s .7s linear infinite}
+    @keyframes s{to{transform:rotate(360deg)}}
+    p{margin:0;font-size:.95rem;color:#5a6b85}
+  </style>
 </head>
 <body>
-  <p style="font-family:sans-serif;text-align:center;margin-top:3rem;">Connexion sécurisée en cours…</p>
+  <div class="splash" role="status">
+    <div class="spin" aria-hidden="true"></div>
+    <p>Connexion au tchat…</p>
+  </div>
   <script>
   (function () {
     var payload = <?= json_encode($handoff_json, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
@@ -97,7 +133,8 @@ header('Cache-Control: no-store');
     try {
       sessionStorage.setItem('tchatou_handoff', payload);
     } catch (e) {
-      document.body.innerHTML = '<p style="font-family:sans-serif;color:#c00;text-align:center;margin-top:3rem;">Impossible d’écrire sessionStorage (mode privé ?).</p>';
+      document.querySelector('.splash').innerHTML =
+        '<p style="color:#c00">Impossible d’écrire sessionStorage (mode privé ?).</p>';
       return;
     }
     location.replace(target);

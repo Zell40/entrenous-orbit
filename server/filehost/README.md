@@ -106,10 +106,14 @@ explicitly if that guess is ever wrong for your setup.
    $JWT_SECRET = 'a-long-random-secret-different-from-extjwt'; // same as <filehost jwt_secret="...">
    $JWT_ISSUER = 'FILEHOST';                                    // same as <filehost jwt_issuer="...">
    ```
-4. Apache needs to route the literal path `/upload` to this script — that
-   rewrite already ships in `public/.htaccess` (built into `dist/` and thus
-   deployed automatically), targeting `/filehost-upload.php` at the web
-   root. If you deploy this script somewhere else, update that rule.
+4. Apache needs to route `/upload` (and `/app/upload` when the SPA is
+   under `Alias /app → WEBROOT`) to this script — that rewrite ships in
+   `config/.htaccess` and is copied to WEBROOT by `deploy.sh`.
+   **Use a relative rewrite target** (`filehost-upload.php`, no leading
+   slash). A leading slash is resolved against the vhost DocumentRoot,
+   which is *not* WEBROOT under Alias, and produces a silent 404 even
+   though the PHP file is present. Set `$PUBLIC_URL_PATH = '/app/files'`
+   in `filehost-upload.local.php` for the same layout.
    - `.htaccess` rules are silently ignored unless your Apache vhost has
      `AllowOverride All` (or at least `AllowOverride FileInfo`) for the web
      root directory, and `mod_rewrite` is enabled (`a2enmod rewrite`). If

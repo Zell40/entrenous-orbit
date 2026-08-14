@@ -142,8 +142,26 @@ function verify_filehost_jwt(string $token, string $secret, string $issuer): ?ar
 $token = (string)($_GET['token'] ?? '');
 if ($token === '') { http_response_code(401); echo json_encode(['detail' => 'missing_token']); exit; }
 
+if ($JWT_SECRET === '' || str_starts_with($JWT_SECRET, 'CHANGE_ME')) {
+  error_log('filehost-upload: $JWT_SECRET is still a CHANGE_ME placeholder — set it in filehost-upload.local.php (must match ircd <filehost jwt_secret>)');
+  http_response_code(503); echo json_encode(['detail' => 'not_configured']); exit;
+}
+
 $claims = verify_filehost_jwt($token, $JWT_SECRET, $JWT_ISSUER);
-if (!$claims) { http_response_code(401); echo json_encode(['detail' => 'invalid_token']); exit; }
+if (!$claims) {
+  http_response_code(401); echo json_encode(['detail' => 'invalid_token']); exit;
+}
+
+// When the SPA lives under /app (Apache Alias), uploaded files are usually
+// reachable as /app/files/... rather than bare /files/...
+$reqUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+$ref = (string)($_SERVER['HTTP_REFERER'] ?? '');
+if ($PUBLIC_URL_PATH === '/files' && (
+  str_contains($reqUri, '/app/') || str_starts_with($reqUri, '/app/')
+  || str_contains($ref, '/app/')
+)) {
+  $PUBLIC_URL_PATH = '/app/files';
+}
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
   http_response_code(400); echo json_encode(['detail' => 'upload_failed']); exit;

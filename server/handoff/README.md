@@ -1,15 +1,25 @@
 # Handoff WordPress → Orbit
 
 `handoff.php` reçoit le JWT en **POST** depuis MonIdentité (page test Orbit),
-écrit `sessionStorage.tchatou_handoff`, puis redirige vers l’app Orbit.
+écrit `sessionStorage.tchatou_handoff`, pose le cookie HttpOnly `orbit_en_resume`,
+puis redirige vers l’app Orbit.
+
+`chat-resume.php` (réécrit en `/accounts/api/chat_resume/`) renouvelle un JWT
+SASL à partir de ce cookie — utilisé au rechargement de page et à chaque
+reconnexion WebSocket (`features.sessionResume` + `saslOauthBearer`).
 
 Déployé automatiquement à la racine du webchat par `deploy.sh` :
 
 ```
 webchat-new/handoff.php
+webchat-new/chat-resume.php
+webchat-new/chat-resume.local.php   ← secrets (à créer une fois)
 ```
 
-Il doit rester sur la **même origine** que le client Orbit (sessionStorage).
+Créer `chat-resume.local.php` depuis `chat-resume.local.php.example` avec le
+**même** `jwt_secret` que WordPress MonIdentité / InspIRCd oauthbearer.
+
+Il doit rester sur la **même origine** que le client Orbit (sessionStorage + cookie).
 Le site WordPress (`EntreNous-web`, autre shell) se déploie à part, manuellement.
 
 Avec `features.saslOauthBearer: true` dans `config.json`, Orbit authentifie

@@ -1,0 +1,10 @@
+<?php
+/**
+ * Local secrets for chat-resume.php — copy to chat-resume.local.php on the server.
+ * jwt_secret MUST match WordPress MonIdentité + InspIRCd oauthbearer.
+ */
+return [
+    'jwt_secret' => 'CHANGE_ME_SAME_AS_WORDPRESS',
+    'issuer'     => 'EntreNous',
+    'ttl'        => 3600, // seconds for each minted SASL JWT
+];

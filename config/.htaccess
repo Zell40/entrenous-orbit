@@ -1,14 +1,19 @@
 # Orbit always POSTs image/voice uploads to the literal same-origin path
-# `/upload` (see src/core/store/upload.ts) — it has no idea the actual PHP
-# script is called filehost-upload.php. This rewrites that one path only;
-# it does not touch anything else Apache already serves (client-side
-# routing for the SPA, static assets, room-images.php, ...).
+# `/upload` or `/app/upload` (see src/core/store/upload.ts) — it has no idea
+# the actual PHP script is called filehost-upload.php.
 #
-# See server/filehost/README.md for the full setup (ircd module + this
-# script's config). If you deploy filehost-upload.php somewhere other than
-# the web root, update the target path below to match.
+# This .htaccess lives in WEBROOT, which EntreNous serves via Alias /app →
+# WEBROOT. Per-directory rewrite sees the path *after* the Alias prefix, so
+# a browser request to /app/upload matches ^upload$ here.
+#
+# Targets MUST be relative (no leading slash). A leading slash is resolved
+# against the vhost DocumentRoot, which is NOT WEBROOT when using Alias —
+# that was a common cause of 404 despite filehost-upload.php being present.
+#
+# See server/filehost/README.md for the full setup (ircd module + secrets).
 RewriteEngine On
-RewriteRule ^upload$ /filehost-upload.php [L,QSA]
+RewriteRule ^upload$ filehost-upload.php [L,QSA]
 # Orbit batches avatar lookups to this path (src/platform/avatars.ts).
-# Sidecar proxies to WordPress entrenous/v1/profile (same API Kiwi uses).
-RewriteRule ^accounts/api/avatars/?$ /avatars.php [L,QSA]
+RewriteRule ^accounts/api/avatars/?$ avatars.php [L,QSA]
+# Session resume: mint a fresh SASL OAUTHBEARER JWT from the handoff cookie.
+RewriteRule ^accounts/api/chat_resume/?$ chat-resume.php [L,QSA]

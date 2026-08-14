@@ -104,9 +104,19 @@ fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
+if [ ! -f "$WEBROOT/filehost-upload.local.php" ] && [ -f "$PLUGINS_REPO/server/filehost/filehost-upload.local.php.example" ]; then
+  cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.local.php.example" "$WEBROOT/filehost-upload.local.php.example"
+  echo "$(date -Is) NOTE: create $WEBROOT/filehost-upload.local.php (JWT secret = ircd <filehost>)"
+fi
 
-# WordPress → Orbit SASL handoff bridge (same-origin sessionStorage)
+# WordPress → Orbit SASL handoff bridge (same-origin sessionStorage + resume cookie)
 cp -f "$PLUGINS_REPO/server/handoff/handoff.php" "$WEBROOT/handoff.php"
+cp -f "$PLUGINS_REPO/server/handoff/chat-resume.php" "$WEBROOT/chat-resume.php"
+# Keep operator secrets across deploys; seed example only if missing.
+if [ ! -f "$WEBROOT/chat-resume.local.php" ] && [ -f "$PLUGINS_REPO/server/handoff/chat-resume.local.php.example" ]; then
+  cp -f "$PLUGINS_REPO/server/handoff/chat-resume.local.php.example" "$WEBROOT/chat-resume.local.php.example"
+  echo "$(date -Is) NOTE: create $WEBROOT/chat-resume.local.php (JWT secret = WordPress / oauthbearer)"
+fi
 
 # WordPress profile avatars → Orbit POST /accounts/api/avatars/
 # (rewrite in config/.htaccess). Keep avatars.local.php if present.

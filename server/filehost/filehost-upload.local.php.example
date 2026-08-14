@@ -1,0 +1,14 @@
+<?php
+/**
+ * Copy to filehost-upload.local.php next to filehost-upload.php on the server
+ * (deploy.sh never overwrites an existing .local.php).
+ *
+ * Values MUST match the ircd <filehost> block.
+ */
+$JWT_SECRET = 'CHANGE_ME_SAME_AS_IRCD_FILEHOST';
+$JWT_ISSUER = 'FILEHOST';
+// EntreNous serves the SPA via Alias /app → WEBROOT, so public files are
+// under /app/files (not bare /files at the vhost DocumentRoot).
+$PUBLIC_URL_PATH = '/app/files';
+// Optional absolute origin if auto-detect is wrong behind a reverse proxy:
+// $PUBLIC_ORIGIN = 'https://webchat.entrenous.chat';
