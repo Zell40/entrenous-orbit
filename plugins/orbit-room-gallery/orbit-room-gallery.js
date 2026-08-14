@@ -4,9 +4,10 @@
  * grid view and a channel founder's picture on each tile/row. The founder
  * sets that picture from "Gérer mon chan" → Aperçu, just below "Accès & mot
  * de passe" — always restricted to +q, same as every other control there.
- * Once set, that same picture also replaces the default "#" tile at the top
- * of the open channel and in its row in the sidebar's list of open rooms —
- * see syncChannelPictures() near the bottom. Setting or clearing a picture
+ * Once set, that same picture also replaces the default "#" tile in the
+ * channel's topic banner and in its row in the sidebar's list of open rooms —
+ * see syncChannelPictures() near the bottom. The topbar keeps the classic "#"
+ * glyph. Setting or clearing a picture
  * also posts a "/me a mis à jour l'image du salon : <url>" line in the
  * channel itself (announcePictureChange()) so members actually notice —
  * unlike the picture's storage (see below), this line DOES travel over IRC
@@ -317,7 +318,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
        clears any background-image we write via el.style — so we drive the
        picture through a CSS custom property + !important instead, which
        beats React's non-important inline shorthand. */
-    .topbar__av[data-rg-pic],.room__av[data-rg-pic],.chan-hero__media[data-rg-pic]{
+    .room__av[data-rg-pic],.chan-hero__media[data-rg-pic]{
       background-image:var(--rg-pic)!important;
       background-size:cover!important;
       background-position:center!important;
@@ -676,15 +677,16 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   function syncChannelPictures() {
     if (!mapLoaded) return; // avoid a flash of "no picture" before the first fetch resolves
 
-    // 1) Topbar: the currently open channel's own header avatar tile.
+    // Topbar keeps the classic "#" tile — room pictures only go on the topic
+    // banner (.chan-hero__media) and sidebar rows.
     const topAv = document.querySelector('.topbar--channel .topbar__av');
-    if (topAv) applyPicStyle(topAv, imageMap[normChan(orbit.state.active())]);
+    if (topAv) applyPicStyle(topAv, null);
 
-    // 1b) Message-list channel hero (topic banner) — larger room picture.
+    // Message-list channel hero (topic banner) — room picture thumbnail.
     const heroMedia = document.querySelector('.chan-hero__media');
     if (heroMedia) applyPicStyle(heroMedia, imageMap[normChan(orbit.state.active())]);
 
-    // 2) Sidebar: every open channel row. There's no data attribute on a row
+    // Sidebar: every open channel row. There's no data attribute on a row
     // carrying its raw channel name to key off of — only channel rows render
     // the "#" glyph span at all, and the row's own label text is that same
     // name with the leading "#" stripped (see Sidebar.tsx's RoomRow), so
