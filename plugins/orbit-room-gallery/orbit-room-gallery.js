@@ -318,7 +318,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
        clears any background-image we write via el.style — so we drive the
        picture through a CSS custom property + !important instead, which
        beats React's non-important inline shorthand. */
-    .room__av[data-rg-pic],.chan-hero__media[data-rg-pic]{
+    .room__av[data-rg-pic],.chan-hero__media[data-rg-pic],.main__room-bg[data-rg-pic]{
       background-image:var(--rg-pic)!important;
       background-size:cover!important;
       background-position:center!important;
@@ -684,7 +684,12 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
     // Message-list channel hero (topic banner) — room picture thumbnail.
     const heroMedia = document.querySelector('.chan-hero__media');
-    if (heroMedia) applyPicStyle(heroMedia, imageMap[normChan(orbit.state.active())]);
+    const img = imageMap[normChan(orbit.state.active())];
+    if (heroMedia) applyPicStyle(heroMedia, img);
+
+    // Soft large backdrop behind the chat column (upper half of .main).
+    const roomBg = document.querySelector('.main__room-bg');
+    if (roomBg) applyPicStyle(roomBg, img);
 
     // Sidebar: every open channel row. There's no data attribute on a row
     // carrying its raw channel name to key off of — only channel rows render
