@@ -180,5 +180,28 @@ if [ -f "$MAP" ] \
   echo "$(date -Is) rewrote legacy room-images URLs in room-images.json"
 fi
 
+# Drop obsolete web-root gallery copies once the plugin bundle is in place.
+# (rsync --exclude kept them forever; the JS only talks to $GALLERY_DIR/.)
+if [ -f "$WEBROOT/$GALLERY_DIR/room-images.php" ]; then
+  for stale in \
+    "$WEBROOT/room-images.php" \
+    "$WEBROOT/room-images.local.php" \
+    "$WEBROOT/room-images.json"
+  do
+    if [ -e "$stale" ]; then
+      rm -f "$stale"
+      echo "$(date -Is) removed obsolete $(basename "$stale") from WEBROOT (use $GALLERY_DIR/)"
+    fi
+  done
+  # Empty leftover uploads dir only — never delete if it still has files.
+  if [ -d "$WEBROOT/room-images-uploads" ] \
+    && [ -z "$(find "$WEBROOT/room-images-uploads" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then
+    rmdir "$WEBROOT/room-images-uploads" 2>/dev/null \
+      && echo "$(date -Is) removed empty WEBROOT/room-images-uploads/"
+  elif [ -d "$WEBROOT/room-images-uploads" ]; then
+    echo "$(date -Is) NOTE: WEBROOT/room-images-uploads/ still has files — migrate/merge then delete manually"
+  fi
+fi
+
 echo "$COMBO" > "$DEPLOYED_MARKER"
 echo "$(date -Is) deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"

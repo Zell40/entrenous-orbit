@@ -56,7 +56,7 @@ Puis :
 /home/chat/irc/sources/entrenous-orbit/deploy.sh --force
 ```
 
-Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés. `deploy.sh` crée les dossiers d’upload s’ils manquent, et migre l’ancien layout racine (`/room-images.php`) vers le dossier plugin si besoin.
+Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés. `deploy.sh` crée les dossiers d’upload s’ils manquent, migre l’ancien layout racine vers le dossier plugin, puis **supprime** les copies obsolètes à la racine (`/room-images.php`, etc.) une fois le plugin en place.
 
 ## En local (Cursor)
 
