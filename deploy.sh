@@ -64,6 +64,8 @@ npm run test
 npm run build
 
 # --- publish Orbit dist, preserving runtime upload data + secrets ---
+# IMPORTANT: any WEBROOT file not in dist/ is deleted by --delete unless
+# excluded below. Operator secrets (*.local.php) must always be excluded.
 rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$GALLERY_DIR/room-images.local.php" \
   --exclude="/$GALLERY_DIR/room-images.json" \
@@ -71,6 +73,10 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
+  --exclude="/chat-resume.local.php" \
+  --exclude="/avatars.local.php" \
+  --exclude="/handoff.php" \
+  --exclude="/chat-resume.php" \
   --exclude="/room-images.php" \
   --exclude="/room-images.local.php" \
   --exclude="/room-images.json" \
@@ -104,7 +110,10 @@ fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
-if [ ! -f "$WEBROOT/filehost-upload.local.php" ] && [ -f "$PLUGINS_REPO/server/filehost/filehost-upload.local.php.example" ]; then
+# NEVER overwrite filehost-upload.local.php — only drop the example beside it once.
+if [ -f "$WEBROOT/filehost-upload.local.php" ]; then
+  echo "$(date -Is) keep $WEBROOT/filehost-upload.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/server/filehost/filehost-upload.local.php.example" ]; then
   cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.local.php.example" "$WEBROOT/filehost-upload.local.php.example"
   echo "$(date -Is) NOTE: create $WEBROOT/filehost-upload.local.php (JWT secret = ircd <filehost>)"
 fi
@@ -112,8 +121,10 @@ fi
 # WordPress → Orbit SASL handoff bridge (same-origin sessionStorage + resume cookie)
 cp -f "$PLUGINS_REPO/server/handoff/handoff.php" "$WEBROOT/handoff.php"
 cp -f "$PLUGINS_REPO/server/handoff/chat-resume.php" "$WEBROOT/chat-resume.php"
-# Keep operator secrets across deploys; seed example only if missing.
-if [ ! -f "$WEBROOT/chat-resume.local.php" ] && [ -f "$PLUGINS_REPO/server/handoff/chat-resume.local.php.example" ]; then
+# NEVER overwrite chat-resume.local.php — only drop the example beside it once.
+if [ -f "$WEBROOT/chat-resume.local.php" ]; then
+  echo "$(date -Is) keep $WEBROOT/chat-resume.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/server/handoff/chat-resume.local.php.example" ]; then
   cp -f "$PLUGINS_REPO/server/handoff/chat-resume.local.php.example" "$WEBROOT/chat-resume.local.php.example"
   echo "$(date -Is) NOTE: create $WEBROOT/chat-resume.local.php (JWT secret = WordPress / oauthbearer)"
 fi

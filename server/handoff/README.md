@@ -19,6 +19,9 @@ webchat-new/chat-resume.local.php   ← secrets (à créer une fois)
 Créer `chat-resume.local.php` depuis `chat-resume.local.php.example` avec le
 **même** `jwt_secret` que WordPress MonIdentité / InspIRCd oauthbearer.
 
+`deploy.sh` **ne touche jamais** à `chat-resume.local.php` (exclu du `rsync
+--delete` + jamais écrasé par un `cp`). Seul `chat-resume.php` est mis à jour.
+
 Il doit rester sur la **même origine** que le client Orbit (sessionStorage + cookie).
 Le site WordPress (`EntreNous-web`, autre shell) se déploie à part, manuellement.
 
