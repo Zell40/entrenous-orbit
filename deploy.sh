@@ -81,6 +81,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/room-images.local.php" \
   --exclude="/room-images.json" \
   --exclude="/room-images-uploads" \
+  --exclude="/.user.ini" \
   "$ORBIT_REPO/dist/" "$WEBROOT/"
 
 # --- overlay EntreNous extras from THIS repo ---
@@ -110,9 +111,13 @@ fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
-# PHP-FPM upload limits for /upload (gallery already has its own .user.ini)
+# PHP-FPM upload limits for /upload (gallery already has its own .user.ini).
+# Keep WEBROOT/.user.ini across rsync --delete (excluded above), then refresh.
 if [ -f "$PLUGINS_REPO/server/filehost/.user.ini" ]; then
   cp -f "$PLUGINS_REPO/server/filehost/.user.ini" "$WEBROOT/.user.ini"
+  echo "$(date -Is) installed $WEBROOT/.user.ini (upload_max_filesize)"
+else
+  echo "$(date -Is) WARN: missing $PLUGINS_REPO/server/filehost/.user.ini — WEBROOT upload limit may stay at PHP default 2M"
 fi
 # NEVER overwrite filehost-upload.local.php — only drop the example beside it once.
 if [ -f "$WEBROOT/filehost-upload.local.php" ]; then
