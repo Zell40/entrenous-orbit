@@ -124,9 +124,12 @@ explicitly if that guess is ever wrong for your setup.
      `RewriteEngine On` / `RewriteRule` lines into your vhost's own
      `<Directory>` block instead — functionally identical, just centrally
      configured.
-5. Make sure PHP's `upload_max_filesize` and `post_max_size` in `php.ini`
-   are both at least `16M` (`$MAX_UPLOAD_BYTES` in the script) — otherwise
-   PHP drops the upload before this script ever sees it.
+5. Make sure PHP's `upload_max_filesize` and `post_max_size` are both
+   at least `16M`. `deploy.sh` copies `server/filehost/.user.ini` to
+   WEBROOT for PHP-FPM (and `config/.htaccess` sets the same for mod_php).
+   Without that, PHP silently drops the body and this script returns
+   `400:upload_failed` / `no_file` / `post_too_large`. After deploy, wait
+   for FPM's `user_ini.cache_ttl` (~5 min) or reload php-fpm.
 6. `deploy.sh` already excludes `filehost-upload.php` and its `files/`
    directory from its mirror step, so redeploying the app never wipes
    uploaded files or this config — if you use a different deploy process,

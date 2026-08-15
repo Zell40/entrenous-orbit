@@ -17,3 +17,13 @@ RewriteRule ^upload$ filehost-upload.php [L,QSA]
 RewriteRule ^accounts/api/avatars/?$ avatars.php [L,QSA]
 # Session resume: mint a fresh SASL OAUTHBEARER JWT from the handoff cookie.
 RewriteRule ^accounts/api/chat_resume/?$ chat-resume.php [L,QSA]
+
+# Raise upload limits for composer /upload when under mod_php (FPM uses .user.ini).
+<IfModule mod_php.c>
+  php_value upload_max_filesize 16M
+  php_value post_max_size 16M
+</IfModule>
+<IfModule mod_php8.c>
+  php_value upload_max_filesize 16M
+  php_value post_max_size 16M
+</IfModule>

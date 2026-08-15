@@ -110,6 +110,10 @@ fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
+# PHP-FPM upload limits for /upload (gallery already has its own .user.ini)
+if [ -f "$PLUGINS_REPO/server/filehost/.user.ini" ]; then
+  cp -f "$PLUGINS_REPO/server/filehost/.user.ini" "$WEBROOT/.user.ini"
+fi
 # NEVER overwrite filehost-upload.local.php — only drop the example beside it once.
 if [ -f "$WEBROOT/filehost-upload.local.php" ]; then
   echo "$(date -Is) keep $WEBROOT/filehost-upload.local.php (secrets preserved)"

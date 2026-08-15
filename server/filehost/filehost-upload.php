@@ -163,8 +163,30 @@ if ($PUBLIC_URL_PATH === '/files' && (
   $PUBLIC_URL_PATH = '/app/files';
 }
 
-if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-  http_response_code(400); echo json_encode(['detail' => 'upload_failed']); exit;
+if (!isset($_FILES['file'])) {
+  // post_max_size exceeded → PHP empties $_FILES and $_POST entirely.
+  $cl = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+  $postMax = ini_get('post_max_size');
+  error_log("filehost-upload: missing \$_FILES['file'] (CONTENT_LENGTH=$cl, post_max_size=$postMax, upload_max_filesize=" . ini_get('upload_max_filesize') . ')');
+  http_response_code(400);
+  echo json_encode([
+    'detail' => $cl > 0 ? 'post_too_large' : 'no_file',
+    'post_max_size' => $postMax,
+    'upload_max_filesize' => ini_get('upload_max_filesize'),
+  ]);
+  exit;
+}
+$uploadErr = (int)$_FILES['file']['error'];
+if ($uploadErr !== UPLOAD_ERR_OK) {
+  error_log("filehost-upload: \$_FILES error=$uploadErr (upload_max_filesize=" . ini_get('upload_max_filesize') . ')');
+  if ($uploadErr === UPLOAD_ERR_INI_SIZE || $uploadErr === UPLOAD_ERR_FORM_SIZE) {
+    http_response_code(413);
+    echo json_encode(['detail' => 'too_large', 'upload_max_filesize' => ini_get('upload_max_filesize')]);
+    exit;
+  }
+  http_response_code(400);
+  echo json_encode(['detail' => 'upload_failed', 'php_error' => $uploadErr]);
+  exit;
 }
 $file = $_FILES['file'];
 if ($file['size'] <= 0 || $file['size'] > $MAX_UPLOAD_BYTES) {
