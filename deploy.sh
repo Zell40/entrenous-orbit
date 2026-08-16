@@ -130,6 +130,8 @@ fi
 # WordPress → Orbit SASL handoff bridge (same-origin sessionStorage + resume cookie)
 cp -f "$PLUGINS_REPO/server/handoff/handoff.php" "$WEBROOT/handoff.php"
 cp -f "$PLUGINS_REPO/server/handoff/chat-resume.php" "$WEBROOT/chat-resume.php"
+cp -f "$PLUGINS_REPO/server/handoff/wp-profile-gecos.inc.php" "$WEBROOT/wp-profile-gecos.inc.php"
+cp -f "$PLUGINS_REPO/server/handoff/profile-gecos.php" "$WEBROOT/profile-gecos.php"
 # NEVER overwrite chat-resume.local.php — only drop the example beside it once.
 if [ -f "$WEBROOT/chat-resume.local.php" ]; then
   echo "$(date -Is) keep $WEBROOT/chat-resume.local.php (secrets preserved)"

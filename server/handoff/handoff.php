@@ -85,7 +85,12 @@ if ($resumeAccount !== '' && is_readable($local)) {
     $secret = (string)($cfg['jwt_secret'] ?? '');
     if ($secret !== '' && $secret !== 'CHANGE_ME_SAME_AS_WORDPRESS') {
         $exp = time() + 14 * 86400;
+        // Cookie payload: nick \n account \n exp [ \n realname ] \n sig
+        // realname is optional (EntreNous GECOS) so older 4-field cookies still verify.
         $body = $nick . "\n" . $resumeAccount . "\n" . $exp;
+        if ($realname !== '') {
+            $body .= "\n" . $realname;
+        }
         $sig = hash_hmac('sha256', $body, $secret);
         $cookie = rtrim(strtr(base64_encode($body . "\n" . $sig), '+/', '-_'), '=');
         setcookie('orbit_en_resume', $cookie, [

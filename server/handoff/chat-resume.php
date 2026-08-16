@@ -59,19 +59,43 @@ function b64url_encode_bin(string $bin): string {
 
 $decoded = b64url_decode_str($raw);
 $parts = explode("\n", $decoded);
-if (count($parts) !== 4) {
+$n = count($parts);
+// Legacy: nick \n account \n exp \n sig (4)
+// Current: nick \n account \n exp \n realname \n sig (5) — realname may be empty
+if ($n !== 4 && $n !== 5) {
     http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'bad_cookie']);
     exit;
 }
-[$nick, $account, $expStr, $sig] = $parts;
+$nick = $parts[0];
+$account = $parts[1];
+$expStr = $parts[2];
+$realname = '';
+if ($n === 5) {
+    $realname = $parts[3];
+    $sig = $parts[4];
+    $payload = $nick . "\n" . $account . "\n" . $expStr . "\n" . $realname;
+} else {
+    $sig = $parts[3];
+    $payload = $nick . "\n" . $account . "\n" . $expStr;
+}
 $exp = (int)$expStr;
-$payload = $nick . "\n" . $account . "\n" . $expStr;
 $expect = hash_hmac('sha256', $payload, $secret);
 if (!hash_equals($expect, $sig) || $exp < time() || $nick === '' || $account === '') {
     http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'expired']);
     exit;
+}
+
+// WordPress profile is the source of truth for âge / genre / ville (GECOS).
+$WP_PROFILE_URL = 'https://www.reseau-entrenous.fr/wp-json/entrenous/v1/profile';
+if (!empty($cfg['wp_profile_url']) && is_string($cfg['wp_profile_url'])) {
+    $WP_PROFILE_URL = $cfg['wp_profile_url'];
+}
+require __DIR__ . '/wp-profile-gecos.inc.php';
+$wpRealname = entrenous_fetch_wp_gecos($account, $WP_PROFILE_URL, 2.5);
+if ($wpRealname !== '') {
+    $realname = $wpRealname;
 }
 
 $header = b64url_encode_bin(json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
@@ -83,8 +107,12 @@ $body = b64url_encode_bin(json_encode([
 $sigJwt = b64url_encode_bin(hash_hmac('sha256', $header . '.' . $body, $secret, true));
 $jwt = $header . '.' . $body . '.' . $sigJwt;
 
-echo json_encode([
+$out = [
     'ok' => true,
     'keycard' => $jwt,
     'nick' => $nick,
-], JSON_UNESCAPED_SLASHES);
+];
+if ($realname !== '') {
+    $out['realname'] = $realname;
+}
+echo json_encode($out, JSON_UNESCAPED_SLASHES);

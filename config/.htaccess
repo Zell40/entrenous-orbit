@@ -17,6 +17,8 @@ RewriteRule ^upload$ filehost-upload.php [L,QSA]
 RewriteRule ^accounts/api/avatars/?$ avatars.php [L,QSA]
 # Session resume: mint a fresh SASL OAUTHBEARER JWT from the handoff cookie.
 RewriteRule ^accounts/api/chat_resume/?$ chat-resume.php [L,QSA]
+# WP profile → IRC GECOS (âge - genre - ville) for reconnect SETNAME.
+RewriteRule ^accounts/api/profile_gecos/?$ profile-gecos.php [L,QSA]
 
 # Raise upload limits for composer /upload when under mod_php (FPM uses .user.ini).
 <IfModule mod_php.c>
