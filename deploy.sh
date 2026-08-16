@@ -96,6 +96,12 @@ cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.user.ini" \
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.htaccess" \
       "$WEBROOT/$GALLERY_DIR/.htaccess"
 
+# HelpServ welcome (AideMoi / SignalMoi query intro)
+HELPSERV_WELCOME_DIR="plugins/third/orbit-helpserv-welcome"
+mkdir -p "$WEBROOT/$HELPSERV_WELCOME_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-helpserv-welcome/orbit-helpserv-welcome.js" \
+      "$WEBROOT/$HELPSERV_WELCOME_DIR/"
+
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
 cp -f "$PLUGINS_REPO/config/.htaccess" "$WEBROOT/.htaccess"
