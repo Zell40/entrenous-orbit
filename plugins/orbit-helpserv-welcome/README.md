@@ -1,8 +1,11 @@
 # orbit-helpserv-welcome
 
-Affiche un message d’accueil dès qu’un utilisateur ouvre un PV avec **AideMoi** ou **SignalMoi** dans Orbit (avant l’ouverture d’un ticket HelpServ).
+Affiche un message d’accueil (faux PRIVMSG locaux) dès qu’un utilisateur ouvre un PV avec **AideMoi** ou **SignalMoi**.
 
-- **AideMoi** : bonjour avec le pseudo + liens d’aide reseau-entrenous.fr  
-- **SignalMoi** : précision que l’équipe intervient rapidement après le premier message + rappel `REPORT` / `SIGNALER`
+- **AideMoi** : bonjour + liens d’aide  
+- **SignalMoi** : intervention rapide + rappel REPORT  
 
-Aucun trafic IRC : lignes système locales uniquement. Le flux tickets reste dans le module Anope HelpServ.
+Le bouton **Signaler** du profil (whois) utilise `config.report.query` (`SignalMoi`) : ouverture du PV + brouillon `REPORT pseudo [#salon] ` + accueil automatique.
+
+Aucun trafic IRC pour l’accueil. Les tickets restent gérés par HelpServ Anope.
+

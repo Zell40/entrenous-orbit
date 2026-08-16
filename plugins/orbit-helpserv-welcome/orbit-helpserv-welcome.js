@@ -1,13 +1,13 @@
 /*
  * Orbit ↔ HelpServ welcome — when the user opens a query (PV) with AideMoi
- * or SignalMoi, show the same pre-ticket guidance HelpServ would send, so
- * they see help links / report instructions before typing.
+ * or SignalMoi, inject local PRIVMSG-looking lines from the bot (no IRC).
  *
- * Does not open tickets and does not send IRC traffic; local system lines only.
- * Real ticket flow stays in the Anope HelpServ module.
+ * Profile "Signaler" uses config.report.query (SignalMoi): openQuery + draft
+ * REPORT …, then this plugin shows the automatic welcome in that PV.
  *
- * Configure in config.json:
- *   "plugins": [..., "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js"]
+ * config.json:
+ *   "report": { "query": "SignalMoi", ... }
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=3"]
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const AIDE = 'aidemoi';
@@ -35,6 +35,10 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     return null;
   }
 
+  function botLabel(desk) {
+    return desk === 'aide' ? 'AideMoi' : 'SignalMoi';
+  }
+
   function linesFor(desk, nick) {
     const who = (nick || '').trim() || 'toi';
     if (desk === 'aide') {
@@ -47,14 +51,45 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     return [
       `Bonjour ${who}. Dès que vous aurez envoyé votre premier message décrivant le signalement, l'équipe interviendra rapidement.`,
       'Ne discutez pas des signalements en public.',
-      'Pour déposer un signalement, tapez REPORT pseudo [#salon] raison (ou SIGNALER). Une fois le ticket ouvert, envoyez les preuves ici en message privé.',
+      'Si le compositeur propose déjà une ligne REPORT, complétez la raison et envoyez. Sinon tapez REPORT pseudo [#salon] raison (ou SIGNALER).',
     ];
   }
 
-  function alreadyHasWelcome(buf, desk) {
-    const msgs = (buf && buf.messages) || [];
-    const needle = desk === 'aide' ? 'reseau-entrenous.fr/aide/' : 'SIGNALER';
-    return msgs.some((m) => m && typeof m.text === 'string' && m.text.includes(needle));
+  function bufferHasNeedle(st, key, needle) {
+    const buffers = (st && st.buffers) || {};
+    for (const k of Object.keys(buffers)) {
+      if (fold(k) !== key && fold(buffers[k] && buffers[k].name) !== key) continue;
+      const msgs = (buffers[k] && buffers[k].messages) || [];
+      if (msgs.some((m) => m && typeof m.text === 'string' && m.text.includes(needle))) return true;
+    }
+    return false;
+  }
+
+  function resolveName(st, target, key) {
+    const buffers = (st && st.buffers) || {};
+    for (const k of Object.keys(buffers)) {
+      if (fold(k) === key || fold(buffers[k] && buffers[k].name) === key) {
+        return (buffers[k] && buffers[k].name) || k;
+      }
+    }
+    return target;
+  }
+
+  function injectLines(name, bot, lines) {
+    const st = orbit.state.get();
+    if (!st) {
+      console.warn('[helpserv-welcome] no chat state');
+      return false;
+    }
+    if (typeof st.openQuery === 'function') {
+      try { st.openQuery(name); } catch (e) { log('openQuery failed', e); }
+    }
+    if (typeof st.pushLocal === 'function') {
+      for (const line of lines) st.pushLocal(name, line, bot, 'privmsg');
+      return true;
+    }
+    console.warn('[helpserv-welcome] pushLocal missing — redeploy Orbit');
+    return false;
   }
 
   function showWelcome(target) {
@@ -63,44 +98,31 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     const key = fold(target);
     if (welcomed.has(key)) return;
 
-    const st = orbit.state.get();
-    if (!st || typeof st.pushSystem !== 'function') {
-      log('pushSystem unavailable — skip welcome');
-      return;
-    }
-
-    // Prefer the live buffer name (case) if it already exists.
-    const buffers = st.buffers || {};
-    let name = target;
-    for (const k of Object.keys(buffers)) {
-      if (fold(k) === key || fold(buffers[k] && buffers[k].name) === key) {
-        name = (buffers[k] && buffers[k].name) || k;
-        break;
-      }
-    }
-
-    const existing = buffers[key] || buffers[name] || null;
-    if (alreadyHasWelcome(existing, desk)) {
-      welcomed.add(key);
-      return;
-    }
-
-    if (typeof st.openQuery === 'function') st.openQuery(name);
-
+    const bot = botLabel(desk);
     const nick = orbit.state.nick() || '';
-    for (const line of linesFor(desk, nick)) {
-      st.pushSystem(name, line);
-    }
-    welcomed.add(key);
-    log('welcome shown for', name);
+    const needle = desk === 'aide' ? 'reseau-entrenous.fr/aide/' : 'SIGNALER';
+
+    // Defer so openQuery/setActive (and setDraft from reportUser) have committed.
+    setTimeout(() => {
+      if (welcomed.has(key)) return;
+      const st = orbit.state.get();
+      if (bufferHasNeedle(st, key, needle)) {
+        welcomed.add(key);
+        return;
+      }
+      const name = resolveName(st, target, key);
+      const ok = injectLines(name, bot, linesFor(desk, nick));
+      welcomed.add(key);
+      if (ok) log('welcome privmsg for', name);
+    }, 0);
   }
 
   orbit.on('buffer.active', (name) => {
-    if (!name || String(name).charAt(0) === '#') return;
+    if (!name || String(name).charAt(0) === '#' || String(name).charAt(0) === '&') return;
     showWelcome(name);
   });
 
-  // In case the buffer was already active when the plugin loaded.
   const cur = orbit.state.active();
   if (cur) showWelcome(cur);
+  log('helpserv-welcome ready (privmsg)');
 });
