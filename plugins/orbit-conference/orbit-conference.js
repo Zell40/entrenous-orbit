@@ -21,15 +21,20 @@
   var conf = { active: false, buffer: '', listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
+  var lastViewHeight = '42%';
+
   function setConf(buffer) {
     conf.active = !!buffer;
     conf.buffer = buffer || '';
+    document.body.classList.toggle('oconf-open', !!buffer);
+    if (buffer) document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
+    else document.documentElement.style.removeProperty('--oconf-h');
     conf.listeners.forEach(function (l) { l(); });
   }
 
   function confCfg(orbit) {
     var c = (orbit.config().conference) || {};
-    return {
+    var out = {
       server: c.server || 'visio.entrenous.chat',
       secure: !!c.secure,
       tagID: c.tagID || '1',
@@ -41,6 +46,8 @@
       joinText: c.joinText || '{{ nick }} a rejoint la conférence.',
       joinButtonText: c.joinButtonText || 'Rejoindre',
     };
+    lastViewHeight = out.viewHeight;
+    return out;
   }
 
   function isChannelName(name) { return /^[#&+!]/.test(name || ''); }
@@ -180,6 +187,7 @@
               startWithVideoMuted: true,
               prejoinConfig: { enabled: false },
               prejoinPageEnabled: false,
+              disableDeepLinking: true,
             },
             interfaceConfigOverwrite: {
               SHOW_JITSI_WATERMARK: false,
@@ -282,8 +290,9 @@
     var el = document.createElement('style');
     el.id = 'orbit-conference-css';
     el.textContent = [
-      '.oconf-panel{position:fixed;left:248px;right:0;bottom:0;z-index:55;display:flex;flex-direction:column;background:var(--bg,#111);border-top:1px solid var(--border,#333);box-shadow:0 -8px 28px -16px rgba(0,0,0,.45)}',
+      '.oconf-panel{position:fixed;left:248px;right:0;top:0;z-index:55;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
       '@media (max-width:880px){.oconf-panel{left:0}}',
+      'body.oconf-open .app>.main{padding-top:var(--oconf-h,42%)}',
       '.oconf-panel__bar{flex:none;display:flex;align-items:center;gap:.6rem;padding:.35rem .75rem;background:var(--bg-soft,rgba(127,127,127,.08))}',
       '.oconf-panel__title{font-size:.85rem;font-weight:700;color:var(--ink)}',
       '.oconf-panel__close{margin-left:auto;border:0;background:transparent;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem}',

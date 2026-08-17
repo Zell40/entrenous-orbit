@@ -33,7 +33,7 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=2"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=3"
   ]
 }
 ```

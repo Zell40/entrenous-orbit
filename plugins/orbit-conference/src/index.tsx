@@ -24,15 +24,21 @@ function subscribeConf(cb: () => void) {
 function getConfSnap() {
   return conf.active ? conf.buffer : '';
 }
+
+let lastViewHeight = '42%';
+
 function setConf(buffer: string | null) {
   conf.active = !!buffer;
   conf.buffer = buffer || '';
+  document.body.classList.toggle('oconf-open', !!buffer);
+  if (buffer) document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
+  else document.documentElement.style.removeProperty('--oconf-h');
   conf.listeners.forEach((l) => l());
 }
 
 function confCfg(orbit: OrbitPluginApi): Required<Pick<ConferenceConfig, 'server' | 'secure' | 'tagID' | 'channels' | 'queries' | 'viewHeight'>> & ConferenceConfig {
   const c = orbit.config().conference || {};
-  return {
+  const out = {
     server: c.server || 'visio.entrenous.chat',
     secure: !!c.secure,
     tagID: c.tagID || '1',
@@ -44,6 +50,8 @@ function confCfg(orbit: OrbitPluginApi): Required<Pick<ConferenceConfig, 'server
     joinText: c.joinText || '{{ nick }} a rejoint la conférence.',
     joinButtonText: c.joinButtonText || 'Rejoindre',
   };
+  lastViewHeight = out.viewHeight || '42%';
+  return out;
 }
 
 function isChannelName(name: string) {
@@ -192,6 +200,7 @@ function JitsiPanel({ orbit }: { orbit: OrbitPluginApi }) {
             startWithVideoMuted: true,
             prejoinConfig: { enabled: false },
             prejoinPageEnabled: false,
+            disableDeepLinking: true,
           },
           interfaceConfigOverwrite: {
             SHOW_JITSI_WATERMARK: false,
@@ -283,15 +292,15 @@ function injectStyles() {
   el.id = 'orbit-conference-css';
   el.textContent = `
 .oconf-panel {
-  position: fixed; left: 248px; right: 0; bottom: 0; z-index: 55;
+  position: fixed; left: 248px; right: 0; top: 0; z-index: 55;
   display: flex; flex-direction: column;
-  background: var(--bg, #111); border-top: 1px solid var(--border, #333);
-  box-shadow: 0 -8px 28px -16px rgba(0,0,0,.45);
+  background: var(--bg, #111); border-bottom: 1px solid var(--border, #333);
+  box-shadow: 0 8px 28px -16px rgba(0,0,0,.45);
 }
 @media (max-width: 880px) {
   .oconf-panel { left: 0; }
 }
-.app.app--nomembers .oconf-panel { right: 0; }
+body.oconf-open .app > .main { padding-top: var(--oconf-h, 42%); }
 .oconf-panel__bar {
   flex: none; display: flex; align-items: center; gap: .6rem;
   padding: .35rem .75rem; background: var(--bg-soft, rgba(127,127,127,.08));
