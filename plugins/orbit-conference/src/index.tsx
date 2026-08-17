@@ -25,7 +25,7 @@ function getConfSnap() {
   return conf.active ? conf.buffer : '';
 }
 
-let lastViewHeight = '42%';
+let lastViewHeight = '34%';
 
 function setConf(buffer: string | null) {
   conf.active = !!buffer;
@@ -45,12 +45,12 @@ function confCfg(orbit: OrbitPluginApi): Required<Pick<ConferenceConfig, 'server
     channels: c.channels !== false,
     queries: c.queries !== false,
     enabledInChannels: c.enabledInChannels || ['*'],
-    viewHeight: c.viewHeight || '42%',
+    viewHeight: c.viewHeight || '34%',
     inviteText: c.inviteText || '{{ nick }} vous invite à un appel vidéo.',
     joinText: c.joinText || '{{ nick }} a rejoint la conférence.',
     joinButtonText: c.joinButtonText || 'Rejoindre',
   };
-  lastViewHeight = out.viewHeight || '42%';
+  lastViewHeight = out.viewHeight || '34%';
   return out;
 }
 
@@ -159,6 +159,7 @@ declare global {
       dispose: () => void;
       executeCommand: (cmd: string, ...args: unknown[]) => void;
       once: (event: string, fn: () => void) => void;
+      addListener: (event: string, fn: (...args: unknown[]) => void) => void;
     };
   }
 }
@@ -201,6 +202,8 @@ function JitsiPanel({ orbit }: { orbit: OrbitPluginApi }) {
             prejoinConfig: { enabled: false },
             prejoinPageEnabled: false,
             disableDeepLinking: true,
+            bosh: `https://${domain}/http-bind`,
+            websocket: `wss://${domain}/xmpp-websocket`,
           },
           interfaceConfigOverwrite: {
             SHOW_JITSI_WATERMARK: false,
@@ -214,9 +217,16 @@ function JitsiPanel({ orbit }: { orbit: OrbitPluginApi }) {
           onload: () => {
             api.executeCommand('displayName', nick);
             api.executeCommand('subject', ' ');
+            api.addListener('connectionFailed', () => {
+              if (!cancelled) setErr(orbit.i18n.pick({
+                fr: 'Connexion Meet impossible (WebSocket/XMPP). Vérifie le reverse-proxy /xmpp-websocket.',
+                en: 'Meet connection failed (WebSocket/XMPP). Check the /xmpp-websocket reverse proxy.',
+              }));
+            });
             api.once('videoConferenceJoined', () => {
               if (cancelled) return;
               setJoined(true);
+              setErr('');
               const text = `* ${inviteTpl.replace(/\{\{\s*nick\s*\}\}/g, nick)}`;
               orbit.irc.msgTagged(buffer, text, { [TAG]: tagId });
             });
@@ -292,15 +302,27 @@ function injectStyles() {
   el.id = 'orbit-conference-css';
   el.textContent = `
 .oconf-panel {
-  position: fixed; left: 248px; right: 0; top: 0; z-index: 55;
+  position: relative; left: auto; right: auto; top: auto; z-index: 20;
+  flex: 0 0 auto; width: 100%; min-height: 160px; max-height: 46vh;
   display: flex; flex-direction: column;
   background: var(--bg, #111); border-bottom: 1px solid var(--border, #333);
   box-shadow: 0 8px 28px -16px rgba(0,0,0,.45);
 }
 @media (max-width: 880px) {
-  .oconf-panel { left: 0; }
+  .oconf-panel { max-height: 34vh; min-height: 140px; }
 }
-body.oconf-open .app > .main { padding-top: var(--oconf-h, 42%); }
+body.oconf-open .chan-hero {
+  grid-template-columns: 40px 1fr; padding: .25rem .55rem .25rem .45rem; gap: .45rem;
+}
+body.oconf-open .chan-hero__media { width: 40px; height: 40px; min-height: 40px; border-radius: 9px; }
+body.oconf-open .chan-hero__topic { -webkit-line-clamp: 1; font-size: .72rem; line-height: 1.25; }
+body.oconf-open .chan-hero__by,
+body.oconf-open .chan-hero__more { display: none; }
+@media (max-width: 880px) {
+  body.oconf-open .chan-hero { grid-template-columns: 32px 1fr; padding: .15rem .45rem; gap: .35rem; }
+  body.oconf-open .chan-hero__media { width: 32px; height: 32px; min-height: 32px; border-radius: 8px; }
+  body.oconf-open .main__room-bg { height: min(22%, 160px) !important; }
+}
 .oconf-panel__bar {
   flex: none; display: flex; align-items: center; gap: .6rem;
   padding: .35rem .75rem; background: var(--bg-soft, rgba(127,127,127,.08));
@@ -336,7 +358,6 @@ Orbit.plugin('orbit-conference', (orbit, log) => {
   log(`conference → ${cfg.server} (tag ${TAG}=${cfg.tagID})`);
 
   orbit.addUi('topbar_item', () => <HeaderButton orbit={orbit} />);
-  orbit.addUi('composer_button', () => <HeaderButton orbit={orbit} />);
   orbit.addUi('overlay', () => <JitsiPanel orbit={orbit} />);
 
   orbit.addMessageDecorator((m) => {

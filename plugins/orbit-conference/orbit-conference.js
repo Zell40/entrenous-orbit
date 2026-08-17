@@ -21,7 +21,7 @@
   var conf = { active: false, buffer: '', listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
-  var lastViewHeight = '42%';
+  var lastViewHeight = '34%';
 
   function setConf(buffer) {
     conf.active = !!buffer;
@@ -41,7 +41,7 @@
       channels: c.channels !== false,
       queries: c.queries !== false,
       enabledInChannels: c.enabledInChannels || ['*'],
-      viewHeight: c.viewHeight || '42%',
+      viewHeight: c.viewHeight || '34%',
       inviteText: c.inviteText || '{{ nick }} vous invite à un appel vidéo.',
       joinText: c.joinText || '{{ nick }} a rejoint la conférence.',
       joinButtonText: c.joinButtonText || 'Rejoindre',
@@ -188,6 +188,10 @@
               prejoinConfig: { enabled: false },
               prejoinPageEnabled: false,
               disableDeepLinking: true,
+              // Prefer public Meet host for signaling (helps when reverse-proxy
+              // rewrites are incomplete / PUBLIC_URL was wrong at first boot).
+              bosh: 'https://' + domain + '/http-bind',
+              websocket: 'wss://' + domain + '/xmpp-websocket',
             },
             interfaceConfigOverwrite: {
               SHOW_JITSI_WATERMARK: false,
@@ -201,9 +205,16 @@
             onload: function () {
               api.executeCommand('displayName', nick);
               api.executeCommand('subject', ' ');
+              api.addListener('connectionFailed', function () {
+                if (!cancelled) setErr(orbit.i18n.pick({
+                  fr: 'Connexion Meet impossible (WebSocket/XMPP). Vérifie le reverse-proxy /xmpp-websocket.',
+                  en: 'Meet connection failed (WebSocket/XMPP). Check the /xmpp-websocket reverse proxy.',
+                }));
+              });
               api.once('videoConferenceJoined', function () {
                 if (cancelled) return;
                 setJoined(true);
+                setErr('');
                 var text = '* ' + inviteTpl.replace(/\{\{\s*nick\s*\}\}/g, nick);
                 if (orbit.irc.msgTagged) {
                   var tags = {};
@@ -290,9 +301,15 @@
     var el = document.createElement('style');
     el.id = 'orbit-conference-css';
     el.textContent = [
-      '.oconf-panel{position:fixed;left:248px;right:0;top:0;z-index:55;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
-      '@media (max-width:880px){.oconf-panel{left:0}}',
-      'body.oconf-open .app>.main{padding-top:var(--oconf-h,42%)}',
+      /* In-flow under the topbar (Orbit mounts this inside .main) — chrome stays visible */
+      '.oconf-panel{position:relative;left:auto;right:auto;top:auto;z-index:20;flex:0 0 auto;width:100%;min-height:160px;max-height:46vh;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
+      '@media (max-width:880px){.oconf-panel{max-height:34vh;min-height:140px}}',
+      /* Compact topic while conference is open (especially mobile) */
+      'body.oconf-open .chan-hero{grid-template-columns:40px 1fr;padding:.25rem .55rem .25rem .45rem;gap:.45rem}',
+      'body.oconf-open .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
+      'body.oconf-open .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
+      'body.oconf-open .chan-hero__by,body.oconf-open .chan-hero__more{display:none}',
+      '@media (max-width:880px){body.oconf-open .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.oconf-open .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}body.oconf-open .main__room-bg{height:min(22%,160px)!important}}',
       '.oconf-panel__bar{flex:none;display:flex;align-items:center;gap:.6rem;padding:.35rem .75rem;background:var(--bg-soft,rgba(127,127,127,.08))}',
       '.oconf-panel__title{font-size:.85rem;font-weight:700;color:var(--ink)}',
       '.oconf-panel__close{margin-left:auto;border:0;background:transparent;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem}',
@@ -316,9 +333,8 @@
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
 
-    // Topbar (desktop) + composer (mobile / always visible) — same control.
+    // Topbar only (desktop + mobile) — no composer button.
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
-    orbit.addUi('composer_button', function () { return h(HeaderButton, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
     orbit.addMessageDecorator(function (m) {
       if (!m.tags || !Object.prototype.hasOwnProperty.call(m.tags, TAG)) return null;

@@ -4,9 +4,9 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
 
 ## Fonctionnement
 
-- Bouton caméra dans la barre du salon / MP (desktop) et à côté du composeur (mobile)
+- Bouton caméra dans la barre du salon / MP (desktop et mobile, à côté des notifications)
 - Commande `/visio` pour ouvrir / fermer
-- Panneau Jitsi ancré en bas du chat
+- Panneau Jitsi sous la topbar (chrome Orbit reste visible) ; topic compacté pendant l’appel
 - À l’entrée dans la salle, envoie un PRIVMSG tagué `+entrenous.fr/conference`
 - Les autres clients Orbit voient un bouton **Rejoindre**
 
@@ -27,13 +27,13 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
     "channels": true,
     "queries": true,
     "enabledInChannels": ["*"],
-    "viewHeight": "42%",
+    "viewHeight": "34%",
     "inviteText": "{{ nick }} vous invite à un appel vidéo.",
     "joinText": "{{ nick }} a rejoint la conférence.",
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=3"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=4"
   ]
 }
 ```
