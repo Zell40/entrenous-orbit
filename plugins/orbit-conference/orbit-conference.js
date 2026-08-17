@@ -30,7 +30,7 @@
   function confCfg(orbit) {
     var c = (orbit.config().conference) || {};
     return {
-      server: c.server || 'meet.entrenous.chat',
+      server: c.server || 'visio.entrenous.chat',
       secure: !!c.secure,
       tagID: c.tagID || '1',
       channels: c.channels !== false,
@@ -307,11 +307,24 @@
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
 
+    // Topbar (desktop) + composer (mobile / always visible) — same control.
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
+    orbit.addUi('composer_button', function () { return h(HeaderButton, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
     orbit.addMessageDecorator(function (m) {
       if (!m.tags || !Object.prototype.hasOwnProperty.call(m.tags, TAG)) return null;
       return h(JoinCard, { orbit: orbit, m: m });
+    });
+    orbit.addCommand('visio', {
+      help: 'Ouvre / ferme la conférence vidéo du canal ou MP actif',
+      run: function () {
+        var buf = orbit.state.active();
+        if (!buf || buf === 'Status') {
+          orbit.notify('Visio', 'Ouvre un canal ou un MP d’abord.');
+          return;
+        }
+        openConference(orbit, buf);
+      },
     });
     orbit.on(EVT_HIDE, function () { setConf(null); });
   });

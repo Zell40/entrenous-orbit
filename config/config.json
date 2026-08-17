@@ -64,7 +64,7 @@
     "saslOauthBearer": true
   },
   "conference": {
-    "server": "meet.entrenous.chat",
+    "server": "visio.entrenous.chat",
     "secure": false,
     "tagID": "1",
     "channels": true,
@@ -80,7 +80,7 @@
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=1"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=2"
   ],
   "builtins": [],
   "analytics": {

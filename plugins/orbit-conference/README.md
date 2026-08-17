@@ -4,7 +4,8 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
 
 ## Fonctionnement
 
-- Bouton caméra dans la barre du salon / MP
+- Bouton caméra dans la barre du salon / MP (desktop) et à côté du composeur (mobile)
+- Commande `/visio` pour ouvrir / fermer
 - Panneau Jitsi ancré en bas du chat
 - À l’entrée dans la salle, envoie un PRIVMSG tagué `+entrenous.fr/conference`
 - Les autres clients Orbit voient un bouton **Rejoindre**
@@ -13,14 +14,14 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
 
 1. **Orbit** avec `apiVersion >= 7` (`irc.msgTagged` + tags sur les messages)
 2. Cap IRCv3 `message-tags` sur le serveur
-3. Instance **Jitsi Meet self-host** (recommandé), ex. `meet.entrenous.chat`
+3. Instance **Jitsi Meet self-host** (recommandé), ex. `visio.entrenous.chat`
 
 ## Config (`config.json`)
 
 ```json
 {
   "conference": {
-    "server": "meet.entrenous.chat",
+    "server": "visio.entrenous.chat",
     "secure": false,
     "tagID": "1",
     "channels": true,
@@ -32,7 +33,7 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=1"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=2"
   ]
 }
 ```

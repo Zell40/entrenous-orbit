@@ -33,7 +33,7 @@ function setConf(buffer: string | null) {
 function confCfg(orbit: OrbitPluginApi): Required<Pick<ConferenceConfig, 'server' | 'secure' | 'tagID' | 'channels' | 'queries' | 'viewHeight'>> & ConferenceConfig {
   const c = orbit.config().conference || {};
   return {
-    server: c.server || 'meet.entrenous.chat',
+    server: c.server || 'visio.entrenous.chat',
     secure: !!c.secure,
     tagID: c.tagID || '1',
     channels: c.channels !== false,
@@ -327,11 +327,24 @@ Orbit.plugin('orbit-conference', (orbit, log) => {
   log(`conference → ${cfg.server} (tag ${TAG}=${cfg.tagID})`);
 
   orbit.addUi('topbar_item', () => <HeaderButton orbit={orbit} />);
+  orbit.addUi('composer_button', () => <HeaderButton orbit={orbit} />);
   orbit.addUi('overlay', () => <JitsiPanel orbit={orbit} />);
 
   orbit.addMessageDecorator((m) => {
     if (!m.tags || !(TAG in m.tags)) return null;
     return <JoinCard orbit={orbit} m={m} />;
+  });
+
+  orbit.addCommand('visio', {
+    help: 'Ouvre / ferme la conférence vidéo du canal ou MP actif',
+    run: () => {
+      const buf = orbit.state.active();
+      if (!buf || buf === 'Status') {
+        orbit.notify('Visio', 'Ouvre un canal ou un MP d’abord.');
+        return;
+      }
+      openConference(orbit, buf);
+    },
   });
 
   orbit.on(EVT_HIDE, () => setConf(null));
