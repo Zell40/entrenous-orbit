@@ -1,6 +1,6 @@
 # entrenous-orbit
 
-Personnalisations **EntreNous** pour [Orbit](https://orbit.tchatou.fr) — plugins, sidecars PHP, config et déploiement.
+Personnalisations **EntreNous** pour [Orbit](https://github.com/Zell40/orbit) — plugins, sidecars PHP, config et déploiement.
 
 Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 - recevoir les mises à jour du propriétaire d’Orbit sans conflit ;

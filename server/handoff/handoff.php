@@ -3,7 +3,7 @@
  * Handoff WordPress → Orbit (same-origin).
  *
  * Reçoit en POST le JWT + nick/channel (+ profil) depuis MonIdentité Orbit,
- * pose le marqueur sessionStorage attendu par Orbit (`tchatou_handoff`),
+ * pose le marqueur sessionStorage attendu par Orbit (`orbit_handoff`),
  * pose un cookie HttpOnly de reprise (`orbit_en_resume`) pour renouveler le JWT,
  * puis redirige vers l’app Orbit (?nick=&channel=).
  *
@@ -136,7 +136,7 @@ header('Cache-Control: no-store');
     var payload = <?= json_encode($handoff_json, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     var target  = <?= json_encode($target, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     try {
-      sessionStorage.setItem('tchatou_handoff', payload);
+      sessionStorage.setItem('orbit_handoff', payload);
     } catch (e) {
       document.querySelector('.splash').innerHTML =
         '<p style="color:#c00">Impossible d’écrire sessionStorage (mode privé ?).</p>';

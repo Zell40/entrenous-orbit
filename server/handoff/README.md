@@ -1,7 +1,7 @@
 # Handoff WordPress → Orbit
 
 `handoff.php` reçoit le JWT en **POST** depuis MonIdentité (page test Orbit),
-écrit `sessionStorage.tchatou_handoff`, pose le cookie HttpOnly `orbit_en_resume`,
+écrit `sessionStorage.orbit_handoff`, pose le cookie HttpOnly `orbit_en_resume`,
 puis redirige vers l’app Orbit.
 
 `chat-resume.php` (réécrit en `/accounts/api/chat_resume/`) renouvelle un JWT
@@ -30,7 +30,7 @@ le JWT via **SASL OAUTHBEARER** (RFC 7628). Le champ POST `account` (login
 NickServ) est passé en authzid quand le pseudo d’affichage diffère.
 
 Les champs optionnels `age` / `sexe` (`H`|`F`|`A`) / `ville` construisent le
-GECOS IRC `40 - Homme - Paris`, stocké dans `tchatou_handoff.realname` (badges
+GECOS IRC `40 - Homme - Paris`, stocké dans `orbit_handoff.realname` (badges
 genre dans la liste des membres et le profil Orbit).
 
 Côté WordPress, constantes dans `functions.php` :
