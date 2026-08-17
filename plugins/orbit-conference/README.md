@@ -5,10 +5,11 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
 ## Fonctionnement
 
 - Caméra en topbar (desktop) ; sur mobile dans le menu **⋮**
-- Topic reste sous la topbar ; panneau visio en dessous (redimensionnable à la souris sur PC)
+- Layout (desktop + mobile) : **topbar → visio → topic compact → chat**
+- Topic réduit automatiquement pendant une visio pour laisser de la place au chat
 - Démarrage salon : **opérateurs** (`~&@`) uniquement (configurable)
 - Compte IRC enregistré requis (configurable) ; groupes refusés via WHOIS (`denyGroups`)
-- Invite IRC avec **lien public** pour clients non-Orbit ; Orbit masque la ligne et montre une bannière **Rejoindre**
+- Invite IRC envoyée **dès le démarrage** (par l’op), avec lien public ; Orbit masque la ligne et montre une bannière **Rejoindre**
 - Le 1ᵉʳ participant (l’op qui démarre) est modérateur Meet sur une instance ouverte
 
 ## Config (`config.json`)
@@ -38,7 +39,7 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=5"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=7"
   ]
 }
 ```

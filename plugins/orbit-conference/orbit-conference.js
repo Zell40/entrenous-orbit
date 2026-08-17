@@ -23,6 +23,8 @@
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
   var lastViewHeight = '46%';
+  /** Buffers already announced on IRC for the current conference session. */
+  var announced = Object.create(null);
 
   // Pending invites (tagged IRC lines hidden in Orbit) — buffer → { nick, link }
   var invites = { map: Object.create(null), listeners: new Set() };
@@ -47,6 +49,7 @@
       setInvite(buffer, null);
     } else {
       document.documentElement.style.removeProperty('--oconf-h');
+      announced = Object.create(null);
     }
     conf.listeners.forEach(function (l) { l(); });
   }
@@ -182,6 +185,31 @@
     return 'https://' + domain + '/' + encodedRoom(orbit, buffer);
   }
 
+  /** Announce the conference on IRC once per open session (starter only). */
+  function announceConference(orbit, buffer) {
+    if (!buffer || announced[buffer]) return;
+    announced[buffer] = true;
+    var cfg = confCfg(orbit);
+    var nick = orbit.state.nick() || 'user';
+    var link = publicLink(orbit, buffer);
+    var isChan = isChannelName(buffer);
+    var tpl = isChan ? (cfg.joinText || '') : (cfg.inviteText || '');
+    var text = '* ' + tpl
+      .replace(/\{\{\s*nick\s*\}\}/g, nick)
+      .replace(/\{\{\s*link\s*\}\}/g, cfg.publicLinkInInvite ? link : '');
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text || text === '*') return;
+    var tags = {};
+    tags[TAG] = cfg.tagID || '1';
+    try {
+      if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, text, tags);
+      else if (orbit.irc.msg) orbit.irc.msg(buffer, text);
+      else orbit.irc.send('PRIVMSG ' + buffer + ' :' + text);
+    } catch (e) {
+      try { orbit.irc.msg(buffer, text); } catch (e2) { /* ignore */ }
+    }
+  }
+
   function openConference(orbit, buffer, opts) {
     opts = opts || {};
     if (!bufferAllowed(orbit, buffer)) return;
@@ -200,6 +228,9 @@
       if (!window.confirm(msg)) return;
     }
     setConf(buffer);
+    // Starters announce immediately so other IRC clients see the invite even if
+    // Meet's videoConferenceJoined event never fires.
+    if (!opts.joinOnly) announceConference(orbit, buffer);
     orbit.emit(EVT_SHOW, { buffer: buffer });
   }
 
@@ -345,11 +376,9 @@
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
       var room = encodedRoom(orbit, buffer);
       var nick = orbit.state.nick() || 'user';
-      var tagId = live.tagID || '1';
-      var link = publicLink(orbit, buffer);
       var isChan = isChannelName(buffer);
-      var inviteTpl = isChan ? (live.joinText || '') : (live.inviteText || '');
       var maxP = isChan ? live.maxParticipantsChannel : live.maxParticipantsQuery;
+      var timers = [];
 
       function mountApi(jwt) {
         if (cancelled || !host || !window.JitsiMeetExternalAPI) return;
@@ -380,45 +409,38 @@
                 'stats', 'shortcuts',
               ],
             },
-            onload: function () {
-              api.executeCommand('displayName', nick);
-              api.executeCommand('subject', roomNameFor(orbit, buffer));
-              // First joiner (channel op who starts) becomes moderator on open Jitsi.
-              api.addListener('connectionFailed', function () {
-                if (!cancelled) setErr(orbit.i18n.pick({
-                  fr: 'Connexion Meet impossible (WebSocket/XMPP).',
-                  en: 'Meet connection failed (WebSocket/XMPP).',
-                }));
-              });
-              api.once('videoConferenceJoined', function () {
-                if (cancelled) return;
-                setJoined(true);
-                setErr('');
-                var text = '* ' + inviteTpl
-                  .replace(/\{\{\s*nick\s*\}\}/g, nick)
-                  .replace(/\{\{\s*link\s*\}\}/g, live.publicLinkInInvite ? link : '');
-                text = text.replace(/\s+/g, ' ').trim();
-                if (orbit.irc.msgTagged) {
-                  var tags = {};
-                  tags[TAG] = tagId;
-                  orbit.irc.msgTagged(buffer, text, tags);
-                } else {
-                  orbit.irc.msg(buffer, text);
-                }
-              });
-              api.once('videoConferenceLeft', function () {
-                if (!cancelled) setConf(null);
-              });
-            },
           });
           apiRef.current = api;
+          // Register immediately — videoConferenceJoined can fire before `onload`.
+          try { api.executeCommand('displayName', nick); } catch (e) { /* ignore */ }
+          try { api.executeCommand('subject', roomNameFor(orbit, buffer)); } catch (e2) { /* ignore */ }
+          api.addListener('connectionFailed', function () {
+            if (!cancelled) setErr(orbit.i18n.pick({
+              fr: 'Connexion Meet impossible (WebSocket/XMPP).',
+              en: 'Meet connection failed (WebSocket/XMPP).',
+            }));
+          });
+          var didJoin = false;
+          function onJoined() {
+            if (cancelled || didJoin) return;
+            didJoin = true;
+            setJoined(true);
+            setErr('');
+          }
+          api.addListener('videoConferenceJoined', onJoined);
+          // Title-only fallback if Meet never emits the join event.
+          timers.push(window.setTimeout(function () {
+            if (!cancelled && !didJoin) setJoined(true);
+          }, 12000));
+          api.addListener('videoConferenceLeft', function () {
+            if (!cancelled) setConf(null);
+          });
         } catch (e) {
           setErr(String(e));
         }
       }
 
       var existing = document.querySelector('script[data-oconf="' + domain + '"]');
-      var timers = [];
 
       if (live.secure) {
         var off = orbit.on('raw', function (msg) {
@@ -494,7 +516,9 @@
       h('div', { className: 'oconf-panel', style: style, ref: panelRef },
         h('div', { className: 'oconf-panel__bar' },
           h('strong', { className: 'oconf-panel__title' },
-            joined ? roomNameFor(orbit, buffer) : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })
+            joined
+              ? (orbit.i18n.pick({ fr: 'Visio', en: 'Video' }) + ' · ' + roomNameFor(orbit, buffer))
+              : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })
           ),
           h('button', {
             type: 'button',
@@ -530,6 +554,13 @@
       '.oconf-panel__host>div,.oconf-panel__host iframe{width:100%!important;height:100%!important}',
       '.oconf-panel__resize{flex:none;height:7px;cursor:ns-resize;background:linear-gradient(to bottom,transparent,rgba(127,127,127,.22));touch-action:none}',
       '.oconf-panel__resize:hover{background:rgba(127,127,127,.28)}',
+      /* Shrink topic banner while video is open so chat keeps vertical space. */
+      'body.oconf-open .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
+      'body.oconf-open .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
+      'body.oconf-open .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
+      'body.oconf-open .chan-hero__by,body.oconf-open .chan-hero__more{display:none}',
+      'body.oconf-open .main__room-bg{height:min(22%,160px)!important}',
+      '@media (max-width:880px){body.oconf-open .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.oconf-open .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}}',
       '.oconf-invite{flex:none;display:flex;align-items:center;gap:.65rem;padding:.4rem .75rem;border-bottom:1px solid var(--border,#333);background:color-mix(in srgb,var(--accent,#2563eb) 10%,transparent)}',
       '.oconf-invite__txt{flex:1;min-width:0;font-size:.82rem;font-weight:600;color:var(--ink)}',
       '.oconf-invite__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 22%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',

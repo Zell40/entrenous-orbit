@@ -286,7 +286,9 @@ function JitsiPanel({ orbit }: { orbit: OrbitPluginApi }) {
     <div className="oconf-panel" style={{ height: cfg.viewHeight }}>
       <div className="oconf-panel__bar">
         <strong className="oconf-panel__title">
-          {joined ? roomNameFor(orbit, buffer) : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })}
+          {joined
+            ? `${orbit.i18n.pick({ fr: 'Visio', en: 'Video' })} · ${roomNameFor(orbit, buffer)}`
+            : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })}
         </strong>
         <button type="button" className="oconf-panel__close" onClick={() => setConf(null)} aria-label="Close">✕</button>
       </div>
@@ -312,16 +314,16 @@ function injectStyles() {
   .oconf-panel { max-height: 34vh; min-height: 140px; }
 }
 body.oconf-open .chan-hero {
-  grid-template-columns: 40px 1fr; padding: .25rem .55rem .25rem .45rem; gap: .45rem;
+  grid-template-columns: 40px 1fr; padding: .22rem .7rem; gap: .45rem; min-height: 0;
 }
 body.oconf-open .chan-hero__media { width: 40px; height: 40px; min-height: 40px; border-radius: 9px; }
 body.oconf-open .chan-hero__topic { -webkit-line-clamp: 1; font-size: .72rem; line-height: 1.25; }
 body.oconf-open .chan-hero__by,
 body.oconf-open .chan-hero__more { display: none; }
+body.oconf-open .main__room-bg { height: min(22%, 160px) !important; }
 @media (max-width: 880px) {
   body.oconf-open .chan-hero { grid-template-columns: 32px 1fr; padding: .15rem .45rem; gap: .35rem; }
   body.oconf-open .chan-hero__media { width: 32px; height: 32px; min-height: 32px; border-radius: 8px; }
-  body.oconf-open .main__room-bg { height: min(22%, 160px) !important; }
 }
 .oconf-panel__bar {
   flex: none; display: flex; align-items: center; gap: .6rem;
