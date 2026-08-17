@@ -8,19 +8,13 @@
  *
  * config.json:
  *   "report": { "query": "SignalMoi", ... }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=4"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=5"]
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const AIDE = 'aidemoi';
   const SIGNAL = 'signalmoi';
-
-  const HELP_LINKS = [
-    'Besoin d\'aide? Visitez https://www.reseau-entrenous.fr/aide/ pour trouver de l\'aide à l\'utilisation du tchat EntreNous.',
-    'Le webchat : https://www.reseau-entrenous.fr/aide/webchat/',
-    'Les services des pseudos NickServ : https://www.reseau-entrenous.fr/aide/nickserv/',
-    'Le bot des salons personnels Gaya : https://www.reseau-entrenous.fr/aide/gaya/',
-    'Comprendre le fonctionnement du serveur de tchat EntreNous : https://www.reseau-entrenous.fr/aide/aide-serveur/',
-  ];
+  const B = '\x02'; // IRC bold
+  const R = '\x0f'; // IRC reset
 
   /** @type {Set<string>} */
   const welcomed = new Set();
@@ -40,19 +34,41 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     return desk === 'aide' ? 'AideMoi' : 'SignalMoi';
   }
 
+  function aideGuide() {
+    return [
+      'Avant d\'ouvrir un ticket, jetez un œil à la documentation EntreNous :',
+      '',
+      `${B}Aide générale${R} — prise en main du tchat`,
+      'https://www.reseau-entrenous.fr/aide/',
+      '',
+      `${B}Webchat${R} — connexion et interface`,
+      'https://www.reseau-entrenous.fr/aide/webchat/',
+      '',
+      `${B}NickServ${R} — protéger et gérer son pseudo`,
+      'https://www.reseau-entrenous.fr/aide/nickserv/',
+      '',
+      `${B}Gaya${R} — bots des salons personnels`,
+      'https://www.reseau-entrenous.fr/aide/gaya/',
+      '',
+      `${B}Serveur${R} — fonctionnement du réseau`,
+      'https://www.reseau-entrenous.fr/aide/aide-serveur/',
+      '',
+      'Si ces pages ne suffisent pas, décrivez votre problème (pseudo, salon, connexion, erreur).',
+      'Un ticket sera ouvert uniquement lorsque la demande sera claire.',
+    ].join('\n');
+  }
+
   function linesFor(desk, nick) {
     const who = (nick || '').trim() || 'toi';
     if (desk === 'aide') {
       return [
         `Bonjour ${who}, comment puis-je vous aider ?`,
-        ...HELP_LINKS,
-        'Si ces pages ne suffisent pas, décrivez votre problème (pseudo, salon, connexion, erreur) : un ticket sera ouvert uniquement quand la demande sera claire.',
+        aideGuide(),
       ];
     }
     return [
       `Bonjour ${who}, comment puis-je vous aider pour ce signalement ?`,
-      'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.',
-      'Ne discutez pas des signalements en public.',
+      'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\nNe discutez pas des signalements en public.',
     ];
   }
 
@@ -101,6 +117,7 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
     const bot = botLabel(desk);
     const nick = orbit.state.nick() || '';
+    // Keep URL needle so an older welcome already in the buffer still suppresses a re-inject.
     const needle = desk === 'aide'
       ? 'reseau-entrenous.fr/aide/'
       : 'Ne discutez pas des signalements en public';

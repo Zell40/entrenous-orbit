@@ -70,7 +70,7 @@
     "/app/plugins/third/orbit-invite.js",
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
-    "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=4"
+    "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5"
   ],
   "builtins": [],
   "analytics": {
