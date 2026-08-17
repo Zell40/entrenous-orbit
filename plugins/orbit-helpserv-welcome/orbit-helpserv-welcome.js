@@ -2,12 +2,13 @@
  * Orbit ↔ HelpServ welcome — when the user opens a query (PV) with AideMoi
  * or SignalMoi, inject local PRIVMSG-looking lines from the bot (no IRC).
  *
- * Profile "Signaler" uses config.report.query (SignalMoi): openQuery + draft
- * REPORT …, then this plugin shows the automatic welcome in that PV.
+ * Profile "Signaler" uses config.report.query (SignalMoi): openQuery + a
+ * natural-language draft naming the nick (no REPORT command). The bot opens
+ * the ticket after the user's first real message.
  *
  * config.json:
  *   "report": { "query": "SignalMoi", ... }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=3"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=4"]
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const AIDE = 'aidemoi';
@@ -49,9 +50,9 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
       ];
     }
     return [
-      `Bonjour ${who}. Dès que vous aurez envoyé votre premier message décrivant le signalement, l'équipe interviendra rapidement.`,
+      `Bonjour ${who}, comment puis-je vous aider pour ce signalement ?`,
+      'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.',
       'Ne discutez pas des signalements en public.',
-      'Si le compositeur propose déjà une ligne REPORT, complétez la raison et envoyez. Sinon tapez REPORT pseudo [#salon] raison (ou SIGNALER).',
     ];
   }
 
@@ -100,7 +101,9 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
     const bot = botLabel(desk);
     const nick = orbit.state.nick() || '';
-    const needle = desk === 'aide' ? 'reseau-entrenous.fr/aide/' : 'SIGNALER';
+    const needle = desk === 'aide'
+      ? 'reseau-entrenous.fr/aide/'
+      : 'Ne discutez pas des signalements en public';
 
     // Defer so openQuery/setActive (and setDraft from reportUser) have committed.
     setTimeout(() => {
