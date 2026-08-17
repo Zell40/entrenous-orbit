@@ -102,6 +102,17 @@ mkdir -p "$WEBROOT/$HELPSERV_WELCOME_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-helpserv-welcome/orbit-helpserv-welcome.js" \
       "$WEBROOT/$HELPSERV_WELCOME_DIR/"
 
+# Video conference (Jitsi)
+CONFERENCE_DIR="plugins/third/orbit-conference"
+mkdir -p "$WEBROOT/$CONFERENCE_DIR"
+if [ -f "$PLUGINS_REPO/plugins/orbit-conference/dist/orbit-conference.js" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-conference/dist/orbit-conference.js" \
+        "$WEBROOT/$CONFERENCE_DIR/"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/orbit-conference.js" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-conference/orbit-conference.js" \
+        "$WEBROOT/$CONFERENCE_DIR/"
+fi
+
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
 cp -f "$PLUGINS_REPO/config/.htaccess" "$WEBROOT/.htaccess"
