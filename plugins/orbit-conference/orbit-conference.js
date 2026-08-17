@@ -17,18 +17,37 @@
   var TAG = '+entrenous.fr/conference';
   var EVT_SHOW = 'plugin-conference.show';
   var EVT_HIDE = 'plugin-conference.hide';
+  var HEIGHT_KEY = 'panelHeightPx';
 
   var conf = { active: false, buffer: '', listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
-  var lastViewHeight = '34%';
+  var lastViewHeight = '46%';
+
+  // Pending invites (tagged IRC lines hidden in Orbit) — buffer → { nick, link }
+  var invites = { map: Object.create(null), listeners: new Set() };
+  function subscribeInvites(cb) { invites.listeners.add(cb); return function () { invites.listeners.delete(cb); }; }
+  function getInvitesSnap() { return invites.map; }
+  function setInvite(buffer, data) {
+    if (!buffer) return;
+    if (data) invites.map[buffer] = data;
+    else delete invites.map[buffer];
+    invites.listeners.forEach(function (l) { l(); });
+  }
+
+  // Self security-group fragments from WHOIS special lines
+  var myGroupsText = '';
 
   function setConf(buffer) {
     conf.active = !!buffer;
     conf.buffer = buffer || '';
     document.body.classList.toggle('oconf-open', !!buffer);
-    if (buffer) document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
-    else document.documentElement.style.removeProperty('--oconf-h');
+    if (buffer) {
+      document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
+      setInvite(buffer, null);
+    } else {
+      document.documentElement.style.removeProperty('--oconf-h');
+    }
     conf.listeners.forEach(function (l) { l(); });
   }
 
@@ -41,10 +60,20 @@
       channels: c.channels !== false,
       queries: c.queries !== false,
       enabledInChannels: c.enabledInChannels || ['*'],
-      viewHeight: c.viewHeight || '34%',
-      inviteText: c.inviteText || '{{ nick }} vous invite à un appel vidéo.',
-      joinText: c.joinText || '{{ nick }} a rejoint la conférence.',
+      disabledInChannels: c.disabledInChannels || [],
+      viewHeight: c.viewHeight || '46%',
+      inviteText: c.inviteText || '{{ nick }} vous invite à un appel vidéo. Rejoindre : {{ link }}',
+      joinText: c.joinText || '{{ nick }} a rejoint la conférence. Lien : {{ link }}',
       joinButtonText: c.joinButtonText || 'Rejoindre',
+      requireAccount: c.requireAccount !== false,
+      requireChannelOp: c.requireChannelOp !== false,
+      startPrefixes: c.startPrefixes || '~&@',
+      denyGroups: c.denyGroups || [],
+      requireGroups: c.requireGroups || [],
+      maxParticipantsChannel: c.maxParticipantsChannel || 25,
+      maxParticipantsQuery: c.maxParticipantsQuery || 2,
+      publicLinkInInvite: c.publicLinkInInvite !== false,
+      hideInviteForOrbit: c.hideInviteForOrbit !== false,
     };
     lastViewHeight = out.viewHeight;
     return out;
@@ -59,9 +88,75 @@
     if (chan && !cfg.channels) return false;
     if (!chan && !cfg.queries) return false;
     if (!chan) return true;
+    var low = String(name).toLowerCase();
+    var disabled = (cfg.disabledInChannels || []).map(function (x) { return String(x).toLowerCase(); });
+    if (disabled.indexOf(low) > -1) return false;
     var list = (cfg.enabledInChannels || ['*']).map(function (x) { return String(x).toLowerCase(); });
     if (list.indexOf('*') > -1) return true;
-    return list.indexOf(String(name).toLowerCase()) > -1;
+    return list.indexOf(low) > -1;
+  }
+
+  function myPrefixIn(orbit, buffer) {
+    try {
+      var st = orbit.state.get();
+      var b = st.buffers && st.buffers[buffer];
+      var m = b && b.members && b.members[orbit.state.nick()];
+      return (m && (m.prefixes || m.prefix)) || '';
+    } catch (e) { return ''; }
+  }
+
+  function groupsBlocked(orbit, cfg) {
+    var blob = (myGroupsText || '').toLowerCase();
+    var deny = cfg.denyGroups || [];
+    for (var i = 0; i < deny.length; i++) {
+      var d = String(deny[i] || '').toLowerCase();
+      if (d && blob.indexOf(d) > -1) return 'deny:' + deny[i];
+    }
+    var req = cfg.requireGroups || [];
+    if (req.length) {
+      var ok = false;
+      for (var j = 0; j < req.length; j++) {
+        var r = String(req[j] || '').toLowerCase();
+        if (r && blob.indexOf(r) > -1) { ok = true; break; }
+      }
+      if (!ok && blob) return 'require';
+      // If we have no WHOIS groups yet, don't hard-block (account check still applies).
+    }
+    return '';
+  }
+
+  function canJoin(orbit, buffer) {
+    var cfg = confCfg(orbit);
+    if (!bufferAllowed(orbit, buffer)) return { ok: false, reason: 'Salon non autorisé pour la visio.' };
+    if (cfg.requireAccount && !orbit.state.account()) {
+      return { ok: false, reason: 'Compte IRC enregistré requis pour la visio.' };
+    }
+    var g = groupsBlocked(orbit, cfg);
+    if (g.indexOf('deny:') === 0) {
+      return { ok: false, reason: 'Visio indisponible pour votre profil (contrôle parental / groupe).' };
+    }
+    if (g === 'require') {
+      return { ok: false, reason: 'Votre compte n’a pas les droits nécessaires pour la visio.' };
+    }
+    return { ok: true };
+  }
+
+  function canStart(orbit, buffer) {
+    var join = canJoin(orbit, buffer);
+    if (!join.ok) return join;
+    var cfg = confCfg(orbit);
+    if (isChannelName(buffer) && cfg.requireChannelOp) {
+      var pref = myPrefixIn(orbit, buffer);
+      var allowed = cfg.startPrefixes || '~&@';
+      var ok = false;
+      for (var i = 0; i < pref.length; i++) {
+        if (allowed.indexOf(pref[i]) > -1) { ok = true; break; }
+      }
+      if (!ok) {
+        return { ok: false, reason: 'Seuls les opérateurs du salon peuvent démarrer une visio.' };
+      }
+    }
+    return { ok: true };
   }
 
   function roomNameFor(orbit, buffer) {
@@ -81,11 +176,23 @@
     }).join('');
   }
 
-  function openConference(orbit, buffer) {
+  function publicLink(orbit, buffer) {
+    var cfg = confCfg(orbit);
+    var domain = cfg.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return 'https://' + domain + '/' + encodedRoom(orbit, buffer);
+  }
+
+  function openConference(orbit, buffer, opts) {
+    opts = opts || {};
     if (!bufferAllowed(orbit, buffer)) return;
     if (conf.active && conf.buffer === buffer) {
       setConf(null);
       orbit.emit(EVT_HIDE);
+      return;
+    }
+    var gate = opts.joinOnly ? canJoin(orbit, buffer) : canStart(orbit, buffer);
+    if (!gate.ok) {
+      orbit.notify('Visio', gate.reason || 'Accès refusé.');
       return;
     }
     if (conf.active && conf.buffer !== buffer) {
@@ -108,11 +215,22 @@
     );
   }
 
+  function CameraIcon() {
+    return h('svg', {
+      viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
+      stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': 'true',
+    }, h('path', { d: 'M15.5 10.5 20 8v8l-4.5-2.5' }), h('rect', { x: 3, y: 7, width: 12.5, height: 10, rx: 2.2 }));
+  }
+
   function HeaderButton(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     if (!bufferAllowed(orbit, activeBuf)) return null;
+    // Hide if cannot start and there is no invite to join.
+    if (!openBuf && !canStart(orbit, activeBuf).ok && !invites.map[activeBuf]) return null;
+    if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
     var on = openBuf === activeBuf;
     return h('button', {
       type: 'button',
@@ -120,18 +238,65 @@
       title: orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }),
       'aria-label': orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }),
       'aria-pressed': on,
-      onClick: function () { openConference(orbit, activeBuf); },
-    }, h('svg', {
-      viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
-      stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
-      'aria-hidden': 'true',
-    }, h('path', { d: 'M15.5 10.5 20 8v8l-4.5-2.5' }), h('rect', { x: 3, y: 7, width: 12.5, height: 10, rx: 2.2 })));
+      onClick: function () {
+        if (on) openConference(orbit, activeBuf, { joinOnly: true });
+        else openConference(orbit, activeBuf, { joinOnly: !!invites.map[activeBuf] });
+      },
+    }, h(CameraIcon));
+  }
+
+  function MoreMenuItem(props) {
+    var orbit = props.orbit;
+    var activeBuf = useActiveBuffer(orbit);
+    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    if (!bufferAllowed(orbit, activeBuf)) return null;
+    if (!openBuf && !canStart(orbit, activeBuf).ok && !invites.map[activeBuf]) return null;
+    if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
+    var on = openBuf === activeBuf;
+    var label = on
+      ? orbit.i18n.pick({ fr: 'Fermer la visio', en: 'Close video' })
+      : orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' });
+    return h('button', {
+      type: 'button',
+      className: 'nmenu__item',
+      role: 'menuitem',
+      onClick: function () {
+        if (on) openConference(orbit, activeBuf, { joinOnly: true });
+        else openConference(orbit, activeBuf, { joinOnly: !!invites.map[activeBuf] });
+      },
+    },
+      h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon)),
+      h('span', { className: 'nmenu__txt' }, h('b', null, label))
+    );
+  }
+
+  function InviteBanner(props) {
+    var orbit = props.orbit;
+    var activeBuf = useActiveBuffer(orbit);
+    var map = useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    var inv = map[activeBuf];
+    if (!inv || openBuf) return null;
+    if (!canJoin(orbit, activeBuf).ok) return null;
+    var cfg = confCfg(orbit);
+    return h('div', { className: 'oconf-invite' },
+      h('span', { className: 'oconf-invite__txt' },
+        (inv.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({ fr: 'a lancé une visio.', en: 'started a video call.' })
+      ),
+      h('button', {
+        type: 'button',
+        className: 'oconf-invite__btn',
+        onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
+      }, '📹 ' + (cfg.joinButtonText || 'Rejoindre'))
+    );
   }
 
   function JoinCard(props) {
+    // Kept for non-hidden mode; with hideInviteForOrbit the banner replaces this.
     var orbit = props.orbit;
     var m = props.m;
     var cfg = confCfg(orbit);
+    if (cfg.hideInviteForOrbit) return null;
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     var buf = m.buffer || orbit.state.active();
     if (openBuf) return null;
@@ -140,7 +305,7 @@
       h('button', {
         type: 'button',
         className: 'oconf-join__btn',
-        onClick: function () { openConference(orbit, buf); },
+        onClick: function () { openConference(orbit, buf, { joinOnly: true }); },
       }, '📹 ' + (cfg.joinButtonText || 'Rejoindre'))
     );
   }
@@ -150,12 +315,22 @@
     var buffer = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     var hostRef = useRef(null);
     var apiRef = useRef(null);
+    var panelRef = useRef(null);
     var joinedState = useState(false);
     var joined = joinedState[0];
     var setJoined = joinedState[1];
     var errState = useState('');
     var err = errState[0];
     var setErr = errState[1];
+    var heightState = useState(function () {
+      try {
+        var v = orbit.storage.get(HEIGHT_KEY);
+        if (typeof v === 'number' && v >= 180 && v <= 900) return v;
+      } catch (e) { /* ignore */ }
+      return null;
+    });
+    var heightPx = heightState[0];
+    var setHeightPx = heightState[1];
     var cfg = confCfg(orbit);
 
     useEffect(function () {
@@ -171,7 +346,10 @@
       var room = encodedRoom(orbit, buffer);
       var nick = orbit.state.nick() || 'user';
       var tagId = live.tagID || '1';
-      var inviteTpl = isChannelName(buffer) ? (live.joinText || '') : (live.inviteText || '');
+      var link = publicLink(orbit, buffer);
+      var isChan = isChannelName(buffer);
+      var inviteTpl = isChan ? (live.joinText || '') : (live.inviteText || '');
+      var maxP = isChan ? live.maxParticipantsChannel : live.maxParticipantsQuery;
 
       function mountApi(jwt) {
         if (cancelled || !host || !window.JitsiMeetExternalAPI) return;
@@ -182,16 +360,16 @@
             width: '100%',
             height: '100%',
             jwt: jwt || undefined,
+            userInfo: { displayName: nick },
             configOverwrite: {
               startWithAudioMuted: true,
               startWithVideoMuted: true,
               prejoinConfig: { enabled: false },
               prejoinPageEnabled: false,
               disableDeepLinking: true,
-              // Prefer public Meet host for signaling (helps when reverse-proxy
-              // rewrites are incomplete / PUBLIC_URL was wrong at first boot).
               bosh: 'https://' + domain + '/http-bind',
               websocket: 'wss://' + domain + '/xmpp-websocket',
+              maxParticipants: maxP || undefined,
             },
             interfaceConfigOverwrite: {
               SHOW_JITSI_WATERMARK: false,
@@ -204,18 +382,22 @@
             },
             onload: function () {
               api.executeCommand('displayName', nick);
-              api.executeCommand('subject', ' ');
+              api.executeCommand('subject', roomNameFor(orbit, buffer));
+              // First joiner (channel op who starts) becomes moderator on open Jitsi.
               api.addListener('connectionFailed', function () {
                 if (!cancelled) setErr(orbit.i18n.pick({
-                  fr: 'Connexion Meet impossible (WebSocket/XMPP). Vérifie le reverse-proxy /xmpp-websocket.',
-                  en: 'Meet connection failed (WebSocket/XMPP). Check the /xmpp-websocket reverse proxy.',
+                  fr: 'Connexion Meet impossible (WebSocket/XMPP).',
+                  en: 'Meet connection failed (WebSocket/XMPP).',
                 }));
               });
               api.once('videoConferenceJoined', function () {
                 if (cancelled) return;
                 setJoined(true);
                 setErr('');
-                var text = '* ' + inviteTpl.replace(/\{\{\s*nick\s*\}\}/g, nick);
+                var text = '* ' + inviteTpl
+                  .replace(/\{\{\s*nick\s*\}\}/g, nick)
+                  .replace(/\{\{\s*link\s*\}\}/g, live.publicLinkInInvite ? link : '');
+                text = text.replace(/\s+/g, ' ').trim();
                 if (orbit.irc.msgTagged) {
                   var tags = {};
                   tags[TAG] = tagId;
@@ -277,22 +459,58 @@
       };
     }, [buffer]);
 
-    if (!buffer) return null;
+    function onResizeStart(ev) {
+      if (window.matchMedia && window.matchMedia('(max-width: 880px)').matches) return;
+      ev.preventDefault();
+      var startY = ev.clientY;
+      var startH = (panelRef.current && panelRef.current.getBoundingClientRect().height) || 320;
+      function move(e) {
+        var nh = Math.round(startH + (e.clientY - startY));
+        nh = Math.max(180, Math.min(Math.round(window.innerHeight * 0.7), nh));
+        setHeightPx(nh);
+      }
+      function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        try {
+          var hnow = (panelRef.current && panelRef.current.getBoundingClientRect().height) || startH;
+          orbit.storage.set(HEIGHT_KEY, Math.round(hnow));
+        } catch (e) { /* ignore */ }
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    }
 
-    return h('div', { className: 'oconf-panel', style: { height: cfg.viewHeight } },
-      h('div', { className: 'oconf-panel__bar' },
-        h('strong', { className: 'oconf-panel__title' },
-          joined ? roomNameFor(orbit, buffer) : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })
+    if (!buffer) {
+      return h(InviteBanner, { orbit: orbit });
+    }
+
+    var style = heightPx
+      ? { height: heightPx + 'px', maxHeight: '70vh' }
+      : { height: cfg.viewHeight };
+
+    return h(React.Fragment, null,
+      h(InviteBanner, { orbit: orbit }),
+      h('div', { className: 'oconf-panel', style: style, ref: panelRef },
+        h('div', { className: 'oconf-panel__bar' },
+          h('strong', { className: 'oconf-panel__title' },
+            joined ? roomNameFor(orbit, buffer) : orbit.i18n.pick({ fr: 'Connexion…', en: 'Connecting…' })
+          ),
+          h('button', {
+            type: 'button',
+            className: 'oconf-panel__close',
+            'aria-label': 'Close',
+            onClick: function () { setConf(null); },
+          }, '✕')
         ),
-        h('button', {
-          type: 'button',
-          className: 'oconf-panel__close',
-          'aria-label': 'Close',
-          onClick: function () { setConf(null); },
-        }, '✕')
-      ),
-      err ? h('div', { className: 'oconf-panel__err' }, err) : null,
-      h('div', { className: 'oconf-panel__host', ref: hostRef })
+        err ? h('div', { className: 'oconf-panel__err' }, err) : null,
+        h('div', { className: 'oconf-panel__host', ref: hostRef }),
+        h('div', {
+          className: 'oconf-panel__resize',
+          title: orbit.i18n.pick({ fr: 'Glisser pour redimensionner', en: 'Drag to resize' }),
+          onMouseDown: onResizeStart,
+        })
+      )
     );
   }
 
@@ -301,15 +519,8 @@
     var el = document.createElement('style');
     el.id = 'orbit-conference-css';
     el.textContent = [
-      /* In-flow under the topbar (Orbit mounts this inside .main) — chrome stays visible */
-      '.oconf-panel{position:relative;left:auto;right:auto;top:auto;z-index:20;flex:0 0 auto;width:100%;min-height:160px;max-height:46vh;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
-      '@media (max-width:880px){.oconf-panel{max-height:34vh;min-height:140px}}',
-      /* Compact topic while conference is open (especially mobile) */
-      'body.oconf-open .chan-hero{grid-template-columns:40px 1fr;padding:.25rem .55rem .25rem .45rem;gap:.45rem}',
-      'body.oconf-open .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
-      'body.oconf-open .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
-      'body.oconf-open .chan-hero__by,body.oconf-open .chan-hero__more{display:none}',
-      '@media (max-width:880px){body.oconf-open .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.oconf-open .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}body.oconf-open .main__room-bg{height:min(22%,160px)!important}}',
+      '.oconf-panel{position:relative;left:auto;right:auto;top:auto;z-index:20;flex:0 0 auto;width:100%;min-height:200px;max-height:70vh;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
+      '@media (max-width:880px){.oconf-panel{max-height:34vh;min-height:140px}.oconf-panel__resize{display:none!important}}',
       '.oconf-panel__bar{flex:none;display:flex;align-items:center;gap:.6rem;padding:.35rem .75rem;background:var(--bg-soft,rgba(127,127,127,.08))}',
       '.oconf-panel__title{font-size:.85rem;font-weight:700;color:var(--ink)}',
       '.oconf-panel__close{margin-left:auto;border:0;background:transparent;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem}',
@@ -317,9 +528,13 @@
       '.oconf-panel__err{padding:.5rem .75rem;color:#b91c1c;font-size:.85rem}',
       '.oconf-panel__host{flex:1;min-height:0}',
       '.oconf-panel__host>div,.oconf-panel__host iframe{width:100%!important;height:100%!important}',
+      '.oconf-panel__resize{flex:none;height:7px;cursor:ns-resize;background:linear-gradient(to bottom,transparent,rgba(127,127,127,.22));touch-action:none}',
+      '.oconf-panel__resize:hover{background:rgba(127,127,127,.28)}',
+      '.oconf-invite{flex:none;display:flex;align-items:center;gap:.65rem;padding:.4rem .75rem;border-bottom:1px solid var(--border,#333);background:color-mix(in srgb,var(--accent,#2563eb) 10%,transparent)}',
+      '.oconf-invite__txt{flex:1;min-width:0;font-size:.82rem;font-weight:600;color:var(--ink)}',
+      '.oconf-invite__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 22%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
       '.oconf-join{display:inline-flex;margin-left:.45rem;vertical-align:middle}',
       '.oconf-join__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
-      '.oconf-join__btn:hover{filter:brightness(1.05)}',
       '.topbar__search.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
     ].join('');
     document.head.appendChild(el);
@@ -333,8 +548,40 @@
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
 
-    // Topbar only (desktop + mobile) — no composer button.
+    // Warm WHOIS for group ACL (controle parental, etc.)
+    try {
+      var me = orbit.state.nick();
+      if (me) orbit.irc.send('WHOIS ' + me);
+    } catch (e) { /* ignore */ }
+
+    orbit.on('raw', function (msg) {
+      var cmd = String(msg.command || '');
+      // RPL_WHOISSPECIAL — security groups often appear here
+      if (cmd === '320' && msg.params && msg.params[1] === orbit.state.nick()) {
+        myGroupsText = (myGroupsText + ' ' + (msg.params[2] || '')).trim();
+      }
+      if (cmd === '318' && msg.params && msg.params[1] === orbit.state.nick()) {
+        // end of whois — keep myGroupsText
+      }
+      if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
+      var tags = msg.tags || {};
+      if (!Object.prototype.hasOwnProperty.call(tags, TAG)) return;
+      var target = (msg.params && msg.params[0]) || '';
+      var text = (msg.params && msg.params[1]) || '';
+      var linkMatch = text.match(/https?:\/\/[^\s]+/i);
+      var buf = isChannelName(target) ? target : (msg.nick || target);
+      if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+      setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf) });
+    });
+
+    if (cfg.hideInviteForOrbit) {
+      orbit.addMessageFilter(function (m) {
+        return !!(m.tags && Object.prototype.hasOwnProperty.call(m.tags, TAG));
+      });
+    }
+
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
+    orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
     orbit.addMessageDecorator(function (m) {
       if (!m.tags || !Object.prototype.hasOwnProperty.call(m.tags, TAG)) return null;

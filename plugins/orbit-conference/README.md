@@ -1,20 +1,15 @@
 # Orbit Conference (Jitsi)
 
-Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, adapté à EntreNous.
+Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
 
 ## Fonctionnement
 
-- Bouton caméra dans la barre du salon / MP (desktop et mobile, à côté des notifications)
-- Commande `/visio` pour ouvrir / fermer
-- Panneau Jitsi sous la topbar (chrome Orbit reste visible) ; topic compacté pendant l’appel
-- À l’entrée dans la salle, envoie un PRIVMSG tagué `+entrenous.fr/conference`
-- Les autres clients Orbit voient un bouton **Rejoindre**
-
-## Prérequis
-
-1. **Orbit** avec `apiVersion >= 7` (`irc.msgTagged` + tags sur les messages)
-2. Cap IRCv3 `message-tags` sur le serveur
-3. Instance **Jitsi Meet self-host** (recommandé), ex. `visio.entrenous.chat`
+- Caméra en topbar (desktop) ; sur mobile dans le menu **⋮**
+- Topic reste sous la topbar ; panneau visio en dessous (redimensionnable à la souris sur PC)
+- Démarrage salon : **opérateurs** (`~&@`) uniquement (configurable)
+- Compte IRC enregistré requis (configurable) ; groupes refusés via WHOIS (`denyGroups`)
+- Invite IRC avec **lien public** pour clients non-Orbit ; Orbit masque la ligne et montre une bannière **Rejoindre**
+- Le 1ᵉʳ participant (l’op qui démarre) est modérateur Meet sur une instance ouverte
 
 ## Config (`config.json`)
 
@@ -27,37 +22,31 @@ Plugin vidéo/audio pour Orbit — même idée que `kiwiirc-plugin-conference`, 
     "channels": true,
     "queries": true,
     "enabledInChannels": ["*"],
-    "viewHeight": "34%",
-    "inviteText": "{{ nick }} vous invite à un appel vidéo.",
-    "joinText": "{{ nick }} a rejoint la conférence.",
+    "disabledInChannels": ["#Mineurs.chat"],
+    "viewHeight": "46%",
+    "requireAccount": true,
+    "requireChannelOp": true,
+    "startPrefixes": "~&@",
+    "denyGroups": ["controle-parentale"],
+    "requireGroups": [],
+    "maxParticipantsChannel": 25,
+    "maxParticipantsQuery": 2,
+    "publicLinkInInvite": true,
+    "hideInviteForOrbit": true,
+    "inviteText": "{{ nick }} vous invite à un appel vidéo. Rejoindre : {{ link }}",
+    "joinText": "{{ nick }} a rejoint la conférence. Lien : {{ link }}",
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=4"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=5"
   ]
 }
 ```
 
-`secure: true` tente un `EXTJWT` avant d’ouvrir Jitsi (JWT self-host). Sans réponse, bascule sans JWT.
-
-## Build (optionnel)
-
-Le fichier prêt à servir est `orbit-conference.js` (à la racine du plugin).
-
-Pour reconstruire depuis le TSX :
-
-```bash
-cd plugins/orbit-conference
-npm install
-npm run build
-# → dist/orbit-conference.js
-```
-
-Copier vers le dossier servi :
-
-`/app/plugins/third/orbit-conference/orbit-conference.js`
+Ajuste `denyGroups` aux vrais noms de security groups InspIRCd.  
+Limite dure côté serveur : `MAX_PARTICIPANTS` dans le `.env` Jitsi / Jicofo.  
+Modérateur JWT (`secure: true` + EXTJWT) si tu veux des droits Meet plus stricts qu’« premier arrivé ».
 
 ## Tag IRC
 
 Client tag : `+entrenous.fr/conference` (valeur `tagID`, défaut `1`).
-Pas d’interop avec l’ancien tag Kiwi `+kiwiirc.com/conference`.

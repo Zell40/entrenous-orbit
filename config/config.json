@@ -70,7 +70,20 @@
     "channels": true,
     "queries": true,
     "enabledInChannels": ["*"],
-    "viewHeight": "34%"
+    "disabledInChannels": [],
+    "viewHeight": "46%",
+    "requireAccount": true,
+    "requireChannelOp": true,
+    "startPrefixes": "~&@",
+    "denyGroups": ["controle-parentale"],
+    "requireGroups": [],
+    "maxParticipantsChannel": 25,
+    "maxParticipantsQuery": 2,
+    "publicLinkInInvite": true,
+    "hideInviteForOrbit": true,
+    "inviteText": "{{ nick }} vous invite à un appel vidéo. Rejoindre : {{ link }}",
+    "joinText": "{{ nick }} a rejoint la conférence. Lien : {{ link }}",
+    "joinButtonText": "Rejoindre"
   },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
@@ -80,7 +93,7 @@
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=4"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=5"
   ],
   "builtins": [],
   "analytics": {
