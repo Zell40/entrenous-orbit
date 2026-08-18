@@ -73,6 +73,7 @@
     "enabledInChannels": ["*"],
     "disabledInChannels": [],
     "viewHeight": "46%",
+    "viewHeightMobile": "28%",
     "requireAccount": true,
     "requireChannelOp": true,
     "startPrefixes": "~&@",
@@ -94,7 +95,7 @@
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=11"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=12"
   ],
   "builtins": [],
   "analytics": {

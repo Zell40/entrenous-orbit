@@ -19,6 +19,8 @@
   var EVT_SHOW = 'plugin-conference.show';
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
+  var HEIGHT_KEY_MOBILE = 'panelHeightPxMobile';
+  var NARROW = '(max-width: 880px)';
 
   var conf = { active: false, buffer: '', room: '', startedByMe: false, listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
@@ -102,6 +104,7 @@
       enabledInChannels: c.enabledInChannels || ['*'],
       disabledInChannels: c.disabledInChannels || [],
       viewHeight: c.viewHeight || '46%',
+      viewHeightMobile: c.viewHeightMobile || '28%',
       inviteText: c.inviteText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       joinText: c.joinText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       joinButtonText: c.joinButtonText || 'Rejoindre',
@@ -116,6 +119,9 @@
       hideInviteForOrbit: c.hideInviteForOrbit !== false,
     };
     lastViewHeight = out.viewHeight;
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia(NARROW).matches) {
+      lastViewHeight = out.viewHeightMobile;
+    }
     return out;
   }
 
@@ -630,8 +636,11 @@
     var setErr = errState[1];
     var heightState = useState(function () {
       try {
-        var v = orbit.storage.get(HEIGHT_KEY);
-        if (typeof v === 'number' && v >= 180 && v <= 900) return v;
+        var narrow = window.matchMedia && window.matchMedia(NARROW).matches;
+        var v = orbit.storage.get(narrow ? HEIGHT_KEY_MOBILE : HEIGHT_KEY);
+        var minH = narrow ? 120 : 180;
+        var maxH = narrow ? 700 : 900;
+        if (typeof v === 'number' && v >= minH && v <= maxH) return v;
       } catch (e) { /* ignore */ }
       return null;
     });
@@ -789,31 +798,46 @@
       };
     }, [buffer]);
 
+    function isNarrow() {
+      return !!(window.matchMedia && window.matchMedia(NARROW).matches);
+    }
+    function clampPanelH(h, narrow) {
+      var minH = narrow ? 120 : 180;
+      var maxH = Math.round(window.innerHeight * (narrow ? 0.5 : 0.7));
+      return Math.max(minH, Math.min(maxH, h));
+    }
+    function pointerY(e) {
+      if (e.touches && e.touches[0]) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY;
+      return e.clientY;
+    }
+
     function onResizeStart(ev) {
-      if (window.matchMedia && window.matchMedia('(max-width: 880px)').matches) return;
       ev.preventDefault();
       ev.stopPropagation();
       var panel = panelRef.current;
       if (!panel) return;
-      var startY = ev.clientY;
-      var startH = panel.getBoundingClientRect().height || 320;
-      var maxH = Math.round(window.innerHeight * 0.7);
+      var narrow = isNarrow();
+      var startY = pointerY(ev);
+      var startH = panel.getBoundingClientRect().height || (narrow ? 200 : 320);
       var iframe = panel.querySelector('iframe');
       var lastH = startH;
       var raf = 0;
+      panel.classList.add('is-resizing');
       if (iframe) iframe.style.pointerEvents = 'none';
       document.body.style.cursor = 'ns-resize';
       document.body.style.userSelect = 'none';
+      document.body.style.touchAction = 'none';
 
       function apply(h) {
         lastH = h;
         panel.style.height = h + 'px';
-        panel.style.maxHeight = '70vh';
+        panel.style.maxHeight = narrow ? '50vh' : '70vh';
       }
 
       function move(e) {
-        var nh = Math.round(startH + (e.clientY - startY));
-        nh = Math.max(180, Math.min(maxH, nh));
+        if (e.cancelable) e.preventDefault();
+        var nh = clampPanelH(Math.round(startH + (pointerY(e) - startY)), narrow);
         if (raf) cancelAnimationFrame(raf);
         raf = requestAnimationFrame(function () { apply(nh); });
       }
@@ -822,17 +846,25 @@
         if (raf) cancelAnimationFrame(raf);
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
+        document.removeEventListener('touchmove', move);
+        document.removeEventListener('touchend', up);
+        document.removeEventListener('touchcancel', up);
         document.removeEventListener('blur', up);
+        panel.classList.remove('is-resizing');
         if (iframe) iframe.style.pointerEvents = '';
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        var finalH = Math.max(180, Math.min(maxH, Math.round(lastH)));
+        document.body.style.touchAction = '';
+        var finalH = clampPanelH(Math.round(lastH), narrow);
         setHeightPx(finalH);
-        try { orbit.storage.set(HEIGHT_KEY, finalH); } catch (err) { /* ignore */ }
+        try { orbit.storage.set(narrow ? HEIGHT_KEY_MOBILE : HEIGHT_KEY, finalH); } catch (err) { /* ignore */ }
       }
 
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
+      document.addEventListener('touchmove', move, { passive: false });
+      document.addEventListener('touchend', up);
+      document.addEventListener('touchcancel', up);
       document.addEventListener('blur', up);
     }
 
@@ -840,9 +872,10 @@
       return null;
     }
 
+    var narrow = isNarrow();
     var style = heightPx
-      ? { height: heightPx + 'px', maxHeight: '70vh' }
-      : { height: cfg.viewHeight };
+      ? { height: heightPx + 'px', maxHeight: narrow ? '50vh' : '70vh' }
+      : { height: narrow ? cfg.viewHeightMobile : cfg.viewHeight };
 
     return h(React.Fragment, null,
       h('div', { className: 'oconf-panel', style: style, ref: panelRef },
@@ -880,6 +913,7 @@
           className: 'oconf-panel__resize',
           title: orbit.i18n.pick({ fr: 'Glisser pour redimensionner', en: 'Drag to resize' }),
           onMouseDown: onResizeStart,
+          onTouchStart: onResizeStart,
         })
       )
     );
@@ -891,7 +925,7 @@
     el.id = 'orbit-conference-css';
     el.textContent = [
       '.oconf-panel{position:relative;left:auto;right:auto;top:auto;z-index:20;flex:0 0 auto;width:100%;min-height:200px;max-height:70vh;display:flex;flex-direction:column;background:var(--bg,#111);border-bottom:1px solid var(--border,#333);box-shadow:0 8px 28px -16px rgba(0,0,0,.45)}',
-      '@media (max-width:880px){.oconf-panel{max-height:34vh;min-height:140px}.oconf-panel__resize{display:none!important}}',
+      '@media (max-width:880px){.oconf-panel{max-height:50vh;min-height:120px}.oconf-panel__resize{height:18px;display:flex;align-items:center;justify-content:center}.oconf-panel__resize::after{content:"";width:42px;height:4px;border-radius:99px;background:rgba(127,127,127,.55)}}',
       '.oconf-panel__bar{flex:none;display:flex;align-items:center;gap:.6rem;padding:.35rem .75rem;background:var(--bg-soft,rgba(127,127,127,.08))}',
       '.oconf-panel__title{font-size:.85rem;font-weight:700;color:var(--ink)}',
       '.oconf-panel__close{margin-left:auto;border:0;background:transparent;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem}',
