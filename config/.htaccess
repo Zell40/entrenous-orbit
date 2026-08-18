@@ -19,6 +19,8 @@ RewriteRule ^accounts/api/avatars/?$ avatars.php [L,QSA]
 RewriteRule ^accounts/api/chat_resume/?$ chat-resume.php [L,QSA]
 # WP profile → IRC GECOS (âge - genre - ville) for reconnect SETNAME.
 RewriteRule ^accounts/api/profile_gecos/?$ profile-gecos.php [L,QSA]
+# OpenGraph cards for chat / Actu link previews (Orbit src/lib/link-preview.tsx).
+RewriteRule ^accounts/api/unfurl/?$ unfurl.php [L,QSA]
 
 # Raise upload limits for composer /upload when under mod_php (FPM uses .user.ini).
 <IfModule mod_php.c>

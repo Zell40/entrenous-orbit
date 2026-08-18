@@ -175,6 +175,9 @@ fi
 # (rewrite in config/.htaccess). Keep avatars.local.php if present.
 cp -f "$PLUGINS_REPO/server/avatars/avatars.php" "$WEBROOT/avatars.php"
 
+# OpenGraph unfurl for Orbit link previews (GET /accounts/api/unfurl/?url=)
+cp -f "$PLUGINS_REPO/server/unfurl/unfurl.php" "$WEBROOT/unfurl.php"
+
 # Ensure runtime upload dirs exist (PHP also mkdir's, but first deploy often
 # fails on permissions if the parent isn't ready — create + relax ownership).
 mkdir -p "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR"
