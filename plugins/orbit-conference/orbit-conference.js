@@ -19,7 +19,7 @@
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
 
-  var conf = { active: false, buffer: '', room: '', listeners: new Set() };
+  var conf = { active: false, buffer: '', room: '', startedByMe: false, listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
   var lastViewHeight = '46%';
@@ -51,10 +51,12 @@
   /** Last Meet room id per channel (for -01/-02 collision suffixes). */
   var channelRooms = Object.create(null);
 
-  function setConf(buffer, room) {
+  function setConf(buffer, room, meta) {
+    meta = meta || {};
     conf.active = !!buffer;
     conf.buffer = buffer || '';
     conf.room = buffer ? (room || conf.room || '') : '';
+    conf.startedByMe = !!(buffer && meta.startedByMe);
     document.body.classList.toggle('oconf-open', !!buffer);
     if (buffer) {
       document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
@@ -62,6 +64,7 @@
     } else {
       document.documentElement.style.removeProperty('--oconf-h');
       announced = Object.create(null);
+      conf.startedByMe = false;
     }
     conf.listeners.forEach(function (l) { l(); });
   }
@@ -256,9 +259,14 @@
     return { linkMatch: linkMatch, hasTag: hasTag };
   }
 
+  function conferenceStopMatch(text) {
+    return /-[^-]+-\s+a arrêté la conférence\./i.test(String(text || ''));
+  }
+
   /** Announce the conference on IRC once per open session (starter only). */
-  function announceConference(orbit, buffer) {
-    if (!buffer || announced[buffer]) return;
+  function announceConference(orbit, buffer, opts) {
+    opts = opts || {};
+    if (!buffer || (announced[buffer] && !opts.force)) return;
     announced[buffer] = true;
     var cfg = confCfg(orbit);
     var nick = orbit.state.nick() || 'user';
@@ -281,10 +289,26 @@
     }
   }
 
+  function announceConferenceStopped(orbit, buffer) {
+    if (!buffer) return;
+    var nick = orbit.state.nick() || 'user';
+    var tags = {};
+    tags[TAG] = confCfg(orbit).tagID || '1';
+    var text = '* -' + nick + '- a arrêté la conférence.';
+    try {
+      if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, text, tags);
+      else if (orbit.irc.msg) orbit.irc.msg(buffer, text);
+      else orbit.irc.send('PRIVMSG ' + buffer + ' :' + text);
+    } catch (e) {
+      try { orbit.irc.msg(buffer, text); } catch (e2) { /* ignore */ }
+    }
+  }
+
   function openConference(orbit, buffer, opts) {
     opts = opts || {};
     if (!bufferAllowed(orbit, buffer)) return;
     if (conf.active && conf.buffer === buffer) {
+      if (conf.startedByMe) announceConferenceStopped(orbit, buffer);
       setConf(null);
       orbit.emit(EVT_HIDE);
       return;
@@ -302,7 +326,7 @@
     var room = opts.joinOnly
       ? meetRoomFor(orbit, buffer)
       : allocateMeetRoom(orbit, buffer, !!opts.newRoom);
-    setConf(buffer, room);
+    setConf(buffer, room, { startedByMe: !opts.joinOnly });
     // Starters announce immediately so other IRC clients see the invite even if
     // Meet's videoConferenceJoined event never fires.
     if (!opts.joinOnly) announceConference(orbit, buffer);
@@ -501,6 +525,20 @@
               en: 'Meet connection failed (WebSocket/XMPP).',
             }));
           });
+          api.addListener('errorOccurred', function (ev) {
+            if (cancelled) return;
+            var blob = JSON.stringify(ev || {}).toLowerCase();
+            if (/max|full|participants|conference_max_users/.test(blob)) {
+              setErr(orbit.i18n.pick({
+                fr: 'La visio a atteint sa limite de participants.',
+                en: 'The conference reached its participant limit.',
+              }));
+              orbit.notify('Visio', orbit.i18n.pick({
+                fr: 'La visio est complète pour le moment.',
+                en: 'The conference is full right now.',
+              }));
+            }
+          });
           var didJoin = false;
           function onJoined() {
             if (cancelled || didJoin) return;
@@ -513,8 +551,18 @@
           timers.push(window.setTimeout(function () {
             if (!cancelled && !didJoin) setJoined(true);
           }, 12000));
+          api.addListener('readyToClose', function () {
+            if (cancelled) return;
+            orbit.notify('Visio', orbit.i18n.pick({
+              fr: 'La conférence est terminée.',
+              en: 'The conference has ended.',
+            }));
+            setConf(null);
+          });
           api.addListener('videoConferenceLeft', function () {
-            if (!cancelled) setConf(null);
+            if (cancelled) return;
+            if (conf.active && conf.startedByMe && conf.buffer === buffer) announceConferenceStopped(orbit, buffer);
+            setConf(null);
           });
         } catch (e) {
           setErr(String(e));
@@ -630,7 +678,10 @@
             type: 'button',
             className: 'oconf-panel__close',
             'aria-label': 'Close',
-            onClick: function () { setConf(null); },
+            onClick: function () {
+              if (conf.active && conf.startedByMe && conf.buffer === buffer) announceConferenceStopped(orbit, buffer);
+              setConf(null);
+            },
           }, '✕')
         ),
         err ? h('div', { className: 'oconf-panel__err' }, err) : null,
@@ -707,6 +758,19 @@
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};
       var text = (msg.params && msg.params[1]) || '';
+      if (conferenceStopMatch(text)) {
+        var targetStop = (msg.params && msg.params[0]) || '';
+        var stopBuf = isChannelName(targetStop) ? targetStop : (msg.nick || targetStop);
+        setInvite(stopBuf, null);
+        if (conf.active && conf.buffer === stopBuf) {
+          orbit.notify('Visio', orbit.i18n.pick({
+            fr: 'La conférence a été arrêtée.',
+            en: 'The conference was stopped.',
+          }));
+          setConf(null);
+        }
+        return;
+      }
       var inviteMatch = conferenceInviteMatch(orbit, text, tags);
       if (!inviteMatch) return;
       var linkMatch = inviteMatch.linkMatch;
@@ -723,9 +787,27 @@
       setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf) });
     });
 
+    orbit.on('raw', function (msg) {
+      if (String(msg.command || '').toUpperCase() !== 'JOIN') return;
+      if (!conf.active || !conf.startedByMe || !isChannelName(conf.buffer)) return;
+      var joinedBuf = (msg.params && msg.params[0]) || msg.target || '';
+      if (!joinedBuf || inviteKey(joinedBuf) !== inviteKey(conf.buffer)) return;
+      if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+      var key = inviteKey(joinedBuf);
+      var now = Date.now();
+      var last = announced[key + ':join'] || 0;
+      if (now - last < 15000) return;
+      announced[key + ':join'] = now;
+      announceConference(orbit, joinedBuf, { force: true });
+      orbit.notify('Visio', (msg.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({
+        fr: 'a rejoint le salon : invitation visio renvoyée.',
+        en: 'joined the room: conference invite sent again.',
+      }));
+    });
+
     if (cfg.hideInviteForOrbit) {
       orbit.addMessageFilter(function (m) {
-        return !!conferenceInviteMatch(orbit, m.text || '', m.tags || {});
+        return conferenceStopMatch(m.text || '') || !!conferenceInviteMatch(orbit, m.text || '', m.tags || {});
       });
     }
 
@@ -747,6 +829,9 @@
         openConference(orbit, buf);
       },
     });
-    orbit.on(EVT_HIDE, function () { setConf(null); });
+    orbit.on(EVT_HIDE, function () {
+      if (conf.active && conf.startedByMe && conf.buffer) announceConferenceStopped(orbit, conf.buffer);
+      setConf(null);
+    });
   });
 })();
