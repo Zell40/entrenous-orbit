@@ -115,7 +115,18 @@
     try {
       var st = orbit.state.get();
       var b = st.buffers && st.buffers[buffer];
-      var m = b && b.members && b.members[orbit.state.nick()];
+      var members = b && b.members;
+      var nick = orbit.state.nick();
+      var m = members && nick ? members[nick] : null;
+      if (!m && members && nick) {
+        var want = String(nick).toLowerCase();
+        for (var k in members) {
+          if (Object.prototype.hasOwnProperty.call(members, k) && String(k).toLowerCase() === want) {
+            m = members[k];
+            break;
+          }
+        }
+      }
       return (m && (m.prefixes || m.prefix)) || '';
     } catch (e) { return ''; }
   }
@@ -228,6 +239,21 @@
     var cfg = confCfg(orbit);
     var domain = cfg.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
     return 'https://' + domain + '/' + meetRoomFor(orbit, buffer);
+  }
+
+  function conferenceInviteMatch(orbit, text, tags) {
+    var cfgLive = confCfg(orbit);
+    var host = String(cfgLive.server || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+    var linkRe = host
+      ? new RegExp('https?:\\/\\/' + host.replace(/\./g, '\\.') + '\\/[^\\s]+', 'i')
+      : /https?:\/\/[^\s]+/i;
+    var linkMatch = String(text || '').match(linkRe);
+    var hasTag = !!(tags && Object.prototype.hasOwnProperty.call(tags, TAG));
+    if (!hasTag) {
+      if (!linkMatch) return null;
+      if (!/invite à rejoindre la conférence|rejoindre la conférence|visio/i.test(String(text || ''))) return null;
+    }
+    return { linkMatch: linkMatch, hasTag: hasTag };
   }
 
   /** Announce the conference on IRC once per open session (starter only). */
@@ -363,6 +389,8 @@
     if (!inv || openBuf) return null;
     if (!canJoin(orbit, activeBuf).ok) return null;
     var cfg = confCfg(orbit);
+    var joinLabel = (cfg.joinButtonText || 'Rejoindre');
+    if (/^rejoindre$/i.test(joinLabel)) joinLabel = 'Rejoindre la visio';
     return h('div', { className: 'oconf-invite' },
       h('span', { className: 'oconf-invite__txt' },
         (inv.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({ fr: 'a lancé une visio.', en: 'started a video call.' })
@@ -371,7 +399,7 @@
         type: 'button',
         className: 'oconf-invite__btn',
         onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
-      }, '📹 ' + (cfg.joinButtonText || 'Rejoindre'))
+      }, '📹 ' + joinLabel)
     );
   }
 
@@ -640,9 +668,12 @@
       'body.oconf-open .chan-hero__by,body.oconf-open .chan-hero__more{display:none}',
       'body.oconf-open .main__room-bg{height:min(22%,160px)!important}',
       '@media (max-width:880px){body.oconf-open .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.oconf-open .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}}',
-      '.oconf-invite{flex:none;display:flex;align-items:center;gap:.65rem;padding:.4rem .75rem;border-bottom:1px solid var(--border,#333);background:color-mix(in srgb,var(--accent,#2563eb) 10%,transparent)}',
-      '.oconf-invite__txt{flex:1;min-width:0;font-size:.82rem;font-weight:600;color:var(--ink)}',
-      '.oconf-invite__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 22%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
+      '.oconf-invite{flex:none;display:flex;align-items:center;gap:.7rem;padding:.52rem .85rem;border-bottom:1px solid color-mix(in srgb,var(--accent,#2563eb) 38%,var(--border,#333));background:color-mix(in srgb,var(--accent,#2563eb) 24%,var(--bg,#111));box-shadow:inset 0 -1px 0 rgba(255,255,255,.06),0 8px 24px -18px rgba(37,99,235,.55);backdrop-filter:blur(3px)}',
+      '.oconf-invite__txt{flex:1;min-width:0;font-size:.86rem;font-weight:800;color:var(--ink-strong,var(--ink));text-shadow:0 1px 0 rgba(255,255,255,.08)}',
+      '.oconf-invite__btn{border:1px solid color-mix(in srgb,var(--accent,#2563eb) 62%,white);cursor:pointer;font:inherit;font-size:.8rem;font-weight:800;padding:.38rem .82rem;border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--accent,#2563eb) 92%,white),color-mix(in srgb,var(--accent,#2563eb) 74%,black 8%));color:#fff;box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75);animation:oconfInvitePulse 1.6s ease-out infinite;white-space:nowrap}',
+      '.oconf-invite__btn:hover{filter:brightness(1.05);transform:translateY(-1px)}',
+      '.oconf-invite__btn:focus-visible{outline:2px solid color-mix(in srgb,var(--accent,#2563eb) 75%,white);outline-offset:2px}',
+      '@keyframes oconfInvitePulse{0%{box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75)}70%{box-shadow:0 0 0 10px rgba(37,99,235,0),0 8px 24px -12px rgba(37,99,235,.82)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0),0 6px 18px -10px rgba(37,99,235,.72)}}',
       '.oconf-join{display:inline-flex;margin-left:.45rem;vertical-align:middle}',
       '.oconf-join__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
       '.topbar__search.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
@@ -676,18 +707,9 @@
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};
       var text = (msg.params && msg.params[1]) || '';
-      var cfgLive = confCfg(orbit);
-      var host = String(cfgLive.server || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
-      var linkRe = host
-        ? new RegExp('https?:\\/\\/' + host.replace(/\./g, '\\.') + '\\/[^\\s]+', 'i')
-        : /https?:\/\/[^\s]+/i;
-      var linkMatch = text.match(linkRe);
-      var hasTag = Object.prototype.hasOwnProperty.call(tags, TAG);
-      // Prefer client-tag; also accept plain invite lines (other clients / tag drop).
-      if (!hasTag) {
-        if (!linkMatch) return;
-        if (!/invite à rejoindre la conférence|rejoindre la conférence|visio/i.test(text)) return;
-      }
+      var inviteMatch = conferenceInviteMatch(orbit, text, tags);
+      if (!inviteMatch) return;
+      var linkMatch = inviteMatch.linkMatch;
       var target = (msg.params && msg.params[0]) || '';
       var buf = isChannelName(target) ? target : (msg.nick || target);
       if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
@@ -703,7 +725,7 @@
 
     if (cfg.hideInviteForOrbit) {
       orbit.addMessageFilter(function (m) {
-        return !!(m.tags && Object.prototype.hasOwnProperty.call(m.tags, TAG));
+        return !!conferenceInviteMatch(orbit, m.text || '', m.tags || {});
       });
     }
 
