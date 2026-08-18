@@ -109,7 +109,7 @@ $EXTJWT_SECRET = '…';      // même secret extjwt côté ircd
 $JITSI_APP_ID = 'jitsi_app';
 $JITSI_APP_SECRET = '…';   // même secret que Prosody/Jitsi token auth
 $JITSI_DOMAIN = 'visio.entrenous.chat';
-$JWT_AUDIENCE = 'jitsi';
+$JWT_AUDIENCE = '';        // vide = audience = JITSI_APP_ID
 $JWT_TTL = 300;
 ```
 

@@ -65,7 +65,7 @@
   },
   "conference": {
     "server": "visio.entrenous.chat",
-    "secure": false,
+    "secure": true,
     "tokenEndpoint": "/app/plugins/third/orbit-conference/visio-jwt.php",
     "tagID": "1",
     "channels": true,
@@ -80,7 +80,7 @@
     "requireGroups": [],
     "maxParticipantsChannel": 25,
     "maxParticipantsQuery": 2,
-    "publicLinkInInvite": true,
+    "publicLinkInInvite": false,
     "hideInviteForOrbit": true,
     "inviteText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
@@ -102,5 +102,5 @@
     "siteId": "",
     "gaId": ""
   },
-  "securityGroups": ["IRCOperateur", "enregistre", "tls", "regulier", "nouveau", "non-securise", "websocket", "bot", "user", "bouncer"]
+  "securityGroups": ["IRCOperateur", "enregistre", "tls", "regulier", "nouveau", "non-securise", "websocket", "bot", "user", "bouncer", "controle-parentale"]
 }

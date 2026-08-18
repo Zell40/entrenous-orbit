@@ -20,7 +20,7 @@ $EXTJWT_SECRET = 'CHANGE_ME_EXTJWT_SECRET';
 $JITSI_APP_ID = 'CHANGE_ME_JITSI_APP_ID';
 $JITSI_APP_SECRET = 'CHANGE_ME_JITSI_APP_SECRET';
 $JITSI_DOMAIN = 'visio.entrenous.chat';
-$JWT_AUDIENCE = 'jitsi';
+$JWT_AUDIENCE = '';
 $JWT_TTL = 300; // 5 minutes
 $ALLOWED_CLOCK_SKEW = 30;
 
@@ -86,6 +86,7 @@ if ($EXTJWT_SECRET === 'CHANGE_ME_EXTJWT_SECRET' || $JITSI_APP_ID === 'CHANGE_ME
   echo json_encode(['error' => 'server_not_configured']);
   exit;
 }
+$jwtAudience = $JWT_AUDIENCE !== '' ? $JWT_AUDIENCE : $JITSI_APP_ID;
 
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $m)) {
@@ -128,7 +129,7 @@ if ($account === '') {
 $nick = trim((string)($claims['sub'] ?? $account));
 $now = time();
 $jwtClaims = [
-  'aud' => $JWT_AUDIENCE,
+  'aud' => $jwtAudience,
   'iss' => $JITSI_APP_ID,
   'sub' => $JITSI_DOMAIN,
   'room' => $room,
