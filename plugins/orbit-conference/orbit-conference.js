@@ -622,7 +622,14 @@
       var timers = [];
 
       function mountApi(jwt) {
-        if (cancelled || !host || !window.JitsiMeetExternalAPI) return;
+        if (cancelled || !host) return;
+        if (!window.JitsiMeetExternalAPI) {
+          setErr(orbit.i18n.pick({
+            fr: 'Impossible de charger l’API Jitsi.',
+            en: 'Unable to load the Jitsi API.',
+          }));
+          return;
+        }
         try {
           var api = new window.JitsiMeetExternalAPI(domain, {
             roomName: room,
@@ -707,9 +714,33 @@
 
       var existing = document.querySelector('script[data-oconf="' + domain + '"]');
 
+      function ensureJitsiApi(onReady) {
+        if (window.JitsiMeetExternalAPI) {
+          onReady();
+          return;
+        }
+        if (existing) {
+          existing.addEventListener('load', onReady);
+          return;
+        }
+        var scr = document.createElement('script');
+        scr.src = 'https://' + domain + '/external_api.js';
+        scr.async = true;
+        scr.dataset.oconf = domain;
+        scr.onload = onReady;
+        scr.onerror = function () {
+          setErr(orbit.i18n.pick({
+            fr: 'Impossible de charger Jitsi (' + domain + ').',
+            en: 'Unable to load Jitsi (' + domain + ').',
+          }));
+        };
+        document.head.appendChild(scr);
+      }
+
       if (live.secure) {
         requestConferenceJwt(orbit, buffer, room).then(function (jwt) {
-          if (!cancelled) mountApi(jwt);
+          if (cancelled) return;
+          ensureJitsiApi(function () { mountApi(jwt); });
         }).catch(function (e) {
           if (cancelled) return;
           var code = String((e && e.message) || e || '');
@@ -743,20 +774,7 @@
         };
       }
 
-      function start() { mountApi(); }
-      if (window.JitsiMeetExternalAPI) {
-        start();
-      } else if (existing) {
-        existing.addEventListener('load', start);
-      } else {
-        var scr = document.createElement('script');
-        scr.src = 'https://' + domain + '/external_api.js';
-        scr.async = true;
-        scr.dataset.oconf = domain;
-        scr.onload = start;
-        scr.onerror = function () { setErr('Impossible de charger Jitsi (' + domain + ').'); };
-        document.head.appendChild(scr);
-      }
+      ensureJitsiApi(function () { mountApi(); });
 
       return function () {
         cancelled = true;
