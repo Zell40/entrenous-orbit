@@ -403,21 +403,30 @@
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     var hasInvite = !!getInviteFor(activeBuf);
+    var cfg = confCfg(orbit);
     if (!bufferAllowed(orbit, activeBuf)) return null;
     if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
-    if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
+    var joinGate = canJoin(orbit, activeBuf);
+    if (!openBuf && !joinGate.ok && !hasInvite) return null;
+    var needsRegister = !!(cfg.requireAccount && !orbit.state.account());
+    var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
     var on = openBuf === activeBuf;
     var label = on
       ? orbit.i18n.pick({ fr: 'Fermer la visio', en: 'Close video' })
       : (hasInvite
-        ? orbit.i18n.pick({ fr: 'Rejoindre la visio', en: 'Join video call' })
+        ? (needsRegister
+          ? orbit.i18n.pick({ fr: 'S’enregistrer pour la visio', en: 'Register to join video' })
+          : orbit.i18n.pick({ fr: 'Rejoindre la visio', en: 'Join video call' }))
         : orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }));
     return h('button', {
       type: 'button',
-      className: 'nmenu__item',
+      className: 'nmenu__item' + (!on && hasInvite && !joinGate.ok && !needsRegister ? ' is-disabled' : ''),
       role: 'menuitem',
+      disabled: !on && hasInvite && !joinGate.ok && !needsRegister,
+      title: !on && hasInvite && !joinGate.ok ? joinGate.reason : undefined,
       onClick: function () {
         if (on) openConference(orbit, activeBuf, { joinOnly: true });
+        else if (hasInvite && !joinGate.ok && needsRegister) window.open(registerUrl, '_blank', 'noopener');
         else openConference(orbit, activeBuf, { joinOnly: hasInvite && !canStart(orbit, activeBuf).ok });
       },
     },
@@ -452,19 +461,34 @@
     var inv = getInviteFor(activeBuf);
     if (!inv || openBuf) return null;
     if (dismissed[inviteKey(activeBuf)]) return null;
-    if (!canJoin(orbit, activeBuf).ok) return null;
+    var joinGate = canJoin(orbit, activeBuf);
     var cfg = confCfg(orbit);
+    var needsRegister = !!(cfg.requireAccount && !orbit.state.account());
+    var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
     var joinLabel = (cfg.joinButtonText || 'Rejoindre');
     if (/^rejoindre$/i.test(joinLabel)) joinLabel = 'Rejoindre la visio';
     return h('div', { className: 'oconf-invite' },
       h('span', { className: 'oconf-invite__txt' },
         (inv.nick || 'Quelqu\u2019un') + ' ' + orbit.i18n.pick({ fr: 'a lanc\u00e9 une visio.', en: 'started a video call.' })
+        + (!joinGate.ok ? (' ' + orbit.i18n.pick({
+          fr: needsRegister ? 'Inscrivez-vous pour rejoindre la visio. ' : 'Acc\u00e8s impossible : ',
+          en: needsRegister ? 'Register to join the video call. ' : 'Cannot join: ',
+        }) + (needsRegister ? '' : joinGate.reason)) : '')
       ),
-      h('button', {
-        type: 'button',
-        className: 'oconf-invite__btn',
-        onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
-      }, '\uD83D\uDCF9 ' + joinLabel),
+      (needsRegister
+        ? h('a', {
+          className: 'oconf-invite__btn',
+          href: registerUrl,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        }, orbit.i18n.pick({ fr: 'S’inscrire', en: 'Register' }))
+        : h('button', {
+          type: 'button',
+          className: 'oconf-invite__btn' + (!joinGate.ok ? ' is-disabled' : ''),
+          disabled: !joinGate.ok,
+          title: !joinGate.ok ? joinGate.reason : undefined,
+          onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
+        }, '\uD83D\uDCF9 ' + (!joinGate.ok ? orbit.i18n.pick({ fr: 'Acc\u00e8s refus\u00e9', en: 'Access denied' }) : joinLabel))),
       h('button', {
         type: 'button',
         className: 'oconf-invite__dismiss',
@@ -776,6 +800,7 @@
       '.oconf-invite__txt{flex:1;min-width:0;font-size:.86rem;font-weight:800;color:#fff;color:var(--ink-strong,var(--ink));text-shadow:0 1px 0 rgba(255,255,255,.08)}',
       '.oconf-invite__btn{border:1px solid #93c5fd;border:1px solid color-mix(in srgb,var(--accent,#2563eb) 62%,white);cursor:pointer;font:inherit;font-size:.8rem;font-weight:800;padding:.38rem .82rem;border-radius:999px;background:#2563eb;background:linear-gradient(180deg,color-mix(in srgb,var(--accent,#2563eb) 92%,white),color-mix(in srgb,var(--accent,#2563eb) 74%,black 8%));color:#fff;box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75);animation:oconfInvitePulse 1.6s ease-out infinite;white-space:nowrap}',
       '.oconf-invite__btn:hover{filter:brightness(1.05);transform:translateY(-1px)}',
+      '.oconf-invite__btn.is-disabled,.nmenu__item.is-disabled{opacity:.62;cursor:not-allowed;filter:none;transform:none}',
       '.oconf-invite__btn:focus-visible{outline:2px solid color-mix(in srgb,var(--accent,#2563eb) 75%,white);outline-offset:2px}',
       '@media (max-width:640px){.oconf-invite{flex-wrap:wrap;align-items:flex-start}.oconf-invite__txt{min-width:100%;margin-bottom:.15rem}.oconf-invite__btn{flex:1 1 auto;min-width:0;white-space:normal;text-align:center}.oconf-invite__dismiss{margin-left:auto}}',
       '@keyframes oconfInvitePulse{0%{box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75)}70%{box-shadow:0 0 0 10px rgba(37,99,235,0),0 8px 24px -12px rgba(37,99,235,.82)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0),0 6px 18px -10px rgba(37,99,235,.72)}}',
