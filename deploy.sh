@@ -26,6 +26,8 @@ DEPLOYED_MARKER="$PLUGINS_REPO/.last-deployed-commits"
 # Gallery plugin bundle (JS + room-images.php + uploads)
 GALLERY_DIR="plugins/third/orbit-room-gallery"
 ROOM_IMAGES_UPLOADS_DIR="$GALLERY_DIR/room-images-uploads"
+# Video conference (Jitsi) — secrets live beside visio-jwt.php
+CONFERENCE_DIR="plugins/third/orbit-conference"
 
 # Orbit core filehost (composer /upload) — stays at web root
 FILEHOST_UPLOAD_NAME="filehost-upload.php"
@@ -70,6 +72,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$GALLERY_DIR/room-images.local.php" \
   --exclude="/$GALLERY_DIR/room-images.json" \
   --exclude="/$ROOM_IMAGES_UPLOADS_DIR" \
+  --exclude="/$CONFERENCE_DIR/visio-jwt.local.php" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -102,8 +105,8 @@ mkdir -p "$WEBROOT/$HELPSERV_WELCOME_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-helpserv-welcome/orbit-helpserv-welcome.js" \
       "$WEBROOT/$HELPSERV_WELCOME_DIR/"
 
-# Video conference (Jitsi)
-CONFERENCE_DIR="plugins/third/orbit-conference"
+# Video conference (Jitsi). NEVER overwrite visio-jwt.local.php — rsync
+# --delete is already excluded; only drop the example beside it once.
 mkdir -p "$WEBROOT/$CONFERENCE_DIR"
 if [ -f "$PLUGINS_REPO/plugins/orbit-conference/dist/orbit-conference.js" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-conference/dist/orbit-conference.js" \
