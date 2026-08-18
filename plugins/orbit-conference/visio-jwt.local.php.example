@@ -1,0 +1,11 @@
+<?php
+// plugins/third/orbit-conference/visio-jwt.local.php
+// Never commit the real file; deploy.sh preserves it across updates.
+
+$EXTJWT_SECRET = 'same-secret-as-your-ircd-extjwt-block';
+$JITSI_APP_ID = 'jitsi_app_id';
+$JITSI_APP_SECRET = 'same-secret-as-jitsi-prosody-app-secret';
+$JITSI_DOMAIN = 'visio.entrenous.chat';
+$JWT_AUDIENCE = 'jitsi';
+$JWT_TTL = 300;
+$ALLOWED_CLOCK_SKEW = 30;

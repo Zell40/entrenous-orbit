@@ -66,6 +66,7 @@
   "conference": {
     "server": "visio.entrenous.chat",
     "secure": false,
+    "tokenEndpoint": "/app/plugins/third/orbit-conference/visio-jwt.php",
     "tagID": "1",
     "channels": true,
     "queries": true,
@@ -93,7 +94,7 @@
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=8"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=9"
   ],
   "builtins": [],
   "analytics": {

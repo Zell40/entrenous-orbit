@@ -20,6 +20,7 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
   "conference": {
     "server": "visio.entrenous.chat",
     "secure": false,
+    "tokenEndpoint": "/app/plugins/third/orbit-conference/visio-jwt.php",
     "tagID": "1",
     "channels": true,
     "queries": true,
@@ -47,7 +48,54 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
 
 Ajuste `denyGroups` aux vrais noms de security groups InspIRCd.  
 Limite dure côté serveur : `MAX_PARTICIPANTS` dans le `.env` Jitsi / Jicofo.  
-Modérateur JWT (`secure: true` + EXTJWT) si tu veux des droits Meet plus stricts qu’« premier arrivé ».
+Pour une visio vraiment privée, active `secure: true` et fais vérifier un `EXTJWT`
+IRC par `visio-jwt.php`, qui renvoie ensuite un JWT Jitsi de courte durée.
+
+## Mode sécurisé
+
+### 1. Config Orbit
+
+```json
+{
+  "conference": {
+    "server": "visio.entrenous.chat",
+    "secure": true,
+    "tokenEndpoint": "/app/plugins/third/orbit-conference/visio-jwt.php",
+    "publicLinkInInvite": false
+  }
+}
+```
+
+`publicLinkInInvite: false` évite de diffuser un lien Jitsi brut réutilisable.
+
+### 2. Secrets côté webchat
+
+Créer `plugins/third/orbit-conference/visio-jwt.local.php` :
+
+```php
+<?php
+$EXTJWT_SECRET = '...';      // même secret que l’ircd extjwt {}
+$JITSI_APP_ID = 'jitsi_app'; // app_id / app_id prosody token
+$JITSI_APP_SECRET = '...';   // secret partagé avec Prosody/Jitsi
+$JITSI_DOMAIN = 'visio.entrenous.chat';
+$JWT_AUDIENCE = 'jitsi';
+$JWT_TTL = 300;
+```
+
+### 3. Principe
+
+- Orbit demande `EXTJWT #salon` au serveur IRC
+- `visio-jwt.php` vérifie cette preuve signée par l’ircd
+- le script émet un JWT Jitsi limité à la salle demandée
+- Jitsi n’accepte plus les accès directs sans jeton valide
+
+### 4. Clients IRC externes
+
+Le même endpoint peut accepter un `EXTJWT` obtenu depuis un autre client IRC
+enregistré. Il faut donc prévoir, côté UX, soit :
+
+- une petite page web de passerelle où coller / transmettre ce `EXTJWT`
+- soit un service/bot qui convertit la preuve IRC en lien court
 
 ## Tag IRC
 

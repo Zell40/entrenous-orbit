@@ -112,6 +112,17 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/orbit-conference.js" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-conference/orbit-conference.js" \
         "$WEBROOT/$CONFERENCE_DIR/"
 fi
+if [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.php" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.php" \
+        "$WEBROOT/$CONFERENCE_DIR/"
+fi
+if [ -f "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php" ]; then
+  echo "$(date -Is) keep $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" \
+        "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php.example"
+  echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi token secrets)"
+fi
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"

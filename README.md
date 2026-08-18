@@ -104,6 +104,17 @@ $FOUNDER_CMODE = 'q';
 
 ```php
 <?php
+// plugins/third/orbit-conference/visio-jwt.local.php
+$EXTJWT_SECRET = '…';      // même secret extjwt côté ircd
+$JITSI_APP_ID = 'jitsi_app';
+$JITSI_APP_SECRET = '…';   // même secret que Prosody/Jitsi token auth
+$JITSI_DOMAIN = 'visio.entrenous.chat';
+$JWT_AUDIENCE = 'jitsi';
+$JWT_TTL = 300;
+```
+
+```php
+<?php
 // filehost-upload.local.php  (racine web)
 $JWT_SECRET = '…';
 $JWT_ISSUER = 'FILEHOST';

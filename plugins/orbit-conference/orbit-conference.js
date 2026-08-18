@@ -94,6 +94,7 @@
     var out = {
       server: c.server || 'visio.entrenous.chat',
       secure: !!c.secure,
+      tokenEndpoint: c.tokenEndpoint || '/app/plugins/third/orbit-conference/visio-jwt.php',
       tagID: c.tagID || '1',
       channels: c.channels !== false,
       queries: c.queries !== false,
@@ -281,6 +282,67 @@
 
   function conferenceStopMatch(text) {
     return /-[^-]+-\s+a arrêté la conférence\./i.test(String(text || ''));
+  }
+
+  function requestExtJwt(orbit, target) {
+    target = String(target || '*');
+    return new Promise(function (resolve, reject) {
+      var off;
+      var acc = '';
+      var timer = window.setTimeout(function () {
+        if (off) off();
+        reject(new Error('jwt_timeout'));
+      }, 10000);
+      off = orbit.on('raw', function (msg) {
+        var cmd = String(msg.command || '').toUpperCase();
+        var params = msg.params || [];
+        var p0 = params[0] || '';
+        var p1 = params[1] || '';
+        if (cmd === '421' && String(p1).toUpperCase() === 'EXTJWT') {
+          window.clearTimeout(timer); off(); reject(new Error('extjwt_unsupported')); return;
+        }
+        if (cmd === '403' && String(p1).toLowerCase() === String(target).toLowerCase()) {
+          window.clearTimeout(timer); off(); reject(new Error('no_such_target')); return;
+        }
+        if (cmd !== 'EXTJWT') return;
+        if (String(p0).toLowerCase() !== String(target).toLowerCase()) return;
+        var moreComing = params.length >= 4 && params[2] === '*';
+        acc += params[params.length - 1] || '';
+        if (moreComing) return;
+        window.clearTimeout(timer);
+        off();
+        resolve(acc);
+      });
+      orbit.irc.send('EXTJWT ' + target);
+    });
+  }
+
+  function requestConferenceJwt(orbit, buffer, room) {
+    var cfg = confCfg(orbit);
+    var proofTarget = isChannelName(buffer) ? buffer : '*';
+    return requestExtJwt(orbit, proofTarget).then(function (proof) {
+      return fetch(cfg.tokenEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + proof,
+        },
+        body: JSON.stringify({
+          room: room,
+          channel: isChannelName(buffer) ? buffer : '',
+        }),
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            throw new Error((data && data.error) || ('http_' + res.status));
+          });
+        }
+        return res.json();
+      }).then(function (data) {
+        if (!data || !data.token) throw new Error('missing_jitsi_token');
+        return String(data.token);
+      });
+    });
   }
 
   /** Announce the conference on IRC once per open session (starter only). */
@@ -646,19 +708,37 @@
       var existing = document.querySelector('script[data-oconf="' + domain + '"]');
 
       if (live.secure) {
-        var off = orbit.on('raw', function (msg) {
-          if (String(msg.command || '').toUpperCase() !== 'EXTJWT') return;
-          var token = msg.params && msg.params[msg.params.length - 1];
-          if (!token || token.length < 20) return;
-          off();
-          mountApi(token);
+        requestConferenceJwt(orbit, buffer, room).then(function (jwt) {
+          if (!cancelled) mountApi(jwt);
+        }).catch(function (e) {
+          if (cancelled) return;
+          var code = String((e && e.message) || e || '');
+          setErr(({
+            extjwt_unsupported: orbit.i18n.pick({
+              fr: 'Ton serveur IRC ne supporte pas EXTJWT pour vérifier ton identité.',
+              en: 'Your IRC server does not support EXTJWT identity proof.',
+            }),
+            jwt_timeout: orbit.i18n.pick({
+              fr: 'Le serveur IRC n’a pas répondu à temps à la demande EXTJWT.',
+              en: 'The IRC server did not answer the EXTJWT request in time.',
+            }),
+            invalid_extjwt: orbit.i18n.pick({
+              fr: 'La preuve EXTJWT a été refusée par le service visio.',
+              en: 'The EXTJWT proof was rejected by the conference service.',
+            }),
+            account_required: orbit.i18n.pick({
+              fr: 'Un compte IRC enregistré est requis pour la visio sécurisée.',
+              en: 'A registered IRC account is required for secure conference access.',
+            }),
+            server_not_configured: orbit.i18n.pick({
+              fr: 'Le service visio sécurisé n’est pas encore configuré côté serveur.',
+              en: 'The secure conference service is not configured yet on the server.',
+            }),
+          })[code] || ('Visio sécurisée: ' + code));
         });
-        orbit.irc.send('EXTJWT ' + roomNameFor(orbit, buffer));
-        timers.push(window.setTimeout(function () { off(); if (!cancelled) mountApi(); }, 4000));
         return function () {
           cancelled = true;
           timers.forEach(window.clearTimeout);
-          off();
           if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
         };
       }
