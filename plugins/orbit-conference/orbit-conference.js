@@ -19,7 +19,7 @@
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
 
-  var conf = { active: false, buffer: '', listeners: new Set() };
+  var conf = { active: false, buffer: '', room: '', listeners: new Set() };
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
   var lastViewHeight = '46%';
@@ -27,22 +27,34 @@
   var announced = Object.create(null);
 
   // Pending invites (tagged IRC lines hidden in Orbit) — buffer → { nick, link }
-  var invites = { map: Object.create(null), listeners: new Set() };
+  // `rev` must change on every update: returning the same mutated map from
+  // getSnapshot makes useSyncExternalStore skip re-renders (no Join banner).
+  var invites = { map: Object.create(null), rev: 0, listeners: new Set() };
   function subscribeInvites(cb) { invites.listeners.add(cb); return function () { invites.listeners.delete(cb); }; }
-  function getInvitesSnap() { return invites.map; }
+  function getInvitesSnap() { return invites.rev; }
+  function inviteKey(buffer) { return String(buffer || '').toLowerCase(); }
+  function getInviteFor(buffer) {
+    if (!buffer) return null;
+    return invites.map[inviteKey(buffer)] || null;
+  }
   function setInvite(buffer, data) {
     if (!buffer) return;
-    if (data) invites.map[buffer] = data;
-    else delete invites.map[buffer];
+    var key = inviteKey(buffer);
+    if (data) invites.map[key] = data;
+    else delete invites.map[key];
+    invites.rev++;
     invites.listeners.forEach(function (l) { l(); });
   }
 
   // Self security-group fragments from WHOIS special lines
   var myGroupsText = '';
+  /** Last Meet room id per channel (for -01/-02 collision suffixes). */
+  var channelRooms = Object.create(null);
 
-  function setConf(buffer) {
+  function setConf(buffer, room) {
     conf.active = !!buffer;
     conf.buffer = buffer || '';
+    conf.room = buffer ? (room || conf.room || '') : '';
     document.body.classList.toggle('oconf-open', !!buffer);
     if (buffer) {
       document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
@@ -65,8 +77,8 @@
       enabledInChannels: c.enabledInChannels || ['*'],
       disabledInChannels: c.disabledInChannels || [],
       viewHeight: c.viewHeight || '46%',
-      inviteText: c.inviteText || '{{ nick }} vous invite à un appel vidéo. Rejoindre : {{ link }}',
-      joinText: c.joinText || '{{ nick }} a rejoint la conférence. Lien : {{ link }}',
+      inviteText: c.inviteText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
+      joinText: c.joinText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       joinButtonText: c.joinButtonText || 'Rejoindre',
       requireAccount: c.requireAccount !== false,
       requireChannelOp: c.requireChannelOp !== false,
@@ -171,18 +183,51 @@
     return 'query-' + members.join('+');
   }
 
-  function encodedRoom(orbit, buffer) {
-    var net = orbit.server.network() || 'entrenous';
-    var room = net + '/' + roomNameFor(orbit, buffer);
-    return Array.prototype.map.call(room, function (c) {
-      return c.charCodeAt(0).toString(16);
-    }).join('');
+  /** Jitsi-safe id from an IRC channel / query label. */
+  function sanitizeMeetId(s) {
+    return String(s || '')
+      .replace(/^[#&+!]/, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 72) || 'room';
+  }
+
+  /**
+   * Meet room = IRC channel name (readable). Same channel → same room so everyone
+   * meets. If a new parallel room is forced, append -01, -02, …
+   */
+  function allocateMeetRoom(orbit, buffer, forceNew) {
+    var key = inviteKey(buffer);
+    var cur = channelRooms[key];
+    if (!forceNew && conf.active && conf.buffer && inviteKey(conf.buffer) === key && conf.room) {
+      return conf.room;
+    }
+    if (!forceNew && cur && cur.name) return cur.name;
+    var serial = cur ? cur.serial + 1 : 1;
+    var base = isChannelName(buffer)
+      ? sanitizeMeetId(buffer)
+      : sanitizeMeetId('q-' + [orbit.state.nick() || 'user', buffer].sort(function (a, b) {
+        return a.localeCompare(b, undefined, { sensitivity: 'base' });
+      }).join('-'));
+    var name = serial <= 1 ? base : (base + '-' + (serial < 10 ? '0' + serial : String(serial)));
+    channelRooms[key] = { name: name, serial: serial };
+    return name;
+  }
+
+  function meetRoomFor(orbit, buffer) {
+    if (conf.active && conf.buffer && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room) {
+      return conf.room;
+    }
+    var cur = channelRooms[inviteKey(buffer)];
+    if (cur && cur.name) return cur.name;
+    return allocateMeetRoom(orbit, buffer, false);
   }
 
   function publicLink(orbit, buffer) {
     var cfg = confCfg(orbit);
     var domain = cfg.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    return 'https://' + domain + '/' + encodedRoom(orbit, buffer);
+    return 'https://' + domain + '/' + meetRoomFor(orbit, buffer);
   }
 
   /** Announce the conference on IRC once per open session (starter only). */
@@ -227,7 +272,11 @@
       var msg = orbit.i18n.pick({ fr: 'Fermer la conférence en cours ?', en: 'Close the current conference?' });
       if (!window.confirm(msg)) return;
     }
-    setConf(buffer);
+    // Starters allocate (or reuse) a readable Meet room; joiners reuse the same id.
+    var room = opts.joinOnly
+      ? meetRoomFor(orbit, buffer)
+      : allocateMeetRoom(orbit, buffer, !!opts.newRoom);
+    setConf(buffer, room);
     // Starters announce immediately so other IRC clients see the invite even if
     // Meet's videoConferenceJoined event never fires.
     if (!opts.joinOnly) announceConference(orbit, buffer);
@@ -258,9 +307,11 @@
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    var hasInvite = !!getInviteFor(activeBuf);
     if (!bufferAllowed(orbit, activeBuf)) return null;
     // Hide if cannot start and there is no invite to join.
-    if (!openBuf && !canStart(orbit, activeBuf).ok && !invites.map[activeBuf]) return null;
+    if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
     if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
     var on = openBuf === activeBuf;
     return h('button', {
@@ -271,7 +322,7 @@
       'aria-pressed': on,
       onClick: function () {
         if (on) openConference(orbit, activeBuf, { joinOnly: true });
-        else openConference(orbit, activeBuf, { joinOnly: !!invites.map[activeBuf] });
+        else openConference(orbit, activeBuf, { joinOnly: hasInvite && !canStart(orbit, activeBuf).ok });
       },
     }, h(CameraIcon));
   }
@@ -280,8 +331,10 @@
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    var hasInvite = !!getInviteFor(activeBuf);
     if (!bufferAllowed(orbit, activeBuf)) return null;
-    if (!openBuf && !canStart(orbit, activeBuf).ok && !invites.map[activeBuf]) return null;
+    if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
     if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
     var on = openBuf === activeBuf;
     var label = on
@@ -293,7 +346,7 @@
       role: 'menuitem',
       onClick: function () {
         if (on) openConference(orbit, activeBuf, { joinOnly: true });
-        else openConference(orbit, activeBuf, { joinOnly: !!invites.map[activeBuf] });
+        else openConference(orbit, activeBuf, { joinOnly: hasInvite && !canStart(orbit, activeBuf).ok });
       },
     },
       h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon)),
@@ -304,9 +357,9 @@
   function InviteBanner(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
-    var map = useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
-    var inv = map[activeBuf];
+    var inv = getInviteFor(activeBuf);
     if (!inv || openBuf) return null;
     if (!canJoin(orbit, activeBuf).ok) return null;
     var cfg = confCfg(orbit);
@@ -374,7 +427,7 @@
 
       var live = confCfg(orbit);
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
-      var room = encodedRoom(orbit, buffer);
+      var room = meetRoomFor(orbit, buffer);
       var nick = orbit.state.nick() || 'user';
       var isChan = isChannelName(buffer);
       var maxP = isChan ? live.maxParticipantsChannel : live.maxParticipantsQuery;
@@ -484,23 +537,48 @@
     function onResizeStart(ev) {
       if (window.matchMedia && window.matchMedia('(max-width: 880px)').matches) return;
       ev.preventDefault();
+      ev.stopPropagation();
+      var panel = panelRef.current;
+      if (!panel) return;
       var startY = ev.clientY;
-      var startH = (panelRef.current && panelRef.current.getBoundingClientRect().height) || 320;
+      var startH = panel.getBoundingClientRect().height || 320;
+      var maxH = Math.round(window.innerHeight * 0.7);
+      var iframe = panel.querySelector('iframe');
+      var lastH = startH;
+      var raf = 0;
+      if (iframe) iframe.style.pointerEvents = 'none';
+      document.body.style.cursor = 'ns-resize';
+      document.body.style.userSelect = 'none';
+
+      function apply(h) {
+        lastH = h;
+        panel.style.height = h + 'px';
+        panel.style.maxHeight = '70vh';
+      }
+
       function move(e) {
         var nh = Math.round(startH + (e.clientY - startY));
-        nh = Math.max(180, Math.min(Math.round(window.innerHeight * 0.7), nh));
-        setHeightPx(nh);
+        nh = Math.max(180, Math.min(maxH, nh));
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(function () { apply(nh); });
       }
+
       function up() {
+        if (raf) cancelAnimationFrame(raf);
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
-        try {
-          var hnow = (panelRef.current && panelRef.current.getBoundingClientRect().height) || startH;
-          orbit.storage.set(HEIGHT_KEY, Math.round(hnow));
-        } catch (e) { /* ignore */ }
+        document.removeEventListener('blur', up);
+        if (iframe) iframe.style.pointerEvents = '';
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        var finalH = Math.max(180, Math.min(maxH, Math.round(lastH)));
+        setHeightPx(finalH);
+        try { orbit.storage.set(HEIGHT_KEY, finalH); } catch (err) { /* ignore */ }
       }
+
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
+      document.addEventListener('blur', up);
     }
 
     if (!buffer) {
@@ -552,8 +630,9 @@
       '.oconf-panel__err{padding:.5rem .75rem;color:#b91c1c;font-size:.85rem}',
       '.oconf-panel__host{flex:1;min-height:0}',
       '.oconf-panel__host>div,.oconf-panel__host iframe{width:100%!important;height:100%!important}',
-      '.oconf-panel__resize{flex:none;height:7px;cursor:ns-resize;background:linear-gradient(to bottom,transparent,rgba(127,127,127,.22));touch-action:none}',
-      '.oconf-panel__resize:hover{background:rgba(127,127,127,.28)}',
+      '.oconf-panel__resize{flex:none;height:10px;cursor:ns-resize;background:linear-gradient(to bottom,transparent,rgba(127,127,127,.28));touch-action:none;position:relative;z-index:2}',
+      '.oconf-panel__resize:hover,.oconf-panel__resize:active{background:rgba(127,127,127,.35)}',
+      '.oconf-panel.is-resizing iframe{pointer-events:none!important}',
       /* Shrink topic banner while video is open so chat keeps vertical space. */
       'body.oconf-open .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
       'body.oconf-open .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
@@ -596,12 +675,29 @@
       }
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};
-      if (!Object.prototype.hasOwnProperty.call(tags, TAG)) return;
-      var target = (msg.params && msg.params[0]) || '';
       var text = (msg.params && msg.params[1]) || '';
-      var linkMatch = text.match(/https?:\/\/[^\s]+/i);
+      var cfgLive = confCfg(orbit);
+      var host = String(cfgLive.server || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+      var linkRe = host
+        ? new RegExp('https?:\\/\\/' + host.replace(/\./g, '\\.') + '\\/[^\\s]+', 'i')
+        : /https?:\/\/[^\s]+/i;
+      var linkMatch = text.match(linkRe);
+      var hasTag = Object.prototype.hasOwnProperty.call(tags, TAG);
+      // Prefer client-tag; also accept plain invite lines (other clients / tag drop).
+      if (!hasTag) {
+        if (!linkMatch) return;
+        if (!/invite à rejoindre la conférence|rejoindre la conférence|visio/i.test(text)) return;
+      }
+      var target = (msg.params && msg.params[0]) || '';
       var buf = isChannelName(target) ? target : (msg.nick || target);
       if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+      // Remember Meet room from the public link so joiners open the same room id.
+      if (linkMatch) {
+        try {
+          var path = (linkMatch[0].split('/').filter(Boolean).pop() || '').split('?')[0];
+          if (path) channelRooms[inviteKey(buf)] = { name: decodeURIComponent(path), serial: 1 };
+        } catch (e) { /* ignore */ }
+      }
       setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf) });
     });
 

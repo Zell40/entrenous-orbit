@@ -10,6 +10,7 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
 - Démarrage salon : **opérateurs** (`~&@`) uniquement (configurable)
 - Compte IRC enregistré requis (configurable) ; groupes refusés via WHOIS (`denyGroups`)
 - Invite IRC envoyée **dès le démarrage** (par l’op), avec lien public ; Orbit masque la ligne et montre une bannière **Rejoindre**
+- Nom de salle Meet = nom du salon IRC (lisible) ; suffixe `-01`, `-02`… si une nouvelle salle parallèle est forcée
 - Le 1ᵉʳ participant (l’op qui démarre) est modérateur Meet sur une instance ouverte
 
 ## Config (`config.json`)
@@ -34,12 +35,12 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
     "maxParticipantsQuery": 2,
     "publicLinkInInvite": true,
     "hideInviteForOrbit": true,
-    "inviteText": "{{ nick }} vous invite à un appel vidéo. Rejoindre : {{ link }}",
-    "joinText": "{{ nick }} a rejoint la conférence. Lien : {{ link }}",
+    "inviteText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
+    "joinText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=7"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=8"
   ]
 }
 ```
