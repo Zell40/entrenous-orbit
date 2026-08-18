@@ -15,6 +15,7 @@
   var useSyncExternalStore = React.useSyncExternalStore;
 
   var TAG = '+entrenous.fr/conference';
+  var ROOM_TAG = '+entrenous.fr/conference-room';
   var EVT_SHOW = 'plugin-conference.show';
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
@@ -317,6 +318,30 @@
     });
   }
 
+  function loadJitsiApi(domain) {
+    domain = String(domain || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      function ok() { if (!settled) { settled = true; resolve(); } }
+      function fail() { if (!settled) { settled = true; reject(new Error('jitsi_script')); } }
+      if (window.JitsiMeetExternalAPI) { ok(); return; }
+      var existing = document.querySelector('script[data-oconf="' + domain + '"]');
+      if (existing) {
+        existing.addEventListener('load', ok);
+        existing.addEventListener('error', fail);
+        window.setTimeout(function () { if (window.JitsiMeetExternalAPI) ok(); }, 0);
+        return;
+      }
+      var scr = document.createElement('script');
+      scr.src = 'https://' + domain + '/external_api.js';
+      scr.async = true;
+      scr.dataset.oconf = domain;
+      scr.onload = ok;
+      scr.onerror = fail;
+      document.head.appendChild(scr);
+    });
+  }
+
   function requestConferenceJwt(orbit, buffer, room) {
     var cfg = confCfg(orbit);
     var proofTarget = isChannelName(buffer) ? buffer : '*';
@@ -351,13 +376,22 @@
     if (!buffer || (announced[buffer] && !opts.force)) return;
     announced[buffer] = true;
     var cfg = confCfg(orbit);
+    var room = meetRoomFor(orbit, buffer);
+    // No public Jitsi URL: do not send a PRIVMSG that other IRC clients would
+    // see as "cliquez sur le lien" with no link. Orbit clients get a TAGMSG.
+    if (!cfg.publicLinkInInvite) {
+      try {
+        orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
+      } catch (e) { /* ignore */ }
+      return;
+    }
     var nick = orbit.state.nick() || 'user';
     var link = publicLink(orbit, buffer);
     var isChan = isChannelName(buffer);
     var tpl = isChan ? (cfg.joinText || '') : (cfg.inviteText || '');
     var text = '* ' + tpl
       .replace(/\{\{\s*nick\s*\}\}/g, nick)
-      .replace(/\{\{\s*link\s*\}\}/g, cfg.publicLinkInInvite ? link : '');
+      .replace(/\{\{\s*link\s*\}\}/g, link);
     text = text.replace(/\s+/g, ' ').trim();
     if (!text || text === '*') return;
     var tags = {};
@@ -712,72 +746,45 @@
         }
       }
 
-      var existing = document.querySelector('script[data-oconf="' + domain + '"]');
-
-      function ensureJitsiApi(onReady) {
-        if (window.JitsiMeetExternalAPI) {
-          onReady();
-          return;
-        }
-        if (existing) {
-          existing.addEventListener('load', onReady);
-          return;
-        }
-        var scr = document.createElement('script');
-        scr.src = 'https://' + domain + '/external_api.js';
-        scr.async = true;
-        scr.dataset.oconf = domain;
-        scr.onload = onReady;
-        scr.onerror = function () {
-          setErr(orbit.i18n.pick({
+      var tokenReady = live.secure
+        ? requestConferenceJwt(orbit, buffer, room)
+        : Promise.resolve('');
+      Promise.all([tokenReady, loadJitsiApi(domain)]).then(function (pair) {
+        if (!cancelled) mountApi(live.secure ? pair[0] : undefined);
+      }).catch(function (e) {
+        if (cancelled) return;
+        var code = String((e && e.message) || e || '');
+        setErr(({
+          extjwt_unsupported: orbit.i18n.pick({
+            fr: 'Ton serveur IRC ne supporte pas EXTJWT pour vérifier ton identité.',
+            en: 'Your IRC server does not support EXTJWT identity proof.',
+          }),
+          jwt_timeout: orbit.i18n.pick({
+            fr: 'Le serveur IRC n’a pas répondu à temps à la demande EXTJWT.',
+            en: 'The IRC server did not answer the EXTJWT request in time.',
+          }),
+          invalid_extjwt: orbit.i18n.pick({
+            fr: 'La preuve EXTJWT a été refusée par le service visio.',
+            en: 'The EXTJWT proof was rejected by the conference service.',
+          }),
+          account_required: orbit.i18n.pick({
+            fr: 'Un compte IRC enregistré est requis pour la visio sécurisée.',
+            en: 'A registered IRC account is required for secure conference access.',
+          }),
+          server_not_configured: orbit.i18n.pick({
+            fr: 'Le service visio sécurisé n’est pas encore configuré côté serveur.',
+            en: 'The secure conference service is not configured yet on the server.',
+          }),
+          jitsi_script: orbit.i18n.pick({
             fr: 'Impossible de charger Jitsi (' + domain + ').',
             en: 'Unable to load Jitsi (' + domain + ').',
-          }));
-        };
-        document.head.appendChild(scr);
-      }
-
-      if (live.secure) {
-        requestConferenceJwt(orbit, buffer, room).then(function (jwt) {
-          if (cancelled) return;
-          ensureJitsiApi(function () { mountApi(jwt); });
-        }).catch(function (e) {
-          if (cancelled) return;
-          var code = String((e && e.message) || e || '');
-          setErr(({
-            extjwt_unsupported: orbit.i18n.pick({
-              fr: 'Ton serveur IRC ne supporte pas EXTJWT pour vérifier ton identité.',
-              en: 'Your IRC server does not support EXTJWT identity proof.',
-            }),
-            jwt_timeout: orbit.i18n.pick({
-              fr: 'Le serveur IRC n’a pas répondu à temps à la demande EXTJWT.',
-              en: 'The IRC server did not answer the EXTJWT request in time.',
-            }),
-            invalid_extjwt: orbit.i18n.pick({
-              fr: 'La preuve EXTJWT a été refusée par le service visio.',
-              en: 'The EXTJWT proof was rejected by the conference service.',
-            }),
-            account_required: orbit.i18n.pick({
-              fr: 'Un compte IRC enregistré est requis pour la visio sécurisée.',
-              en: 'A registered IRC account is required for secure conference access.',
-            }),
-            server_not_configured: orbit.i18n.pick({
-              fr: 'Le service visio sécurisé n’est pas encore configuré côté serveur.',
-              en: 'The secure conference service is not configured yet on the server.',
-            }),
-          })[code] || ('Visio sécurisée: ' + code));
-        });
-        return function () {
-          cancelled = true;
-          timers.forEach(window.clearTimeout);
-          if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
-        };
-      }
-
-      ensureJitsiApi(function () { mountApi(); });
+          }),
+        })[code] || (live.secure ? ('Visio sécurisée: ' + code) : String(code)));
+      });
 
       return function () {
         cancelled = true;
+        timers.forEach(window.clearTimeout);
         if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
       };
     }, [buffer]);
@@ -856,7 +863,19 @@
           }, '✕')
         ),
         err ? h('div', { className: 'oconf-panel__err' }, err) : null,
-        h('div', { className: 'oconf-panel__host', ref: hostRef }),
+        h('div', { className: 'oconf-panel__stage' },
+          (!joined && !err) ? h('div', { className: 'oconf-splash', role: 'status' },
+            (((orbit.config().branding) || {}).icon)
+              ? h('img', { className: 'oconf-splash__logo', src: orbit.config().branding.icon, alt: '' })
+              : null,
+            h('div', { className: 'oconf-splash__spin' }),
+            h('div', { className: 'oconf-splash__txt' }, orbit.i18n.pick({
+              fr: 'Connexion à la visio…',
+              en: 'Connecting to video…',
+            }))
+          ) : null,
+          h('div', { className: 'oconf-panel__host', ref: hostRef })
+        ),
         h('div', {
           className: 'oconf-panel__resize',
           title: orbit.i18n.pick({ fr: 'Glisser pour redimensionner', en: 'Drag to resize' }),
@@ -878,8 +897,14 @@
       '.oconf-panel__close{margin-left:auto;border:0;background:transparent;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem}',
       '.oconf-panel__close:hover{background:var(--bg-soft-2,rgba(127,127,127,.14));color:var(--ink)}',
       '.oconf-panel__err{padding:.5rem .75rem;color:#b91c1c;font-size:.85rem}',
-      '.oconf-panel__host{flex:1;min-height:0}',
+      '.oconf-panel__stage{position:relative;flex:1;min-height:0;background:#0b0b0b}',
+      '.oconf-panel__host{position:absolute;inset:0;z-index:1}',
       '.oconf-panel__host>div,.oconf-panel__host iframe{width:100%!important;height:100%!important}',
+      '.oconf-splash{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;background:#0b0b0b;color:#e5e7eb;pointer-events:none}',
+      '.oconf-splash__logo{width:52px;height:52px;object-fit:contain;border-radius:14px}',
+      '.oconf-splash__spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.18);border-top-color:#fff;border-radius:50%;animation:oconfSpin .75s linear infinite}',
+      '.oconf-splash__txt{font-size:.82rem;font-weight:700;letter-spacing:.02em;opacity:.92}',
+      '@keyframes oconfSpin{to{transform:rotate(360deg)}}',
       '.oconf-panel__resize{flex:none;height:10px;cursor:ns-resize;background:linear-gradient(to bottom,transparent,rgba(127,127,127,.28));touch-action:none;position:relative;z-index:2}',
       '.oconf-panel__resize:hover,.oconf-panel__resize:active{background:rgba(127,127,127,.35)}',
       '.oconf-panel.is-resizing iframe{pointer-events:none!important}',
@@ -916,6 +941,7 @@
     injectStyles();
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
+    try { loadJitsiApi(cfg.server); } catch (e) { /* ignore */ }
 
     // Warm WHOIS for group ACL (controle parental, etc.)
     try {
@@ -931,6 +957,17 @@
       }
       if (cmd === '318' && msg.params && msg.params[1] === orbit.state.nick()) {
         // end of whois — keep myGroupsText
+      }
+      if (String(cmd).toUpperCase() === 'TAGMSG') {
+        var tagTags = msg.tags || {};
+        if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)) return;
+        var tagTarget = (msg.params && msg.params[0]) || '';
+        var tagBuf = isChannelName(tagTarget) ? tagTarget : (msg.nick || tagTarget);
+        if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+        var meetId = String(tagTags[ROOM_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
+        if (meetId) channelRooms[inviteKey(tagBuf)] = { name: meetId, serial: 1 };
+        setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf) });
+        return;
       }
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};

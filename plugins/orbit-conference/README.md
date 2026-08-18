@@ -80,16 +80,35 @@ $JITSI_APP_SECRET = '...';   // secret partagé avec Prosody/Jitsi
 $JITSI_DOMAIN = 'visio.entrenous.chat';
 $JWT_AUDIENCE = '';          // vide = audience = JITSI_APP_ID (recommandé)
 $JWT_TTL = 300;
+$START_CMODES = ['q', 'a', 'o']; // lettres PREFIX : ~ & @
 ```
 
-### 3. Principe
+Le JWT pose `affiliation=owner` seulement si l’EXTJWT du salon contient un de ces modes. Les autres participants reçoivent `member`.
+
+### 3. Jitsi : ne plus promouvoir tout le monde
+
+Sans ça, Jicofo considère **tout utilisateur JWT** comme modérateur. Dans le `.env` Jitsi :
+
+```env
+ENABLE_AUTO_OWNER=0
+JICOFO_ENABLE_AUTH=0
+XMPP_MUC_MODULES=token_affiliation
+```
+
+Puis :
+
+```bash
+docker compose up -d --force-recreate prosody jicofo web
+```
+
+### 4. Principe
 
 - Orbit demande `EXTJWT #salon` au serveur IRC
 - `visio-jwt.php` vérifie cette preuve signée par l’ircd
 - le script émet un JWT Jitsi limité à la salle demandée
 - Jitsi n’accepte plus les accès directs sans jeton valide
 
-### 4. Clients IRC externes
+### 5. Clients IRC externes
 
 Le même endpoint peut accepter un `EXTJWT` obtenu depuis un autre client IRC
 enregistré. Il faut donc prévoir, côté UX, soit :

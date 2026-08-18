@@ -23,6 +23,9 @@ $JITSI_DOMAIN = 'visio.entrenous.chat';
 $JWT_AUDIENCE = '';
 $JWT_TTL = 300; // 5 minutes
 $ALLOWED_CLOCK_SKEW = 30;
+// Channel mode letters that grant Jitsi moderator (ISUPPORT PREFIX, not display chars).
+// PREFIX=(qaohv)~&@%+  →  q=~  a=&  o=@  — matches conference.startPrefixes ~&@
+$START_CMODES = ['q', 'a', 'o'];
 
 $__local = __DIR__ . '/visio-jwt.local.php';
 if (is_file($__local)
@@ -80,6 +83,30 @@ function sign_jitsi_jwt(array $claims, string $secret): string {
 function room_ok(string $room): bool {
   return $room !== '' && preg_match('/^[A-Za-z0-9._-]{1,90}$/', $room) === 1;
 }
+function extjwt_cmodes(array $claims): array {
+  $raw = $claims['cmodes'] ?? [];
+  if (is_string($raw)) {
+    return preg_split('//u', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+  }
+  if (!is_array($raw)) return [];
+  $out = [];
+  foreach ($raw as $m) {
+    $m = trim((string)$m);
+    if ($m !== '') $out[] = $m;
+  }
+  return $out;
+}
+/** Salon ops only. Private queries (no channel in the proof) keep moderator. */
+function is_jitsi_moderator(array $claims, array $startCmodes): bool {
+  $channel = trim((string)($claims['channel'] ?? ''));
+  if ($channel === '' || $channel === '*') return true;
+  $have = extjwt_cmodes($claims);
+  foreach ($startCmodes as $need) {
+    $need = trim((string)$need);
+    if ($need !== '' && in_array($need, $have, true)) return true;
+  }
+  return false;
+}
 
 if ($EXTJWT_SECRET === 'CHANGE_ME_EXTJWT_SECRET' || $JITSI_APP_ID === 'CHANGE_ME_JITSI_APP_ID' || $JITSI_APP_SECRET === 'CHANGE_ME_JITSI_APP_SECRET') {
   http_response_code(500);
@@ -127,12 +154,15 @@ if ($account === '') {
 }
 
 $nick = trim((string)($claims['sub'] ?? $account));
+$startCmodes = is_array($START_CMODES) ? $START_CMODES : ['q', 'a', 'o'];
+$isMod = is_jitsi_moderator($claims, $startCmodes);
 $now = time();
 $jwtClaims = [
   'aud' => $jwtAudience,
   'iss' => $JITSI_APP_ID,
   'sub' => $JITSI_DOMAIN,
   'room' => $room,
+  'moderator' => $isMod,
   'iat' => $now,
   'nbf' => $now - $ALLOWED_CLOCK_SKEW,
   'exp' => $now + max(60, (int)$JWT_TTL),
@@ -141,6 +171,8 @@ $jwtClaims = [
       'id' => $account,
       'name' => $nick,
       'avatar' => '',
+      'moderator' => $isMod,
+      'affiliation' => $isMod ? 'owner' : 'member',
     ],
   ],
 ];
@@ -150,4 +182,5 @@ echo json_encode([
   'exp' => $jwtClaims['exp'],
   'room' => $room,
   'account' => $account,
+  'moderator' => $isMod,
 ], JSON_UNESCAPED_SLASHES);
