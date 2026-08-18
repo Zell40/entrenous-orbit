@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * orbit-conference — Jitsi video/audio for Orbit (EntreNous)
  * Tag: +entrenous.fr/conference
  * Requires Orbit apiVersion >= 7 (msgTagged + message tags on MessageInfo).
@@ -25,6 +25,25 @@
   var lastViewHeight = '46%';
   /** Buffers already announced on IRC for the current conference session. */
   var announced = Object.create(null);
+  /** Buffers where the user dismissed the invite banner (won't re-show until a new invite). */
+  var dismissed = Object.create(null);
+  /** Buffers where the conference was stopped — show a "visio ended" notice. */
+  var stoppedNote = { map: Object.create(null), rev: 0, listeners: new Set() };
+  function subscribeStoppedNote(cb) { stoppedNote.listeners.add(cb); return function () { stoppedNote.listeners.delete(cb); }; }
+  function getStoppedNoteSnap() { return stoppedNote.rev; }
+  function setStoppedNote(buffer, nick) {
+    if (!buffer) return;
+    var key = inviteKey(buffer);
+    if (nick !== null) stoppedNote.map[key] = nick || '';
+    else delete stoppedNote.map[key];
+    stoppedNote.rev++;
+    stoppedNote.listeners.forEach(function (l) { l(); });
+  }
+  function getStoppedNoteFor(buffer) {
+    if (!buffer) return null;
+    var key = inviteKey(buffer);
+    return Object.prototype.hasOwnProperty.call(stoppedNote.map, key) ? stoppedNote.map[key] : null;
+  }
 
   // Pending invites (tagged IRC lines hidden in Orbit) — buffer → { nick, link }
   // `rev` must change on every update: returning the same mutated map from
@@ -64,6 +83,7 @@
     } else {
       document.documentElement.style.removeProperty('--oconf-h');
       announced = Object.create(null);
+      dismissed = Object.create(null);
       conf.startedByMe = false;
     }
     conf.listeners.forEach(function (l) { l(); });
@@ -406,27 +426,55 @@
 
   function InviteBanner(props) {
     var orbit = props.orbit;
-    var activeBuf = useActiveBuffer(orbit);
+    var bufFromProp = props.buffer || null;
+    var activeBuf = bufFromProp || useActiveBuffer(orbit);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    useSyncExternalStore(subscribeStoppedNote, getStoppedNoteSnap, getStoppedNoteSnap);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    var stopped = getStoppedNoteFor(activeBuf);
+
+    if (stopped !== null && !openBuf) {
+      return h('div', { className: 'oconf-invite oconf-invite--stopped' },
+        h('span', { className: 'oconf-invite__txt' },
+          (stopped ? stopped + ' ' : '') + orbit.i18n.pick({ fr: 'a arr\u00eat\u00e9 la visio.', en: 'ended the video call.' })
+        ),
+        h('button', {
+          type: 'button',
+          className: 'oconf-invite__dismiss',
+          'aria-label': orbit.i18n.pick({ fr: 'Fermer', en: 'Close' }),
+          onClick: function () { setStoppedNote(activeBuf, null); },
+        }, '\u2715')
+      );
+    }
+
     var inv = getInviteFor(activeBuf);
     if (!inv || openBuf) return null;
+    if (dismissed[inviteKey(activeBuf)]) return null;
     if (!canJoin(orbit, activeBuf).ok) return null;
     var cfg = confCfg(orbit);
     var joinLabel = (cfg.joinButtonText || 'Rejoindre');
     if (/^rejoindre$/i.test(joinLabel)) joinLabel = 'Rejoindre la visio';
     return h('div', { className: 'oconf-invite' },
       h('span', { className: 'oconf-invite__txt' },
-        (inv.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({ fr: 'a lancé une visio.', en: 'started a video call.' })
+        (inv.nick || 'Quelqu\u2019un') + ' ' + orbit.i18n.pick({ fr: 'a lanc\u00e9 une visio.', en: 'started a video call.' })
       ),
       h('button', {
         type: 'button',
         className: 'oconf-invite__btn',
         onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
-      }, '📹 ' + joinLabel)
+      }, '\uD83D\uDCF9 ' + joinLabel),
+      h('button', {
+        type: 'button',
+        className: 'oconf-invite__dismiss',
+        'aria-label': orbit.i18n.pick({ fr: 'Ignorer', en: 'Dismiss' }),
+        title: orbit.i18n.pick({ fr: 'Ne pas rejoindre', en: 'Dismiss' }),
+        onClick: function () {
+          dismissed[inviteKey(activeBuf)] = true;
+          setInvite(activeBuf, null);
+        },
+      }, '\u2715')
     );
   }
-
   function JoinCard(props) {
     // Kept for non-hidden mode; with hideInviteForOrbit the banner replaces this.
     var orbit = props.orbit;
@@ -658,7 +706,7 @@
     }
 
     if (!buffer) {
-      return h(InviteBanner, { orbit: orbit });
+      return null;
     }
 
     var style = heightPx
@@ -666,7 +714,6 @@
       : { height: cfg.viewHeight };
 
     return h(React.Fragment, null,
-      h(InviteBanner, { orbit: orbit }),
       h('div', { className: 'oconf-panel', style: style, ref: panelRef },
         h('div', { className: 'oconf-panel__bar' },
           h('strong', { className: 'oconf-panel__title' },
@@ -720,6 +767,10 @@
       'body.oconf-open .main__room-bg{height:min(22%,160px)!important}',
       '@media (max-width:880px){body.oconf-open .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.oconf-open .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}}',
       '.oconf-invite{flex:none;display:flex;align-items:center;gap:.7rem;padding:.52rem .85rem;border-bottom:1px solid color-mix(in srgb,var(--accent,#2563eb) 38%,var(--border,#333));background:color-mix(in srgb,var(--accent,#2563eb) 24%,var(--bg,#111));box-shadow:inset 0 -1px 0 rgba(255,255,255,.06),0 8px 24px -18px rgba(37,99,235,.55);backdrop-filter:blur(3px)}',
+      '.oconf-invite--stopped{background:color-mix(in srgb,#6b7280 20%,var(--bg,#111));border-bottom-color:color-mix(in srgb,#6b7280 35%,var(--border,#333));box-shadow:none}',
+      '.oconf-invite--stopped .oconf-invite__txt{font-weight:600;opacity:.85}',
+      '.oconf-invite__dismiss{flex:none;border:0;background:transparent;color:var(--muted,#888);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:.95rem;display:flex;align-items:center;justify-content:center;margin-left:.1rem}',
+      '.oconf-invite__dismiss:hover{background:rgba(127,127,127,.14);color:var(--ink)}',
       '.oconf-invite__txt{flex:1;min-width:0;font-size:.86rem;font-weight:800;color:var(--ink-strong,var(--ink));text-shadow:0 1px 0 rgba(255,255,255,.08)}',
       '.oconf-invite__btn{border:1px solid color-mix(in srgb,var(--accent,#2563eb) 62%,white);cursor:pointer;font:inherit;font-size:.8rem;font-weight:800;padding:.38rem .82rem;border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--accent,#2563eb) 92%,white),color-mix(in srgb,var(--accent,#2563eb) 74%,black 8%));color:#fff;box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75);animation:oconfInvitePulse 1.6s ease-out infinite;white-space:nowrap}',
       '.oconf-invite__btn:hover{filter:brightness(1.05);transform:translateY(-1px)}',
@@ -814,6 +865,8 @@
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
+    // Standalone invite/stopped banner rendered for all layouts via overlay slot.
+    orbit.addUi('overlay', function () { return h(InviteBanner, { orbit: orbit }); });
     orbit.addMessageDecorator(function (m) {
       if (!m.tags || !Object.prototype.hasOwnProperty.call(m.tags, TAG)) return null;
       return h(JoinCard, { orbit: orbit, m: m });
