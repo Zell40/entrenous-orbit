@@ -8,6 +8,7 @@
 | `jitsi-update.sh` | Script de vérification / mise à jour |
 | `jitsi-update.service` | Service one-shot déclenché par le timer |
 | `jitsi-update.timer` | Timer systemd (quotidien à 07h00) |
+| `jitsi-motd.sh` | Message affiché à la connexion SSH pour l'utilisateur `chat` |
 
 ---
 
@@ -42,6 +43,29 @@ sudo systemctl enable --now jitsi-update.timer
 
 Le script vérifie quotidiennement à 07h00 si une nouvelle version de
 [docker-jitsi-meet](https://github.com/jitsi/docker-jitsi-meet/releases) est disponible.
+
+## 2bis. Message SSH pour l'utilisateur `chat` sous Ubuntu
+
+Sous Ubuntu, pour afficher un état Jitsi à chaque connexion SSH de l'utilisateur
+`chat`, utiliser `~/.profile` :
+
+```bash
+cp jitsi-motd.sh ~/jitsi-motd.sh
+chmod +x ~/jitsi-motd.sh
+echo 'source ~/jitsi-motd.sh' >> ~/.profile
+```
+
+Tester sans se reconnecter :
+
+```bash
+bash ~/jitsi-motd.sh
+```
+
+Le script n'effectue pas d'appel réseau au login SSH. Il lit seulement :
+
+- la version locale dans `JITSI_IMAGE_VERSION` du `.env`
+- le dernier tag déjà détecté dans `/var/tmp/jitsi-last-known-tag`
+- l'état local des containers via `docker compose ps`
 
 ### Notification par e-mail
 
@@ -81,6 +105,59 @@ Le script :
 2. Interroge l'API GitHub pour le dernier tag publié
 3. Si différent : sauvegarde `.env`, met à jour `JITSI_IMAGE_VERSION`, `docker compose pull`, `docker compose up -d`
 4. Vérifie l'état des containers après redémarrage et notifie en cas d'erreur
+
+### Compatibilité avec ton installation
+
+La procédure est compatible avec une installation `docker-jitsi-meet` récupérée
+initialement via `wget`, tant que ton instance tourne toujours depuis le dossier :
+
+```bash
+/home/chat/irc/jitsi-docker-jitsi-meet-738058b
+```
+
+Le script ne dépend pas de la méthode d'installation initiale. Il s'appuie
+uniquement sur :
+
+- le dossier existant `jitsi-docker-jitsi-meet-738058b`
+- le fichier `.env` déjà en place
+- le `docker-compose.yml` déjà utilisé par ton instance
+- les volumes Docker existants
+
+En pratique, il ne supprime pas ta configuration applicative : il met à jour
+`JITSI_IMAGE_VERSION`, télécharge les nouvelles images puis relance
+`docker compose up -d --remove-orphans`.
+
+### Ce qui est sûr
+
+- Le nom du dossier `jitsi-docker-jitsi-meet-738058b` ne pose pas de problème.
+- Le fait que l'installation de départ ait été faite avec `wget` ne pose pas de problème.
+- Le `.env` est conservé et sauvegardé avant modification.
+- Les volumes Docker et donc les données persistantes restent utilisés.
+
+### Ce qui peut nécessiter une vérification manuelle
+
+- Si une future release de `docker-jitsi-meet` ajoute de nouvelles variables
+  obligatoires dans `.env`
+- Si le projet amont modifie fortement `docker-compose.yml`
+- Si ton installation locale a été personnalisée à la main hors `.env`
+
+Autrement dit : pour les mises à jour courantes, le script est adapté. Pour un
+gros saut de version upstream, il reste conseillé de lire rapidement les notes
+de release de `docker-jitsi-meet` avant d'appliquer la MAJ.
+
+### Recommandation
+
+Le mode le plus sûr est :
+
+```bash
+/home/chat/irc/jitsi-docker-jitsi-meet-738058b/jitsi-update.sh
+```
+
+Puis seulement si une MAJ est signalée :
+
+```bash
+/home/chat/irc/jitsi-docker-jitsi-meet-738058b/jitsi-update.sh --update
+```
 
 ---
 
