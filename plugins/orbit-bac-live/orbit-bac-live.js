@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var LIVE_VER = 1;
+  var LIVE_VER = 2;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -21,6 +21,7 @@
     var PB = '+pb';
     var EV = '+ev';
     var STORAGE_OPEN = 'bacLiveOpen';
+    var STORAGE_COLLAPSED = 'bacLiveCollapsed';
     var STORAGE_STATS = 'bacLiveStats';
 
     function pick(table) {
@@ -51,7 +52,8 @@
       return {
         channels: channels.map(normChan),
         channelsAll: channels.some(function (ch) { return ch === '*'; }),
-        defaultOpen: c.defaultOpen !== false,
+        defaultOpen: c.defaultOpen === true,
+        defaultCollapsed: c.defaultCollapsed !== false,
         maxPlayers: Math.max(4, Math.min(24, Number(c.maxPlayers) || 14)),
       };
     }
@@ -377,12 +379,12 @@
       var el = document.createElement('style');
       el.id = 'orbit-bac-live-css';
       el.textContent = [
-        '.oblive-panel{flex:0 0 auto;width:100%;border-bottom:1px solid var(--border,#333);background:var(--bg,#111);font-family:var(--font,system-ui,sans-serif)}',
-        '.oblive-panel--collapsed .oblive-body{display:none}',
-        '.oblive-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff}',
-        '.oblive-head__title{font-weight:800;font-size:.85rem;flex:1}',
-        '.oblive-head__meta{font-size:.68rem;font-weight:700;padding:.12rem .45rem;border-radius:999px;background:rgba(255,255,255,.2)}',
-        '.oblive-head__btn{border:0;background:rgba(255,255,255,.18);color:#fff;width:26px;height:26px;border-radius:7px;cursor:pointer}',
+        '.oblive-panel{flex:0 0 auto;width:100%;border-bottom:1px solid var(--border,#ddd);background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
+        '.oblive-panel--collapsed .oblive-body,.oblive-panel--collapsed .oblive-foot{display:none}',
+        '.oblive-head{display:flex;align-items:center;gap:.45rem;padding:.38rem .75rem;background:color-mix(in srgb,var(--accent,#6366f1) 8%,var(--bg,#fff));color:var(--ink,#111);cursor:pointer}',
+        '.oblive-head__title{font-weight:800;font-size:.78rem;flex:1}',
+        '.oblive-head__meta{font-size:.65rem;font-weight:700;padding:.1rem .4rem;border-radius:999px;background:var(--bg-soft,rgba(127,127,127,.1))}',
+        '.oblive-head__btn{border:0;background:var(--bg-soft,rgba(127,127,127,.12));color:var(--ink,#111);width:28px;height:28px;border-radius:7px;cursor:pointer}',
         '.oblive-body{padding:.55rem .65rem .65rem;overflow-x:auto}',
         '.oblive-grid{width:100%;border-collapse:collapse;font-size:.74rem}',
         '.oblive-grid th,.oblive-grid td{border:1px solid var(--border,#ddd);padding:.32rem .4rem;text-align:center;vertical-align:middle}',
@@ -410,7 +412,7 @@
 
     function renderPanel(orbit, root) {
       var buffer = orbit.state.active();
-      var open = true;
+      var open = false;
       try { open = orbit.storage.get(STORAGE_OPEN, cfg(orbit).defaultOpen); } catch (e) { open = cfg(orbit).defaultOpen; }
 
       if (!channelEnabled(orbit, buffer) || !open) {
@@ -421,7 +423,8 @@
 
       var board = getBoard(buffer) || defaultBoard();
       var myNick = orbit.state.nick() || '';
-      var collapsed = root.classList.contains('oblive-panel--collapsed');
+      var collapsed = cfg(orbit).defaultCollapsed;
+      try { collapsed = orbit.storage.get(STORAGE_COLLAPSED, collapsed); } catch (e) { /* ignore */ }
       var players = playerList(board, cfg(orbit).maxPlayers);
       var showBoard = board.phase !== 'idle'
         && board.categories.length > 0
@@ -462,7 +465,7 @@
       root.className = 'oblive-panel' + (collapsed ? ' oblive-panel--collapsed' : '');
       root.innerHTML =
         '<div class="oblive-head">' +
-          '<span class="oblive-head__title">📊 ' + escHtml(pick({ fr: 'Tableau live', en: 'Live board' })) + '</span>' +
+          '<span class="oblive-head__title">📊 ' + escHtml(pick({ fr: 'Scores live', en: 'Live scores' })) + '</span>' +
           (board.letter
             ? ('<span class="oblive-head__meta">' + escHtml(board.letter) +
                (board.round && board.totalRounds ? (' · ' + board.round + '/' + board.totalRounds) : '') + '</span>')
@@ -520,7 +523,9 @@
           if (!btn) return;
           var act = btn.getAttribute('data-act');
           if (act === 'collapse') {
-            root.classList.toggle('oblive-panel--collapsed');
+            var was = true;
+            try { was = orbit.storage.get(STORAGE_COLLAPSED, true); } catch (e) { /* ignore */ }
+            try { orbit.storage.set(STORAGE_COLLAPSED, !was); } catch (e2) { /* ignore */ }
             renderPanel(orbit, root);
           }
           if (act === 'hide') {
@@ -574,6 +579,10 @@
       orbit.on('buffer.active', sync);
       orbit.on('connected', sync);
 
+      try {
+        window.addEventListener('orbit-bac-live-sync', sync);
+      } catch (e) { /* ignore */ }
+
       var React = Orbit.React;
       var h = React.createElement;
       var useSyncExternalStore = React.useSyncExternalStore;
@@ -607,13 +616,16 @@
       orbit.addCommand('bacboard', {
         help: pick({ fr: 'Afficher/masquer le tableau live Petit Bac', en: 'Toggle Petit Bac live board' }),
         run: function () {
-          var open = true;
+          var open = false;
           try { open = orbit.storage.get(STORAGE_OPEN, cfg(orbit).defaultOpen); } catch (e) { /* ignore */ }
-          try { orbit.storage.set(STORAGE_OPEN, !open); } catch (e) { /* ignore */ }
+          try {
+            orbit.storage.set(STORAGE_OPEN, !open);
+            if (!open) orbit.storage.set(STORAGE_COLLAPSED, false);
+          } catch (e2) { /* ignore */ }
           sync();
-          orbit.notify('Petit Bac', open
-            ? pick({ fr: 'Tableau masqué', en: 'Board hidden' })
-            : pick({ fr: 'Tableau affiché', en: 'Board shown' }));
+          orbit.notify('Petit Bac', !open
+            ? pick({ fr: 'Scores affichés', en: 'Scores shown' })
+            : pick({ fr: 'Scores masqués', en: 'Scores hidden' }));
         },
       });
 

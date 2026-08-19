@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 8;
+  var PBAC_VER = 10;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -530,61 +530,52 @@
     var el = document.createElement('style');
     el.id = 'orbit-petitbac-css';
     el.textContent = [
-      '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:2px solid var(--border,#333);background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif);box-shadow:0 12px 40px -20px rgba(0,0,0,.25)}',
-      '.opbac-panel--playing .opbac-body{max-height:min(46vh,420px);overflow:hidden;display:flex;flex-direction:column}',
-      '.opbac-panel--collapsed .opbac-body,.opbac-panel--collapsed .opbac-foot{display:none}',
-      '.opbac-head{display:flex;align-items:center;gap:.55rem;padding:.5rem .85rem;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff}',
-      '.opbac-head__title{font-weight:800;font-size:.95rem;flex:1;display:flex;align-items:center;gap:.4rem}',
-      '.opbac-head__badge{font-size:.72rem;font-weight:800;padding:.2rem .55rem;border-radius:999px;background:rgba(255,255,255,.22)}',
-      '.opbac-head__btn{border:0;background:rgba(255,255,255,.2);color:#fff;min-width:44px;min-height:44px;border-radius:10px;cursor:pointer;font-size:.9rem}',
+      '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
+      '.opbac-panel--playing .opbac-body{max-height:none;overflow:visible}',
+      '.opbac-panel--collapsed .opbac-body{display:none}',
+      '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff}',
+      '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;gap:.5rem}',
+      '.opbac-head__title{font-weight:800;font-size:.88rem;letter-spacing:.01em}',
+      '.opbac-head__badge{font-size:.68rem;font-weight:800;padding:.15rem .5rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap}',
+      '.opbac-head__actions{display:flex;align-items:center;gap:.3rem}',
+      '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1}',
+      '.opbac-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.opbac-body{padding:0}',
-      '.opbac-stage{display:grid;grid-template-columns:minmax(88px,1fr) minmax(0,2fr) minmax(88px,1fr);gap:.65rem;padding:.85rem .85rem .65rem;align-items:center;background:linear-gradient(180deg,color-mix(in srgb,var(--accent,#6366f1) 6%,var(--bg,#fff)),var(--bg,#fff))}',
-      '@media(max-width:640px){.opbac-stage{grid-template-columns:1fr 1fr;grid-template-rows:auto auto}.opbac-stage__center{grid-column:1/-1;order:-1}}',
-      '.opbac-stage__lbl{display:block;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666);text-align:center;margin-bottom:.25rem}',
-      '.opbac-letter-xl{width:100%;max-width:110px;aspect-ratio:1;margin:0 auto;border-radius:50%;display:grid;place-items:center;font-size:clamp(3rem,12vw,4.5rem);font-weight:900;line-height:1;color:#fff;background:linear-gradient(145deg,#f97316,#dc2626);box-shadow:0 12px 32px -10px rgba(220,38,38,.55)}',
-      '.opbac-clock{position:relative;width:100%;max-width:110px;aspect-ratio:1;margin:0 auto}',
+      '.opbac-arena{display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff))}',
+      '.opbac-arena__block{display:flex;flex-direction:column;align-items:center;gap:.2rem}',
+      '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
+      '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
+      '.opbac-clock{position:relative;width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px)}',
       '.opbac-clock__ring{width:100%;height:100%;transform:rotate(-90deg)}',
-      '.opbac-clock__track{fill:none;stroke:var(--bg-soft,rgba(127,127,127,.15));stroke-width:6}',
-      '.opbac-clock__prog{fill:none;stroke:#22c55e;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset .35s linear,stroke .25s}',
+      '.opbac-clock__track{fill:none;stroke:color-mix(in srgb,var(--muted,#888) 20%,transparent);stroke-width:5}',
+      '.opbac-clock__prog{fill:none;stroke:#22c55e;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .35s linear}',
       '.opbac-clock--warn .opbac-clock__prog{stroke:#f59e0b}',
-      '.opbac-clock--urgent .opbac-clock__prog{stroke:#ef4444;animation:opbac-pulse 1s ease-in-out infinite}',
-      '.opbac-clock__n{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(2rem,8vw,3.2rem);font-weight:900;font-variant-numeric:tabular-nums;color:var(--ink,#111)}',
-      '.opbac-clock__unit{position:absolute;bottom:18%;left:0;right:0;text-align:center;font-size:.62rem;font-weight:800;text-transform:uppercase;color:var(--muted,#666)}',
-      '@keyframes opbac-pulse{50%{transform:scale(1.04)}}',
-      '.opbac-stage__center{text-align:center;min-width:0}',
-      '.opbac-stage__round{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#666)}',
-      '.opbac-stage__phase{font-size:1.05rem;font-weight:900;color:var(--ink,#111);margin:.15rem 0 .45rem}',
-      '.opbac-cats{display:flex;flex-wrap:wrap;gap:.4rem;justify-content:center}',
-      '.opbac-cat{font-size:.82rem;font-weight:800;padding:.38rem .75rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#6366f1) 12%,var(--bg,#fff));color:var(--ink,#111);border:2px solid color-mix(in srgb,var(--accent,#6366f1) 35%,transparent);text-transform:capitalize}',
-      '.opbac-scroll{flex:1;min-height:0;overflow-y:auto;padding:0 .85rem .65rem}',
-      '.opbac-idle{padding:1.25rem .85rem 1rem;text-align:center}',
-      '.opbac-idle__txt{font-size:.95rem;color:var(--muted,#666);margin-bottom:.85rem;line-height:1.45}',
-      '.opbac-idle__cta{display:block;width:100%;max-width:320px;margin:0 auto;border:0;border-radius:14px;padding:.85rem 1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:52px}',
-      '.opbac-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:.55rem}',
-      '.opbac-card{display:flex;flex-direction:column;gap:.35rem;padding:.55rem .6rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff)}',
-      '.opbac-card--ok{border-color:#22c55e;background:color-mix(in srgb,#22c55e 8%,var(--bg,#fff))}',
-      '.opbac-card--pending{border-color:#f59e0b}',
-      '.opbac-card--reject{border-color:#ef4444;background:color-mix(in srgb,#ef4444 7%,var(--bg,#fff))}',
-      '.opbac-card__err{font-size:.72rem;font-weight:700;color:#dc2626;margin:0;line-height:1.35}',
-      '.opbac-card__verify{width:100%;border:0;border-radius:10px;padding:.52rem .6rem;font-size:.78rem;font-weight:800;cursor:pointer;background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;min-height:44px}',
-      '.opbac-card__verify--ghost{background:var(--bg,#fff);border:2px dashed #f59e0b;color:#c2410c}',
-      '.opbac-card__verify--sent{opacity:.65;cursor:wait}',
-      '.opbac-card__err{font-size:.72rem;font-weight:700;color:#dc2626;margin:0;line-height:1.35}',
-      '.opbac-card__verify{width:100%;border:0;border-radius:10px;padding:.52rem .6rem;font-size:.78rem;font-weight:800;cursor:pointer;background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;min-height:44px}',
-      '.opbac-card__verify--ghost{background:var(--bg,#fff);border:2px dashed #f59e0b;color:#c2410c}',
-      '.opbac-card__verify--sent{opacity:.65;cursor:wait}',
-      '.opbac-card__cat{font-size:.78rem;font-weight:900;text-transform:capitalize;color:var(--ink,#111)}',
-      '.opbac-card__input{width:100%;border:2px solid var(--border,#ccc);border-radius:10px;padding:.65rem .7rem;font-size:1rem;min-height:48px;background:var(--bg,#fff);color:var(--ink,#111)}',
-      '.opbac-card__input:focus{outline:none;border-color:var(--accent,#6366f1);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#6366f1) 25%,transparent)}',
-      '.opbac-card__input:disabled{opacity:.7;background:var(--bg-soft,rgba(127,127,127,.06))}',
-      '.opbac-card__send{border:0;border-radius:10px;padding:.55rem .65rem;font-size:.82rem;font-weight:800;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:44px}',
-      '.opbac-card__send:disabled{opacity:.45;cursor:not-allowed}',
-      '.opbac-form__all{width:100%;margin-top:.55rem;border:0;border-radius:12px;padding:.7rem;font-size:.88rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;min-height:48px}',
-      '.opbac-form__all:disabled{opacity:.45;cursor:not-allowed}',
-      '.opbac-foot{display:flex;gap:.5rem;padding:.55rem .85rem .65rem;border-top:1px solid var(--border,#ddd);background:var(--bg-soft,rgba(127,127,127,.05))}',
-      '.opbac-foot__btn{flex:1;border:0;border-radius:12px;padding:.6rem .75rem;font-size:.85rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:var(--ink,#111);border:2px solid var(--border,#ccc);min-height:48px}',
-      '.opbac-foot__btn--primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent}',
-      '.opbac-topbtn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;border:2px solid var(--border,#ccc);background:var(--bg,#fff);cursor:pointer;font-size:1.1rem}',
+      '.opbac-clock--urgent .opbac-clock__prog{stroke:#ef4444}',
+      '.opbac-clock__n{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(1.75rem,6vw,2.6rem);font-weight:900;font-variant-numeric:tabular-nums;color:var(--ink,#111)}',
+      '.opbac-clock__unit{position:absolute;bottom:14%;width:100%;text-align:center;font-size:.58rem;font-weight:800;text-transform:uppercase;color:var(--muted,#888)}',
+      '.opbac-scroll{flex:0 0 auto;overflow:visible;padding:.5rem .75rem .65rem}',
+      '.opbac-idle{padding:1.1rem .85rem;text-align:center}',
+      '.opbac-idle__txt{font-size:.9rem;color:var(--muted,#666);margin:0 0 .75rem;line-height:1.45}',
+      '.opbac-idle__cta{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-radius:999px;padding:.75rem 1.35rem;font-size:.95rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:48px}',
+      '.opbac-idle__help{margin-top:.55rem;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
+      '.opbac-sheet{display:grid;grid-template-columns:repeat(var(--opbac-cols,3),minmax(0,1fr));gap:.55rem;width:100%;align-items:stretch}',
+      '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
+      '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
+      '.opbac-col--ok{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff))}',
+      '.opbac-col--pending{border-color:#fcd34d}',
+      '.opbac-col--reject{border-color:#fca5a5;background:color-mix(in srgb,#ef4444 5%,var(--bg,#fff))}',
+      '.opbac-col__cat{font-size:.8rem;font-weight:900;text-transform:capitalize;color:var(--ink,#111);text-align:center;line-height:1.2}',
+      '.opbac-col__input{width:100%;border:1px solid var(--border,#ccc);border-radius:9px;padding:.55rem .5rem;font-size:.95rem;min-height:44px;background:var(--bg,#fff);text-align:center}',
+      '.opbac-col__input:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 2px color-mix(in srgb,#6366f1 22%,transparent)}',
+      '.opbac-col__input:disabled{opacity:.65}',
+      '.opbac-col__send{width:100%;border:0;border-radius:9px;padding:.48rem .5rem;font-size:.78rem;font-weight:800;cursor:pointer;background:#6366f1;color:#fff;min-height:40px}',
+      '.opbac-col__send:disabled{opacity:.4;cursor:not-allowed}',
+      '.opbac-col__err{font-size:.65rem;font-weight:700;color:#dc2626;margin:0;line-height:1.25;text-align:center}',
+      '.opbac-col__verify{width:100%;border:0;border-radius:8px;padding:.35rem .45rem;font-size:.65rem;font-weight:800;cursor:pointer;background:#fff7ed;color:#c2410c;border:1px solid #fdba74}',
+      '.opbac-col__verify--sent{opacity:.6}',
+      '.opbac-sheet__all{grid-column:1/-1;width:100%;margin-top:.1rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ccc));border-radius:10px;padding:.5rem;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:#6366f1;min-height:40px}',
+      '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
+      '.opbac-topbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid var(--border,#ccc);background:var(--bg,#fff);cursor:pointer}',
       '.opbac-topbtn.on{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent}',
     ].join('');
     document.head.appendChild(el);
@@ -627,28 +618,36 @@
       '<span class="opbac-clock__unit">sec</span></div>';
   }
 
-  function buildStageHtml(game, phase, remaining, progress, total) {
-    if (!game.letter && phase === 'idle') return '';
-    var cats = (game.categories || []).map(function (c) {
-      return '<span class="opbac-cat">' + escHtml(c) + '</span>';
-    }).join('');
-    return '<div class="opbac-stage">' +
-      '<div class="opbac-stage__letter">' +
-        '<span class="opbac-stage__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
-        '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter || '?') + '</div>' +
+  function buildStageHtml(game, remaining, progress) {
+    if (!game.letter) return '';
+    return '<div class="opbac-arena">' +
+      '<div class="opbac-arena__block">' +
+        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
+        '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter) + '</div>' +
       '</div>' +
-      '<div class="opbac-stage__center">' +
-        '<div class="opbac-stage__round" data-opbac-badge">' +
-          (game.round && game.totalRounds
-            ? escHtml(pick({ fr: 'Manche', en: 'Round' }) + ' ' + game.round + ' / ' + game.totalRounds)
-            : escHtml(pick({ fr: 'Petit Bac', en: 'Petit Bac' }))) +
-        '</div>' +
-        '<div class="opbac-stage__phase" data-opbac-phase>' + escHtml(phaseLabel(phase, game.countdown)) + '</div>' +
-        (cats ? ('<div class="opbac-cats">' + cats + '</div>') : '') +
+      '<div class="opbac-arena__block">' +
+        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Temps', en: 'Time' })) + '</span>' +
+        buildClockHtml(remaining, progress, 0) +
+      '</div></div>';
+  }
+
+  function buildHeadHtml(headBadge, wasCollapsed, isLive) {
+    return '<div class="opbac-head">' +
+      '<div class="opbac-head__brand">' +
+        '<span class="opbac-head__title">Petit Bac</span>' +
+        '<span class="opbac-head__badge" data-opbac-head-badge">' + escHtml(headBadge) + '</span>' +
       '</div>' +
-      '<div class="opbac-stage__timer">' +
-        '<span class="opbac-stage__lbl">' + escHtml(pick({ fr: 'Temps restant', en: 'Time left' })) + '</span>' +
-        buildClockHtml(remaining, progress, total) +
+      '<div class="opbac-head__actions">' +
+        '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
+          escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
+        (!isLive
+          ? ('<button type="button" class="opbac-head__btn" data-act="jouer" title="' +
+              escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '">▶</button>')
+          : '') +
+        '<button type="button" class="opbac-head__btn" data-act="scores" title="' +
+          escHtml(pick({ fr: 'Tableau live', en: 'Live board' })) + '">📊</button>' +
+        '<button type="button" class="opbac-head__btn" data-act="collapse" title="' +
+          escHtml(pick({ fr: 'Réduire', en: 'Collapse' })) + '">' + (wasCollapsed ? '▾' : '▴') + '</button>' +
       '</div></div>';
   }
 
@@ -875,43 +874,40 @@
     var draft = getDraft(channel, game);
     var letter = game.letter || '';
     var sendLbl = pick({ fr: 'Envoyer', en: 'Send' });
-    var cards = game.categories.map(function (cat) {
+    var cols = game.categories.length;
+    var rows = game.categories.map(function (cat) {
       var catKey = cat.toLowerCase();
       var val = draft.drafts[catKey] || draft.drafts[cat] || '';
       var ok = draft.validated[catKey] || draft.validated[cat];
       var pending = draft.pending[catKey] || draft.pending[cat];
       var rej = (draft.rejected && (draft.rejected[catKey] || draft.rejected[cat])) || null;
-      var cardClass = 'opbac-card' +
-        (ok ? ' opbac-card--ok' : (rej ? ' opbac-card--reject' : (pending ? ' opbac-card--pending' : '')));
+      var colClass = 'opbac-col' +
+        (ok ? ' opbac-col--ok' : (rej ? ' opbac-col--reject' : (pending ? ' opbac-col--pending' : '')));
       var ph = letter
         ? pick({ fr: 'Mot en ' + letter + '…', en: 'Word with ' + letter + '…' })
         : pick({ fr: 'Votre mot…', en: 'Your word…' });
       var verifyWord = (rej && rej.word) || val;
       var verifyHtml = '';
       if (!ok && verifyWord) {
-        var verifyLbl = rej
-          ? pick({ fr: '🔍 Vérifier « ' + verifyWord + ' »', en: '🔍 Verify « ' + verifyWord + ' »' })
-          : pick({ fr: 'Pas accepté ? Vérifier', en: 'Not accepted? Verify' });
         verifyHtml =
-          '<button type="button" class="opbac-card__verify' +
-            (rej ? '' : ' opbac-card__verify--ghost') +
-            (rej && rej.verifying ? ' opbac-card__verify--sent' : '') + '" data-verify-cat="' + escHtml(catKey) + '" ' +
+          '<button type="button" class="opbac-col__verify' +
+            (rej && rej.verifying ? ' opbac-col__verify--sent' : '') + '" data-verify-cat="' + escHtml(catKey) + '" ' +
             'data-verify-word="' + escHtml(verifyWord) + '">' +
             escHtml(rej && rej.verifying
-              ? pick({ fr: 'Vérification envoyée…', en: 'Verification sent…' })
-              : verifyLbl) +
+              ? pick({ fr: 'Vérification…', en: 'Verifying…' })
+              : pick({ fr: 'Vérifier', en: 'Verify' })) +
           '</button>';
       }
       var errHtml = rej && rej.msg && !ok
-        ? ('<p class="opbac-card__err">' + escHtml(rej.msg) + '</p>')
+        ? ('<p class="opbac-col__err">' + escHtml(rej.msg) + '</p>')
         : '';
-      return '<div class="' + cardClass + '" data-cat="' + escHtml(catKey) + '">' +
-        '<span class="opbac-card__cat">' + escHtml(cat) + (ok ? ' ✓' : '') + '</span>' +
+      return '<div class="' + colClass + '" data-cat="' + escHtml(catKey) + '">' +
+        '<span class="opbac-col__cat">' + escHtml(cat) + (ok ? ' ✓' : '') + '</span>' +
         errHtml +
-        '<input type="text" class="opbac-card__input" data-cat-input="' + escHtml(catKey) + '" ' +
+        '<input type="text" class="opbac-col__input" data-cat-input="' + escHtml(catKey) + '" ' +
           'value="' + escHtml(val) + '" placeholder="' + escHtml(ph) + '" ' +
           (ok ? 'disabled' : '') + ' autocapitalize="off" autocomplete="off" spellcheck="false" enterkeyhint="send" />' +
-        '<button type="button" class="opbac-card__send" data-send-cat="' + escHtml(catKey) + '" ' +
+        '<button type="button" class="opbac-col__send" data-send-cat="' + escHtml(catKey) + '" ' +
           (ok ? 'disabled' : '') + '>' + escHtml(sendLbl) + '</button>' +
         verifyHtml +
       '</div>';
@@ -920,11 +916,16 @@
       var k = cat.toLowerCase();
       return draft.validated[k] || draft.validated[cat];
     });
-    return '<div class="opbac-form">' +
-      '<div class="opbac-cards">' + cards + '</div>' +
-      '<button type="button" class="opbac-form__all" data-act="sendall"' + (allDisabled ? ' disabled' : '') + '>' +
-        escHtml(pick({ fr: 'Envoyer toutes mes réponses', en: 'Send all my answers' })) +
-      '</button></div>';
+    var hasDraft = game.categories.some(function (cat) {
+      var k = cat.toLowerCase();
+      return (draft.drafts[k] || '').trim() && !(draft.validated[k]);
+    });
+    return '<div class="opbac-sheet" style="--opbac-cols:' + cols + '">' + rows +
+      (hasDraft
+        ? ('<button type="button" class="opbac-sheet__all" data-act="sendall"' + (allDisabled ? ' disabled' : '') + '>' +
+            escHtml(pick({ fr: 'Tout envoyer', en: 'Send all' })) + '</button>')
+        : '') +
+      '</div>';
   }
 
   function updateClockDom(root, remaining, progress) {
@@ -1061,6 +1062,14 @@
       if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
       if (act === 'aide') orbit.irc.msg(buffer, '!aide');
       if (act === 'sendall') sendAllAnswers(orbit, buffer);
+      if (act === 'scores') {
+        try {
+          var liveOpen = orbit.storage.get('bacLiveOpen', false);
+          orbit.storage.set('bacLiveOpen', !liveOpen);
+          if (!liveOpen) orbit.storage.set('bacLiveCollapsed', false);
+        } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('orbit-bac-live-sync')); } catch (e2) { /* ignore */ }
+      }
     });
     root.addEventListener('input', function (ev) {
       var inp = ev.target;
@@ -1108,58 +1117,45 @@
     var remaining = timing.remaining;
     var progress = timing.progress;
     var wasCollapsed = root.classList.contains('opbac-panel--collapsed');
+    var headBadge = game.round && game.totalRounds
+      ? ('Manche ' + game.round + '/' + game.totalRounds)
+      : phaseLabel(phase, game.countdown);
 
     root.className = 'opbac-panel' +
       (wasCollapsed ? ' opbac-panel--collapsed' : '') +
       (isLive ? ' opbac-panel--playing' : '');
 
     if (rebuild) {
-      var headBadge = game.round && game.totalRounds
-        ? ('Manche ' + game.round + '/' + game.totalRounds)
-        : phaseLabel(phase, game.countdown);
-
       root.innerHTML =
-        '<div class="opbac-head">' +
-          '<span class="opbac-head__title">🎲 ' + escHtml(pick({ fr: 'Petit Bac', en: 'Petit Bac' })) + '</span>' +
-          '<span class="opbac-head__badge">' + escHtml(headBadge) + '</span>' +
-          '<button type="button" class="opbac-head__btn" data-act="collapse" title="' +
-            escHtml(pick({ fr: 'Réduire', en: 'Collapse' })) + '">' + (wasCollapsed ? '▾' : '▴') + '</button>' +
-        '</div>' +
+        buildHeadHtml(headBadge, wasCollapsed, isLive) +
         '<div class="opbac-body">' +
           (isIdle && !game.letter
             ? ('<div class="opbac-idle">' +
                 '<p class="opbac-idle__txt">' + escHtml(pick({
-                  fr: 'Jouez au Petit Bac directement ici. Le tchat reste visible en dessous pour suivre la partie.',
-                  en: 'Play Petit Bac right here. Chat stays visible below to follow the game.',
+                  fr: 'Trouvez un mot par catégorie — le tchat reste visible en dessous.',
+                  en: 'Find one word per category — chat stays visible below.',
                 })) + '</p>' +
                 '<button type="button" class="opbac-idle__cta" data-act="jouer">' +
                   escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
+                '</button>' +
+                '<button type="button" class="opbac-idle__help" data-act="aide">' +
+                  escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
                 '</button></div>')
-            : (buildStageHtml(game, phase, remaining, progress, timing.total) +
+            : (buildStageHtml(game, remaining, progress) +
               '<div class="opbac-scroll"><div data-opbac-form>' + buildFormHtml(buffer, game) + '</div></div>')) +
-        '</div>' +
-        '<div class="opbac-foot">' +
-          '<button type="button" class="opbac-foot__btn" data-act="aide">' +
-            escHtml(pick({ fr: 'Aide', en: 'Help' })) + '</button>' +
-          '<button type="button" class="opbac-foot__btn opbac-foot__btn--primary" data-act="jouer">' +
-            escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '</button>' +
         '</div>';
 
       root.__opbacDraftSig = draftSignature(buffer, game);
 
       if (isLive) {
         requestAnimationFrame(function () {
-          var first = root.querySelector('.opbac-card__input:not([disabled])');
+          var first = root.querySelector('.opbac-col__input:not([disabled])');
           if (first) first.focus();
         });
       }
     } else {
-      var badgeEl = root.querySelector('[data-opbac-badge]');
-      if (badgeEl && game.round && game.totalRounds) {
-        badgeEl.textContent = pick({ fr: 'Manche', en: 'Round' }) + ' ' + game.round + ' / ' + game.totalRounds;
-      }
-      var phaseEl = root.querySelector('[data-opbac-phase]');
-      if (phaseEl) phaseEl.textContent = phaseLabel(phase, game.countdown);
+      var headBadgeEl = root.querySelector('[data-opbac-head-badge]');
+      if (headBadgeEl) headBadgeEl.textContent = headBadge;
       updateClockDom(root, remaining, progress);
 
       var formWrap = root.querySelector('[data-opbac-form]');
@@ -1210,7 +1206,7 @@
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     pluginOrbit = orbit;
     injectStyles();
-    console.info('[orbit-petitbac] loaded v8');
+    console.info('[orbit-petitbac] loaded v10');
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }
