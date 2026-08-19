@@ -5,14 +5,16 @@
 (function () {
   'use strict';
 
+  var PBAC_VER = 5;
+
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
       if (retry < 80) setTimeout(function () { boot(retry + 1); }, 50);
       else console.error('[orbit-petitbac] Orbit API unavailable after retries');
       return;
     }
-    if (window.__ORBIT_PETITBAC__) return;
-    window.__ORBIT_PETITBAC__ = 4;
+    if (window.__ORBIT_PETITBAC__ === PBAC_VER) return;
+    window.__ORBIT_PETITBAC__ = PBAC_VER;
 
   var React = Orbit.React;
   var h = React.createElement;
@@ -23,9 +25,15 @@
   var PB = '+pb';
   var EV = '+ev';
   var STORAGE_COLLAPSED = 'panelCollapsed';
+  /** Instance API du plugin (Orbit global n'expose pas i18n). */
+  var pluginOrbit = null;
 
   function pick(table) {
-    return Orbit.i18n.pick(table);
+    if (pluginOrbit && pluginOrbit.i18n && pluginOrbit.i18n.pick) {
+      return pluginOrbit.i18n.pick(table);
+    }
+    var lang = (document.documentElement.lang || 'fr').slice(0, 2);
+    return table[lang] || table.fr || table.en || Object.values(table)[0] || '';
   }
 
   function normChan(name) {
@@ -643,8 +651,9 @@
   }
 
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
+    pluginOrbit = orbit;
     injectStyles();
-    console.info('[orbit-petitbac] loaded v4');
+    console.info('[orbit-petitbac] loaded v5');
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }
