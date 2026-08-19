@@ -95,6 +95,9 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$GALLERY_DIR/room-images.json" \
   --exclude="/$ROOM_IMAGES_UPLOADS_DIR" \
   --exclude="/$CONFERENCE_DIR/visio-jwt.local.php" \
+  --exclude="/$CONFERENCE_DIR/" \
+  --exclude="/plugins/third/orbit-helpserv-welcome/" \
+  --exclude="/plugins/third/orbit-petitbac/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -278,4 +281,15 @@ fi
 
 log "write deployed marker"
 echo "$COMBO" > "$DEPLOYED_MARKER"
+
+if [ ! -f "$WEBROOT/$PETITBAC_DIR/orbit-petitbac.js" ]; then
+  log "ERROR: missing $WEBROOT/$PETITBAC_DIR/orbit-petitbac.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-petitbac' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-petitbac plugin entry"
+  exit 1
+fi
+log "verified orbit-petitbac (plugin file + config.json entry)"
+
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"

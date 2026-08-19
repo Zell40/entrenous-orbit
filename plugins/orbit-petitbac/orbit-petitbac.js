@@ -15,14 +15,15 @@
   var PB = '+pb';
   var EV = '+ev';
   var STORAGE_COLLAPSED = 'panelCollapsed';
-  var STORAGE_PINNED = 'panelPinned';
 
   function pick(table) {
     return Orbit.i18n.pick(table);
   }
 
   function normChan(name) {
-    return String(name || '').trim().toLowerCase();
+    var s = String(name || '').trim().toLowerCase();
+    if (s && s.charAt(0) !== '#' && s.charAt(0) !== '&') s = '#' + s;
+    return s;
   }
 
   function isChannelName(name) {
@@ -236,13 +237,8 @@
     var el = document.createElement('style');
     el.id = 'orbit-petitbac-css';
     el.textContent = [
-      '.opbac-wrap{position:fixed;z-index:24;pointer-events:none;top:calc(52px + env(safe-area-inset-top,0px));right:max(8px,env(safe-area-inset-right,0px));left:auto;width:min(380px,calc(100vw - 16px));font-family:var(--font,system-ui,sans-serif)}',
-      '@media (max-width:880px){.opbac-wrap{top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));right:8px;left:8px;width:auto}}',
-      '.opbac-wrap--pinned{top:calc(52px + env(safe-area-inset-top,0px));bottom:auto}',
-      '@media (max-width:880px){.opbac-wrap--pinned{bottom:auto}}',
-      '.opbac-card{pointer-events:auto;border-radius:16px;overflow:hidden;background:color-mix(in srgb,var(--bg,#fff) 88%,transparent);backdrop-filter:blur(14px);border:1px solid color-mix(in srgb,var(--border,#ccc) 70%,transparent);box-shadow:0 12px 40px -12px rgba(0,0,0,.35);animation:opbac-in .35s ease}',
-      '@keyframes opbac-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
-      '.opbac-card--collapsed .opbac-body,.opbac-card--collapsed .opbac-foot{display:none}',
+      '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid var(--border,#333);background:var(--bg,#111);box-shadow:0 8px 28px -16px rgba(0,0,0,.35);font-family:var(--font,system-ui,sans-serif)}',
+      '.opbac-panel--collapsed .opbac-body,.opbac-panel--collapsed .opbac-foot{display:none}',
       '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.55rem .75rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}',
       '.opbac-head__title{font-weight:800;font-size:.92rem;letter-spacing:.01em;flex:1}',
       '.opbac-head__badge{font-size:.68rem;font-weight:700;padding:.15rem .45rem;border-radius:999px;background:rgba(255,255,255,.22)}',
@@ -315,23 +311,25 @@
       .slice(0, 8);
   }
 
-  function GamePanel(props) {
+  function useActiveBuffer(orbit) {
+    return useSyncExternalStore(
+      function (cb) { return orbit.on('buffer.active', cb); },
+      function () { return orbit.state.active(); },
+      function () { return orbit.state.active(); }
+    );
+  }
+
+  function OpbacPanel(props) {
     var orbit = props.orbit;
-    var buffer = props.buffer;
+    var buffer = useActiveBuffer(orbit);
     var game = useChannelGame(orbit, buffer);
     var c = cfg(orbit);
     var collapsedKey = STORAGE_COLLAPSED;
-    var pinnedKey = STORAGE_PINNED;
     var collapsedState = useState(function () {
       try { return orbit.storage.get(collapsedKey, c.defaultCollapsed); } catch (e) { return c.defaultCollapsed; }
     });
     var collapsed = collapsedState[0];
     var setCollapsed = collapsedState[1];
-    var pinnedState = useState(function () {
-      try { return !!orbit.storage.get(pinnedKey, true); } catch (e) { return true; }
-    });
-    var pinned = pinnedState[0];
-    var setPinned = pinnedState[1];
     useNow(250);
 
     if (!buffer || !channelEnabled(orbit, buffer)) return null;
@@ -360,45 +358,30 @@
       try { orbit.storage.set(collapsedKey, next); } catch (e) { /* ignore */ }
     }
 
-    function togglePinned() {
-      var next = !pinned;
-      setPinned(next);
-      try { orbit.storage.set(pinnedKey, next); } catch (e) { /* ignore */ }
-    }
-
     function playAgain() {
       orbit.irc.msg(buffer, '!jouer');
     }
 
-    var cardClass = 'opbac-card' + (collapsed ? ' opbac-card--collapsed' : '');
-    var wrapClass = 'opbac-wrap' + (pinned ? ' opbac-wrap--pinned' : '');
+    var panelClass = 'opbac-panel' + (collapsed ? ' opbac-panel--collapsed' : '');
 
-    return h('div', { className: wrapClass, role: 'region', 'aria-label': pick({ fr: 'Petit Bac', en: 'Petit Bac' }) },
-      h('div', { className: cardClass },
-        h('div', { className: 'opbac-head' },
-          h('span', { className: 'opbac-head__title' }, pick({ fr: 'Petit Bac', en: 'Petit Bac' })),
-          showActive
-            ? h('span', { className: 'opbac-head__badge' },
-              game.round && game.totalRounds
-                ? pick({ fr: 'Manche', en: 'Round' }) + ' ' + game.round + '/' + game.totalRounds
-                : phaseLabel(phase, game.countdown))
-            : null,
-          h('button', {
-            type: 'button',
-            className: 'opbac-head__btn',
-            title: pick({ fr: 'Épingler', en: 'Pin' }),
-            'aria-pressed': pinned,
-            onClick: togglePinned,
-          }, pinned ? '📌' : '📍'),
-          h('button', {
-            type: 'button',
-            className: 'opbac-head__btn',
-            title: collapsed
-              ? pick({ fr: 'Développer', en: 'Expand' })
-              : pick({ fr: 'Réduire', en: 'Collapse' }),
-            onClick: toggleCollapsed,
-          }, collapsed ? '▾' : '▴')
-        ),
+    return h('div', { className: panelClass, role: 'region', 'aria-label': pick({ fr: 'Petit Bac', en: 'Petit Bac' }) },
+      h('div', { className: 'opbac-head' },
+        h('span', { className: 'opbac-head__title' }, pick({ fr: 'Petit Bac', en: 'Petit Bac' })),
+        showActive
+          ? h('span', { className: 'opbac-head__badge' },
+            game.round && game.totalRounds
+              ? pick({ fr: 'Manche', en: 'Round' }) + ' ' + game.round + '/' + game.totalRounds
+              : phaseLabel(phase, game.countdown))
+          : null,
+        h('button', {
+          type: 'button',
+          className: 'opbac-head__btn',
+          title: collapsed
+            ? pick({ fr: 'Développer', en: 'Expand' })
+            : pick({ fr: 'Réduire', en: 'Collapse' }),
+          onClick: toggleCollapsed,
+        }, collapsed ? '▾' : '▴')
+      ),
 
         showIdle ? h('div', { className: 'opbac-body opbac-idle' },
           h('div', { className: 'opbac-idle__txt' }, pick({
@@ -475,17 +458,12 @@
               onClick: playAgain,
             }, pick({ fr: 'Rejouer', en: 'Play again' })))
           : null
-      )
     );
   }
 
   function TopbarToggle(props) {
     var orbit = props.orbit;
-    var buffer = useSyncExternalStore(
-      function (cb) { return orbit.on('buffer.active', cb); },
-      function () { return orbit.state.active(); },
-      function () { return orbit.state.active(); }
-    );
+    var buffer = useActiveBuffer(orbit);
     if (!buffer || !channelEnabled(orbit, buffer)) return null;
     var game = getChannelState(buffer);
     var live = game && game.phase !== 'idle';
@@ -502,8 +480,9 @@
     }, '🎲');
   }
 
-  Orbit.plugin('petitbac', function (orbit, log) {
+  Orbit.plugin('orbit-petitbac', function (orbit, log) {
     injectStyles();
+    try { console.info('[orbit-petitbac] loading v2'); } catch (e) { /* ignore */ }
 
     orbit.on('raw', function (msg) {
       if (String(msg.command || '').toUpperCase() !== 'TAGMSG') return;
@@ -513,21 +492,11 @@
       if (!isChannelName(target)) return;
       if (!channelEnabled(orbit, target)) return;
       handlePetitBacEvent(target, tags);
-      log('petitbac', tagVal(tags, EV), target);
-    });
-
-    // Réinitialiser l’affichage si on quitte le salon de jeu
-    orbit.on('buffer.active', function (name) {
-      if (!name || channelEnabled(orbit, name)) return;
+      log('orbit-petitbac', tagVal(tags, EV), target);
     });
 
     orbit.addUi('overlay', function () {
-      var buffer = useSyncExternalStore(
-        function (cb) { return orbit.on('buffer.active', cb); },
-        function () { return orbit.state.active(); },
-        function () { return orbit.state.active(); }
-      );
-      return h(GamePanel, { orbit: orbit, buffer: buffer });
+      return h(OpbacPanel, { orbit: orbit });
     });
 
     orbit.addUi('topbar_item', function () {
@@ -547,5 +516,6 @@
     });
 
     log('orbit-petitbac ready');
+    try { console.info('[orbit-petitbac] ready — salon(s):', (cfg(orbit).channels || []).join(', ')); } catch (e2) { /* ignore */ }
   });
 })();
