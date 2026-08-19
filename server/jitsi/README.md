@@ -103,8 +103,30 @@ tail -f /var/log/jitsi-update.log
 Le script :
 1. Lit la version dans `.env` (`JITSI_IMAGE_VERSION`)
 2. Interroge l'API GitHub pour le dernier tag publié
-3. Si différent : sauvegarde `.env`, met à jour `JITSI_IMAGE_VERSION`, `docker compose pull`, `docker compose up -d`
-4. Vérifie l'état des containers après redémarrage et notifie en cas d'erreur
+3. Si différent : crée une sauvegarde complète du dossier Jitsi dans un dossier frère horodaté
+4. Sauvegarde aussi `.env`, met à jour `JITSI_IMAGE_VERSION`, `docker compose pull`, `docker compose up -d`
+5. Vérifie l'état des containers après redémarrage et notifie en cas d'erreur
+
+Exemple de sauvegarde créée avant MAJ :
+
+```bash
+/home/chat/irc/jitsi-docker-jitsi-meet-738058b.bak.20260819121530
+```
+
+### Restauration simple en cas de problème
+
+Si la nouvelle version ne fonctionne pas, tu peux revenir en arrière en arrêtant
+l'instance courante, puis en renommant le dossier sauvegardé :
+
+```bash
+cd /home/chat/irc
+mv jitsi-docker-jitsi-meet-738058b jitsi-docker-jitsi-meet-738058b.failed
+mv jitsi-docker-jitsi-meet-738058b.bak.20260819121530 jitsi-docker-jitsi-meet-738058b
+cd jitsi-docker-jitsi-meet-738058b
+docker compose up -d
+```
+
+Adapte bien l'horodatage au dossier de sauvegarde réellement créé.
 
 ### Compatibilité avec ton installation
 
@@ -167,6 +189,7 @@ Puis seulement si une MAJ est signalée :
 |---|---|---|
 | `JITSI_DIR` | `/home/chat/irc/jitsi-docker-jitsi-meet-738058b` | Chemin du dépôt |
 | `ENV_FILE` | `$JITSI_DIR/.env` | Fichier .env Jitsi |
+| `BACKUP_ROOT` | `$(dirname "$JITSI_DIR")` | Répertoire parent dans lequel créer les sauvegardes |
 | `KNOWN_FILE` | `/var/tmp/jitsi-last-known-tag` | Tag déjà notifié (évite les doublons) |
 | `NOTIFY_EMAIL` | *(vide)* | Adresse e-mail de notification |
 | `MAILER` | `mail` | Commande mail (`mail`, `sendmail`, `msmtp`) |

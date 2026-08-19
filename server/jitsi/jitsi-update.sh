@@ -17,6 +17,7 @@ set -euo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 JITSI_DIR="${JITSI_DIR:-/home/chat/irc/jitsi-docker-jitsi-meet-738058b}"
 ENV_FILE="${ENV_FILE:-$JITSI_DIR/.env}"
+BACKUP_ROOT="${BACKUP_ROOT:-$(dirname "$JITSI_DIR")}"
 # Fichier qui mémorise le dernier tag connu pour ne pas notifier deux fois.
 KNOWN_FILE="${KNOWN_FILE:-/var/tmp/jitsi-last-known-tag}"
 # Adresse e-mail pour la notification (vide = pas d'e-mail, juste le log).
@@ -80,18 +81,36 @@ fetch_latest_tag() {
     echo "${tag:-}"
 }
 
+create_full_backup() {
+    local stamp backup_dir
+    stamp=$(date +%Y%m%d%H%M%S)
+    backup_dir="$BACKUP_ROOT/$(basename "$JITSI_DIR").bak.$stamp"
+
+    [[ -d "$JITSI_DIR" ]] || die "Répertoire Jitsi introuvable : $JITSI_DIR"
+    [[ ! -e "$backup_dir" ]] || die "Le dossier de sauvegarde existe déjà : $backup_dir"
+
+    echo "$LOGPFX Création de la sauvegarde complète : $backup_dir" >&2
+    cp -a "$JITSI_DIR" "$backup_dir"
+    echo "$LOGPFX Sauvegarde complète terminée" >&2
+
+    echo "$backup_dir"
+}
+
 # ── Procédure de mise à jour ───────────────────────────────────────────────────
 do_update() {
-    local latest="$1"
+    local latest="$1" backup_dir
     log "=== Début de la mise à jour vers $latest ==="
 
     cd "$JITSI_DIR"
 
-    # 1. Sauvegarder le .env actuel
+    # 1. Sauvegarde complète du dossier Jitsi
+    backup_dir=$(create_full_backup)
+
+    # 2. Sauvegarder aussi le .env actuel séparément
     cp "$ENV_FILE" "${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
     log ".env sauvegardé"
 
-    # 2. Mettre à jour JITSI_IMAGE_VERSION dans le .env
+    # 3. Mettre à jour JITSI_IMAGE_VERSION dans le .env
     if grep -qE '^JITSI_IMAGE_VERSION=' "$ENV_FILE"; then
         sed -i "s|^JITSI_IMAGE_VERSION=.*|JITSI_IMAGE_VERSION=$latest|" "$ENV_FILE"
         log "JITSI_IMAGE_VERSION mis à jour → $latest"
@@ -100,15 +119,15 @@ do_update() {
         log "JITSI_IMAGE_VERSION ajouté → $latest"
     fi
 
-    # 3. Tirer les nouvelles images
+    # 4. Tirer les nouvelles images
     log "docker compose pull..."
     docker compose pull 2>&1 | sed "s/^/$LOGPFX [docker] /"
 
-    # 4. Recréer les containers
+    # 5. Recréer les containers
     log "docker compose up -d --remove-orphans..."
     docker compose up -d --remove-orphans 2>&1 | sed "s/^/$LOGPFX [docker] /"
 
-    # 5. Vérification rapide (attendre 10s que les containers démarrent)
+    # 6. Vérification rapide (attendre 10s que les containers démarrent)
     sleep 10
     local status
     status=$(docker compose ps --format '{{.Name}}: {{.Status}}' 2>/dev/null || docker compose ps)
@@ -125,17 +144,21 @@ containers semblent en erreur.
 $status
 
 Vérifier avec : docker compose -f $JITSI_DIR/docker-compose.yml logs
+
+Sauvegarde disponible :
+$backup_dir
 "
         return 1
     fi
 
-    # 6. Mémoriser le tag mis à jour
+    # 7. Mémoriser le tag mis à jour
     echo "$latest" > "$KNOWN_FILE"
 
     notify "[JITSI] ✅ Mise à jour $latest réussie" \
 "docker-jitsi-meet a été mis à jour vers $latest avec succès.
 
 Répertoire : $JITSI_DIR
+Sauvegarde : $backup_dir
 Date       : $TS
 
 État des containers :
