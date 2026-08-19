@@ -14,6 +14,12 @@
 #   */5 * * * * /home/chat/irc/sources/entrenous-orbit/deploy.sh >> /var/log/orbit-deploy.log 2>&1
 set -euo pipefail
 
+log() {
+  echo "$(date -Is) $*"
+}
+
+trap 'echo "$(date -Is) ERROR line $LINENO: $BASH_COMMAND" >&2' ERR
+
 ORBIT_REPO="/home/chat/irc/sources/orbit"
 PLUGINS_REPO="/home/chat/irc/sources/entrenous-orbit"
 WEBROOT="/home/chat/irc/webchat-new"
@@ -34,6 +40,7 @@ FILEHOST_UPLOAD_NAME="filehost-upload.php"
 FILEHOST_FILES_DIR="files"
 
 # --- pull both repos ---
+log "sync orbit repo"
 cd "$ORBIT_REPO"
 git fetch --quiet origin "$ORBIT_BRANCH"
 git checkout "$ORBIT_BRANCH" --quiet
@@ -41,6 +48,7 @@ git pull --ff-only --quiet origin "$ORBIT_BRANCH"
 git branch --set-upstream-to="origin/$ORBIT_BRANCH" "$ORBIT_BRANCH" >/dev/null 2>&1 || true
 ORBIT_HEAD=$(git rev-parse HEAD)
 
+log "sync entrenous repo"
 cd "$PLUGINS_REPO"
 git fetch --quiet origin "$PLUGINS_BRANCH"
 git checkout "$PLUGINS_BRANCH" --quiet
@@ -57,17 +65,21 @@ if [ "$LAST" = "$COMBO" ] && [ "${1:-}" != "--force" ]; then
   exit 0
 fi
 
-echo "$(date -Is) deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
+log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
 
 # --- build Orbit (unchanged upstream tree) ---
+log "install dependencies"
 cd "$ORBIT_REPO"
-npm ci --silent
+npm ci
+log "run tests"
 npm run test
+log "build orbit"
 npm run build
 
 # --- publish Orbit dist, preserving runtime upload data + secrets ---
 # IMPORTANT: any WEBROOT file not in dist/ is deleted by --delete unless
 # excluded below. Operator secrets (*.local.php) must always be excluded.
+log "publish orbit dist to webroot"
 rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$GALLERY_DIR/room-images.local.php" \
   --exclude="/$GALLERY_DIR/room-images.json" \
@@ -88,6 +100,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   "$ORBIT_REPO/dist/" "$WEBROOT/"
 
 # --- overlay EntreNous extras from THIS repo ---
+log "overlay entrenous files"
 mkdir -p "$WEBROOT/$GALLERY_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/orbit-room-gallery.js" \
       "$WEBROOT/$GALLERY_DIR/"
@@ -180,6 +193,7 @@ cp -f "$PLUGINS_REPO/server/unfurl/unfurl.php" "$WEBROOT/unfurl.php"
 
 # Ensure runtime upload dirs exist (PHP also mkdir's, but first deploy often
 # fails on permissions if the parent isn't ready — create + relax ownership).
+log "ensure runtime directories"
 mkdir -p "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR"
 chmod 2775 "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" "$WEBROOT/$FILEHOST_FILES_DIR" 2>/dev/null || true
 # Map file must be group-writable: www-data is in group `users`, deploy runs as `chat`.
@@ -244,5 +258,6 @@ if [ -f "$WEBROOT/$GALLERY_DIR/room-images.php" ]; then
   fi
 fi
 
+log "write deployed marker"
 echo "$COMBO" > "$DEPLOYED_MARKER"
-echo "$(date -Is) deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
+log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
