@@ -74,7 +74,6 @@ fi
 
 log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
 
-fi
 log "build orbit"
 npm run build
 
