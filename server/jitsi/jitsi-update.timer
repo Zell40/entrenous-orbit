@@ -1,0 +1,24 @@
+# /etc/systemd/system/jitsi-update.timer
+# Lance la vérification de mises à jour chaque matin à 07h00.
+#
+# Installation :
+#   sudo cp jitsi-update.service jitsi-update.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now jitsi-update.timer
+#
+# Vérification du prochain déclenchement :
+#   systemctl list-timers jitsi-update.timer
+
+[Unit]
+Description=Vérification quotidienne des mises à jour de Jitsi Meet
+
+[Timer]
+# Heure de déclenchement : 07h00 chaque matin
+OnCalendar=*-*-* 07:00:00
+# Si le serveur était éteint à l'heure prévue, lancer dès que possible
+Persistent=true
+# Étaler légèrement le déclenchement pour ne pas saturer cron+API GitHub
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

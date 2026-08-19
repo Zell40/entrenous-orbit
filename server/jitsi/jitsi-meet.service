@@ -1,0 +1,45 @@
+# /etc/systemd/system/jitsi-meet.service
+# Démarre docker-jitsi-meet au boot et le relance en cas de crash.
+#
+# Installation :
+#   sudo cp jitsi-meet.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now jitsi-meet
+#
+# Vérification :
+#   systemctl status jitsi-meet
+#   journalctl -u jitsi-meet -f
+
+[Unit]
+Description=Jitsi Meet (docker-jitsi-meet)
+Documentation=https://github.com/jitsi/docker-jitsi-meet
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Chemin vers le répertoire docker-jitsi-meet
+WorkingDirectory=/home/chat/irc/jitsi-docker-jitsi-meet-738058b
+
+# Démarrage : pull en silence, puis up en arrière-plan
+ExecStartPre=/usr/bin/docker compose pull --quiet
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+
+# Arrêt propre
+ExecStop=/usr/bin/docker compose stop
+
+# Rechargement (sans coupure service) : recrée uniquement les containers modifiés
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+
+# Redémarrage automatique si le service s'arrête de façon inattendue
+Restart=on-failure
+RestartSec=30s
+
+# Timeout généreux pour le pull initial des images
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

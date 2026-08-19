@@ -1,0 +1,23 @@
+# /etc/systemd/system/jitsi-update.service
+# Service one-shot déclenché par jitsi-update.timer.
+#
+# En mode "check" (défaut) il log et notifie par e-mail si une MAJ est dispo.
+# Pour appliquer la mise à jour depuis la ligne de commande :
+#   sudo systemctl start jitsi-update-apply.service   # voir README
+
+[Unit]
+Description=Vérification des mises à jour de Jitsi Meet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adapter le chemin si nécessaire
+ExecStart=/home/chat/irc/jitsi-docker-jitsi-meet-738058b/jitsi-update.sh
+# Pour recevoir les notifications par e-mail, définir ici l'adresse et le mailer :
+# Environment="NOTIFY_EMAIL=admin@entrenous.chat"
+# Environment="MAILER=sendmail"
+
+# Journalisation complète dans journald + fichier de log
+StandardOutput=append:/var/log/jitsi-update.log
+StandardError=append:/var/log/jitsi-update.log
