@@ -12,7 +12,7 @@
       return;
     }
     if (window.__ORBIT_PETITBAC__) return;
-    window.__ORBIT_PETITBAC__ = 4;
+    window.__ORBIT_PETITBAC__ = 3;
 
   var React = Orbit.React;
   var h = React.createElement;
@@ -62,21 +62,11 @@
     return keyOrName;
   }
 
-  function isBacChannel(orbit, channelKey) {
-    if (!channelKey) return false;
-    var name = resolveChannelName(orbit, channelKey);
-    var n = normChan(name);
-    if (!isChannelName(n) && !isChannelName(name)) return false;
-    if (/baccalaureat/i.test(n)) return true;
-    var c = cfg(orbit);
-    if (c.channelsAll) return true;
-    if (c.channels.indexOf(n) >= 0) return true;
-    var play = (((orbit.config().startup || {}).intents || {}).play) || [];
-    return play.some(function (ch) { return normChan(ch) === n; });
-  }
-
   function channelEnabled(orbit, channelKey) {
-    return isBacChannel(orbit, channelKey);
+    var name = resolveChannelName(orbit, channelKey);
+    var c = cfg(orbit);
+    if (c.channelsAll) return isChannelName(name) || isChannelName(channelKey);
+    return c.channels.indexOf(normChan(name)) >= 0;
   }
 
   function stripIrc(text) {
@@ -562,71 +552,6 @@
     }, '🎲');
   }
 
-  function renderDomPanel(orbit, root) {
-    var buffer = orbit.state.active();
-    if (!isBacChannel(orbit, buffer)) {
-      root.style.display = 'none';
-      return;
-    }
-    root.style.display = '';
-    var game = getChannelState(buffer) || defaultState();
-    var phase = game.phase || 'idle';
-    var remaining = 0;
-    if (phase === 'playing' && game.roundStartAt && game.duration > 0) {
-      remaining = Math.max(0, Math.ceil(game.duration - (Date.now() - game.roundStartAt) / 1000));
-    }
-    var cats = (game.categories || []).map(function (c) {
-      return '<span class="opbac-cat">' + c + '</span>';
-    }).join('');
-    root.innerHTML =
-      '<div class="opbac-head">' +
-        '<span class="opbac-head__title">Petit Bac</span>' +
-        '<span class="opbac-head__badge">' + (game.round && game.totalRounds
-          ? ('Manche ' + game.round + '/' + game.totalRounds)
-          : phaseLabel(phase, game.countdown)) + '</span>' +
-      '</div>' +
-      '<div class="opbac-body">' +
-        (game.letter
-          ? ('<div class="opbac-hero"><div class="opbac-letter">' + game.letter + '</div>' +
-             '<div class="opbac-meta"><div class="opbac-meta__phase">' + phaseLabel(phase, game.countdown) + '</div>' +
-             (remaining ? ('<div class="opbac-timer__txt">' + remaining + 's</div>') : '') + '</div></div>')
-          : ('<div class="opbac-idle__txt">' + pick({
-            fr: 'Tapez !jouer pour lancer une partie. Répondez dans le tchat, un mot par ligne et par catégorie.',
-            en: 'Type !jouer to start. Answer in chat, one word per line per category.',
-          }) + '</div>')) +
-        (cats ? ('<div class="opbac-cats">' + cats + '</div>') : '') +
-      '</div>' +
-      '<div class="opbac-foot">' +
-        '<button type="button" class="opbac-foot__btn" data-act="aide">' + pick({ fr: 'Aide', en: 'Help' }) + '</button>' +
-        '<button type="button" class="opbac-foot__btn opbac-foot__btn--primary" data-act="jouer">' + pick({ fr: 'Jouer', en: 'Play' }) + '</button>' +
-      '</div>';
-    root.onclick = function (ev) {
-      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
-      if (!btn) return;
-      var act = btn.getAttribute('data-act');
-      if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
-      if (act === 'aide') orbit.irc.msg(buffer, '!aide');
-    };
-  }
-
-  function mountDomPanel(orbit) {
-    var root = document.getElementById('opbac-dom-panel');
-    if (!root) {
-      root = document.createElement('div');
-      root.id = 'opbac-dom-panel';
-      root.className = 'opbac-panel';
-      root.setAttribute('role', 'region');
-      root.setAttribute('aria-label', 'Petit Bac');
-    }
-    var main = document.querySelector('.main');
-    var topbar = main && main.querySelector('.topbar');
-    if (!main || !topbar) return;
-    if (root.parentNode !== main || root.previousElementSibling !== topbar) {
-      topbar.insertAdjacentElement('afterend', root);
-    }
-    renderDomPanel(orbit, root);
-  }
-
   function MoreMenuItem(props) {
     var orbit = props.orbit;
     var buffer = useActiveBuffer(orbit);
@@ -644,13 +569,7 @@
 
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     injectStyles();
-    console.info('[orbit-petitbac] loaded v4');
-
-    function syncDom() {
-      try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }
-    }
-
-    var unsubStore = subscribe(function () { syncDom(); });
+    console.info('[orbit-petitbac] loaded v3');
 
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '').toUpperCase();
@@ -669,14 +588,12 @@
         if (!isChannelName(chan)) return;
         if (!channelEnabled(orbit, chan)) return;
         handleIrcLine(chan, msg.nick, (msg.params && msg.params[1]) || '');
-        syncDom();
       }
     });
 
-    orbit.on('buffer.active', syncDom);
-    orbit.on('connected', syncDom);
-    orbit.on('status', syncDom);
-    setInterval(syncDom, 1000);
+    orbit.addUi('overlay', function () {
+      return h(OpbacPanel, { orbit: orbit });
+    });
 
     orbit.addUi('topbar_item', function () {
       return h(TopbarToggle, { orbit: orbit });
