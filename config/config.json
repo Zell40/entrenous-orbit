@@ -94,7 +94,7 @@
   },
   "bacLive": {
     "channels": ["#Baccalaureat.chat"],
-    "defaultOpen": true,
+    "defaultOpen": false,
     "maxPlayers": 14
   },
   "plugins": [
@@ -106,7 +106,7 @@
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
-    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=6",
+    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=8",
     "/app/plugins/third/orbit-bac-live/orbit-bac-live.js?v=1"
   ],
   "builtins": [],
