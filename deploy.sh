@@ -74,14 +74,6 @@ fi
 
 log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
 
-# --- build Orbit (unchanged upstream tree) ---
-log "install dependencies"
-cd "$ORBIT_REPO"
-if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-  npm ci
-else
-  log "WARN: no lockfile in $ORBIT_REPO, fallback to npm install"
-  npm install
 fi
 log "build orbit"
 npm run build
