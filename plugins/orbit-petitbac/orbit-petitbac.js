@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 11;
+  var PBAC_VER = 17;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -325,9 +325,66 @@
           duration: (getChannelState(channel) || {}).duration || Number(left[1]) || 60,
         });
       }
-      if (/fin de la (?:partie|manche)|partie termin[eé]e|manche termin[eé]e/i.test(body)) {
-        var endPhase = /manche termin[eé]e/i.test(body) ? 'round_end' : 'game_end';
-        patchChannel(channel, { phase: endPhase });
+
+      var gameSt = getChannelState(channel) || defaultState();
+
+      if (/FIN DE LA PARTIE/i.test(body)) {
+        patchChannel(channel, {
+          phase: 'game_end',
+          letter: '',
+          categories: [],
+          roundStartAt: 0,
+          endNotes: gameSt.endNotes || [],
+        });
+        return;
+      }
+
+      if (/Fin de manche|fin de la manche|🏁\s*Fin de manche/i.test(body) && !/FIN DE LA PARTIE/i.test(body)) {
+        patchChannel(channel, { phase: 'round_end', roundStartAt: 0 });
+        gameSt = getChannelState(channel) || defaultState();
+      }
+
+      if (/fin de la partie|partie termin[eé]e/i.test(body)) {
+        patchChannel(channel, {
+          phase: 'game_end',
+          letter: '',
+          categories: [],
+          roundStartAt: 0,
+        });
+        gameSt = getChannelState(channel) || defaultState();
+      }
+
+      var scoreLine = parseScoreLine(body);
+      if (scoreLine) {
+        if (gameSt.phase === 'game_end' || /classement final|Voici le classement/i.test(body)) {
+          var finalList = upsertRankingRow(gameSt.finalRanking || [], scoreLine.nick, scoreLine.pts);
+          patchChannel(channel, {
+            phase: 'game_end',
+            finalRanking: finalList,
+            scores: scoresFromRanking(finalList),
+          });
+        } else if (gameSt.phase === 'round_end' || /Scores cumul[eé]s/i.test(body)) {
+          var cum = Object.assign({}, gameSt.scores || {});
+          cum[scoreLine.nick] = scoreLine.pts;
+          patchChannel(channel, { scores: cum });
+          gameSt = getChannelState(channel) || defaultState();
+        }
+      }
+
+      var roundRes = body.match(/R[eé]sultat pour\s+(\S+)\s*:\s*(\d+)\s+point/i);
+      if (roundRes) {
+        var rs = Object.assign({}, gameSt.roundScores || {});
+        rs[roundRes[1]] = Number(roundRes[2]) || 0;
+        patchChannel(channel, { phase: 'round_end', roundScores: rs, roundStartAt: 0 });
+        gameSt = getChannelState(channel) || defaultState();
+      }
+
+      if (gameSt.phase === 'game_end' && /[!🎮✏️🐞🎉📊🌟🏆📅]|Merci d'avoir jou[eé]|recommencer|!jouer|!jeu|!suggestion|!bug/i.test(body)) {
+        patchChannel(channel, { endNotes: appendEndNote(gameSt, body) });
+      }
+
+      if (/manche termin[eé]e/i.test(body)) {
+        patchChannel(channel, { phase: 'round_end' });
       }
     }
 
@@ -355,6 +412,7 @@
       roundScores: {},
       finalRanking: [],
       topGlobal: [],
+      endNotes: [],
       starter: '',
       updatedAt: 0,
     };
@@ -444,6 +502,7 @@
         roundScores: {},
         countdown: 0,
         finalRanking: [],
+        endNotes: [],
       });
       return;
     }
@@ -571,6 +630,7 @@
         roundStartAt: 0,
         letter: '',
         categories: [],
+        scores: scoresFromRanking(rankingFromPairs(ranking)),
       });
       return;
     }
@@ -627,8 +687,99 @@
       '.opbac-col__verify--sent{opacity:.6}',
       '.opbac-sheet__all{grid-column:1/-1;width:100%;margin-top:.1rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ccc));border-radius:10px;padding:.5rem;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:#6366f1;min-height:40px}',
       '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
-      '.opbac-topbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid var(--border,#ccc);background:var(--bg,#fff);cursor:pointer}',
-      '.opbac-topbtn.on{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent}',
+      '.opbac-help-wrap{padding:0 1.2rem 1.25rem}',
+      '.opbac-help-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
+      '.opbac-help-dialog{width:min(680px,100%);max-height:min(88vh,760px);display:flex;flex-direction:column;background:var(--bg,#fff);border-radius:16px;border:1px solid var(--border,#ddd);box-shadow:0 24px 64px -20px rgba(15,23,42,.45);overflow:hidden}',
+      '.opbac-help-dialog__head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem .85rem;border-bottom:1px solid var(--border,#e5e5e5)}',
+      '.opbac-help-dialog__head h3{margin:0;font-size:1.15rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-help-dialog__x{width:34px;height:34px;border:0;border-radius:9px;background:var(--bg-soft,rgba(127,127,127,.12));color:var(--muted,#666);cursor:pointer;font-size:.95rem}',
+      '.opbac-help-dialog__x:hover{background:var(--bg-soft-2,rgba(127,127,127,.18))}',
+      '.opbac-help-dialog__body,.opbac-help{padding:1rem 1.15rem 1.2rem;overflow-y:auto;line-height:1.5;max-height:min(72vh,620px)}',
+      '.opbac-help-intro{margin:0 0 1rem;padding:.65rem .75rem;border-radius:10px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));font-size:.88rem;color:var(--ink,#222)}',
+      '.opbac-help-sec{margin:0 0 1.15rem}',
+      '.opbac-help-sec:last-child{margin-bottom:0}',
+      '.opbac-help-sec__h{margin:0 0 .55rem;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink,#111)}',
+      '.opbac-help-sec__note{margin:.5rem 0 0;font-size:.76rem;color:var(--muted,#666);line-height:1.4}',
+      '.opbac-help-steps{margin:0;padding:0;list-style:none;counter-reset:opbacstep}',
+      '.opbac-help-steps li{position:relative;margin:0 0 .55rem;padding:.15rem 0 .15rem 2rem;font-size:.86rem;color:var(--ink,#222)}',
+      '.opbac-help-steps li:last-child{margin-bottom:0}',
+      '.opbac-help-steps li::before{counter-increment:opbacstep;content:counter(opbacstep);position:absolute;left:0;top:.1rem;width:1.45rem;height:1.45rem;border-radius:50%;display:grid;place-items:center;font-size:.72rem;font-weight:900;color:#fff;background:linear-gradient(135deg,#6366f1,#8b5cf6)}',
+      '.opbac-help-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem}',
+      '@media(max-width:560px){.opbac-help-modes{grid-template-columns:1fr}}',
+      '.opbac-help-mode{display:flex;flex-direction:column;align-items:center;gap:.12rem;padding:.55rem .4rem;border-radius:11px;border:1px solid var(--border,#e5e5e5);background:var(--bg-soft,rgba(127,127,127,.05));text-align:center}',
+      '.opbac-help-mode__emoji{font-size:1.15rem;line-height:1}',
+      '.opbac-help-mode strong{font-size:.8rem;color:var(--ink,#111)}',
+      '.opbac-help-mode span{font-size:.65rem;font-weight:700;color:var(--muted,#666);line-height:1.25}',
+      '.opbac-help-cmds{display:flex;flex-direction:column;gap:0;border:1px solid var(--border,#e5e5e5);border-radius:12px;overflow:hidden}',
+      '.opbac-help-cmd{display:grid;grid-template-columns:minmax(7.5rem,9.5rem) 1fr;gap:.55rem;padding:.52rem .65rem;border-bottom:1px solid var(--border,#eee);background:var(--bg,#fff);align-items:start}',
+      '.opbac-help-cmd:last-child{border-bottom:0}',
+      '.opbac-help-cmd__k{display:inline-block;padding:.15rem .45rem;border-radius:7px;background:color-mix(in srgb,#6366f1 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 25%,var(--border,#ddd));font-family:ui-monospace,Consolas,monospace;font-size:.76rem;font-weight:800;color:#4338ca;word-break:break-word}',
+      '.opbac-help-cmd__d{font-size:.82rem;color:var(--ink,#222);line-height:1.35}',
+      '.opbac-help-foot{margin:1rem 0 0;padding-top:.85rem;border-top:1px solid var(--border,#ddd);font-size:.78rem;color:var(--muted,#666);line-height:1.45}',
+      '.opbac-complete{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.9rem 1rem;margin-bottom:.2rem;border-radius:14px;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;text-align:center;position:relative;overflow:hidden;box-shadow:0 10px 28px -12px rgba(21,128,61,.55)}',
+      '.opbac-complete__ring{position:absolute;inset:50% auto auto 50%;width:4rem;height:4rem;margin:-2rem 0 0 -2rem;border-radius:50%;border:3px solid rgba(255,255,255,.55);pointer-events:none}',
+      '.opbac-complete__icon{width:2.6rem;height:2.6rem;border-radius:50%;background:rgba(255,255,255,.22);display:grid;place-items:center;font-size:1.45rem;font-weight:900;line-height:1}',
+      '.opbac-complete__title{font-size:1.05rem;font-weight:900;letter-spacing:.01em}',
+      '.opbac-complete__sub{font-size:.78rem;font-weight:700;opacity:.92}',
+      '.opbac-complete--enter{animation:opbacCompletePop .65s cubic-bezier(.2,.9,.2,1) both}',
+      '.opbac-complete--enter .opbac-complete__ring{animation:opbacCompleteRing 1s ease-out both}',
+      '.opbac-complete--enter .opbac-complete__icon{animation:opbacCompleteIcon .55s cubic-bezier(.2,.9,.2,1) .12s both}',
+      '@keyframes opbacCompletePop{0%{transform:scale(.86) translateY(8px);opacity:0}55%{transform:scale(1.04) translateY(0)}100%{transform:scale(1);opacity:1}}',
+      '@keyframes opbacCompleteRing{0%{transform:scale(.5);opacity:.85}100%{transform:scale(2.4);opacity:0}}',
+      '@keyframes opbacCompleteIcon{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}',
+      '@keyframes opbacColPop{0%{transform:translateY(6px) scale(.96);opacity:.5}100%{transform:none;opacity:1}}',
+      '@keyframes opbacPanelGlow{0%,100%{box-shadow:inset 0 0 0 0 transparent}35%{box-shadow:inset 0 0 0 2px color-mix(in srgb,#22c55e 50%,transparent),0 8px 32px -10px rgba(34,197,94,.35)}70%{box-shadow:inset 0 0 0 1px color-mix(in srgb,#22c55e 25%,transparent)}}',
+      '.opbac-panel--complete{border-bottom-color:color-mix(in srgb,#22c55e 35%,var(--border,#ddd))}',
+      '.opbac-panel--complete-pop{animation:opbacPanelGlow 1.1s ease}',
+      '.opbac-sheet--complete .opbac-col--ok{animation:opbacColPop .45s ease backwards}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(1){animation-delay:.04s}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(2){animation-delay:.08s}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(3){animation-delay:.12s}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(4){animation-delay:.16s}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(5){animation-delay:.2s}',
+      '.opbac-sheet--complete .opbac-col--ok:nth-child(6){animation-delay:.24s}',
+      '.opbac-head__badge--complete{background:rgba(34,197,94,.85)!important}',
+      '.opbac-panel--game-end{border-bottom-color:color-mix(in srgb,#eab308 40%,var(--border,#ddd))}',
+      '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
+      '.opbac-end{padding:.85rem .9rem 1rem}',
+      '.opbac-end--enter{animation:opbacEndIn .55s cubic-bezier(.2,.9,.2,1) both}',
+      '@keyframes opbacEndIn{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}',
+      '.opbac-end__hero{text-align:center;padding:1rem .75rem 1.1rem;border-radius:16px;margin-bottom:.85rem;color:#fff}',
+      '.opbac-end__hero--game{background:linear-gradient(135deg,#7c3aed,#4338ca);box-shadow:0 12px 32px -14px rgba(67,56,202,.55)}',
+      '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5);box-shadow:0 10px 28px -14px rgba(79,70,229,.45)}',
+      '.opbac-end__trophy{font-size:2.2rem;line-height:1;margin-bottom:.35rem}',
+      '.opbac-end__title{font-size:1.25rem;font-weight:900;letter-spacing:.01em;margin:0 0 .25rem}',
+      '.opbac-end__sub{font-size:.82rem;font-weight:700;opacity:.92;margin:0}',
+      '.opbac-end__block{margin-bottom:.85rem}',
+      '.opbac-end__block:last-child{margin-bottom:0}',
+      '.opbac-end__h{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666);margin:0 0 .45rem}',
+      '.opbac-end__table{width:100%;border-collapse:collapse;font-size:.84rem}',
+      '.opbac-end__table th,.opbac-end__table td{padding:.42rem .45rem;border-bottom:1px solid var(--border,#e5e5e5);text-align:left}',
+      '.opbac-end__table th{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#666)}',
+      '.opbac-end__table tr.opbac-end__me td{font-weight:800;color:#6366f1;background:color-mix(in srgb,#6366f1 6%,transparent)}',
+      '.opbac-end__rank{width:2rem;text-align:center;font-size:1rem}',
+      '.opbac-end__pts{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent,#6366f1)}',
+      '.opbac-end__notes{display:flex;flex-direction:column;gap:.35rem}',
+      '.opbac-end__note{margin:0;padding:.55rem .65rem;border-radius:10px;background:var(--bg-soft,rgba(127,127,127,.07));border:1px solid var(--border,#e5e5e5);font-size:.78rem;line-height:1.4;color:var(--ink,#222)}',
+      '.opbac-end__actions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.85rem}',
+      '.opbac-end__btn{flex:1;min-width:8rem;border:0;border-radius:999px;padding:.65rem 1rem;font-size:.84rem;font-weight:800;cursor:pointer}',
+      '.opbac-end__btn--primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}',
+      '.opbac-end__btn--ghost{background:var(--bg-soft,rgba(127,127,127,.1));color:var(--ink,#111);border:1px solid var(--border,#ddd)}',
+      '.opbac-end__empty{font-size:.82rem;color:var(--muted,#666);text-align:center;padding:.65rem}',
+      '.opbac-replay{margin-top:.25rem;padding:1rem .85rem 1.05rem;border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 8%,var(--bg,#fff)),var(--bg-soft,rgba(127,127,127,.05)));border:2px solid color-mix(in srgb,#6366f1 28%,var(--border,#ddd));text-align:center}',
+      '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-replay__sub{margin:0 0 .75rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
+      '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;margin-bottom:.75rem}',
+      '@media(max-width:560px){.opbac-modes{grid-template-columns:1fr}}',
+      '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem .4rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
+      '.opbac-mode:hover{border-color:color-mix(in srgb,#6366f1 40%,var(--border,#ccc));transform:translateY(-1px)}',
+      '.opbac-mode--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff));box-shadow:0 0 0 3px color-mix(in srgb,#6366f1 18%,transparent)}',
+      '.opbac-mode__emoji{font-size:1.25rem;line-height:1}',
+      '.opbac-mode__label{font-size:.82rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-mode__hint{font-size:.62rem;font-weight:700;color:var(--muted,#666);line-height:1.25}',
+      '.opbac-replay__cta{display:block;width:100%;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 10px 24px -10px rgba(99,102,241,.55);margin-bottom:.45rem}',
+      '.opbac-replay__cta:hover{filter:brightness(1.05)}',
+      '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -717,6 +868,51 @@
     return '';
   }
 
+  function isChannelOp(orbit, bufferKey) {
+    var st = orbit.state.get();
+    var nick = String(st.nick || '').toLowerCase();
+    var buf = st.buffers && st.buffers[bufferKey];
+    if (!buf || !buf.members || !nick) return false;
+    var me = buf.members[st.nick];
+    if (!me) {
+      Object.keys(buf.members).some(function (k) {
+        if (k.toLowerCase() === nick) { me = buf.members[k]; return true; }
+        return false;
+      });
+    }
+    if (!me || !me.prefix) return false;
+    return /[~&@]/.test(me.prefix);
+  }
+
+  function helpPlayerCommands() {
+    return [
+      { cmd: '!jouer [noregles]', desc: pick({ fr: 'Démarre une nouvelle partie', en: 'Start a new game' }) },
+      { cmd: '!jeu <facile|moyen|difficile|…>', desc: pick({ fr: 'Modifier la difficulté ou personnaliser le jeu', en: 'Change difficulty or customize the game' }) },
+      { cmd: '!oui / !non', desc: pick({ fr: 'Voter lors d\'un vote', en: 'Vote yes or no' }) },
+      { cmd: '!scores', desc: pick({ fr: 'Affiche les scores cumulés', en: 'Show cumulative scores' }) },
+      { cmd: '!stat [pseudo]', desc: pick({ fr: 'Statistiques globales (ou d\'un joueur)', en: 'Global stats (or a player\'s)' }) },
+      { cmd: '!top [<n>]', desc: pick({ fr: 'Classement global', en: 'Global ranking' }) },
+      { cmd: '!manche', desc: pick({ fr: 'Lettre et catégories de la manche en cours', en: 'Current round letter and categories' }) },
+      { cmd: '!verifier <cat> <mot>', desc: pick({ fr: 'Proposer un mot refusé à validation', en: 'Submit a rejected word for review' }) },
+      { cmd: '!info <mot>', desc: pick({ fr: 'Informations Wikipédia sur un mot', en: 'Wikipedia info about a word' }) },
+      { cmd: '!bug / !suggestion', desc: pick({ fr: 'Signaler un bug ou proposer une amélioration', en: 'Report a bug or suggest an improvement' }) },
+    ];
+  }
+
+  function helpHowToPlay() {
+    return [
+      pick({ fr: 'Une lettre et plusieurs catégories sont tirées au sort.', en: 'A letter and several categories are drawn.' }),
+      pick({ fr: 'Trouvez un mot commençant par cette lettre pour chaque catégorie.', en: 'Find a word starting with that letter for each category.' }),
+      pick({ fr: 'Répondez dans la grille du panneau ou directement dans le tchat.', en: 'Answer in the panel grid or directly in chat.' }),
+      pick({ fr: 'Le bot valide automatiquement les mots (+1 pt, +2 pt pour un mot difficile).', en: 'The bot validates words automatically (+1 pt, +2 pt for a hard word).' }),
+      pick({ fr: 'Les points sont cumulés à chaque manche ; le classement s\'affiche en fin de manche.', en: 'Points add up each round; rankings show at the end of each round.' }),
+      pick({ fr: 'Mot refusé ? Utilisez le bouton « Vérifier » ou !verifier <catégorie> <mot>.', en: 'Word rejected? Use the Verify button or !verifier <category> <word>.' }),
+    ];
+  }
+
+  var helpModalClose = null;
+  var helpEscHandler = null;
+
   function useChannelGame(orbit, buffer) {
     useSyncExternalStore(subscribe, getSnap, getSnap);
     return getChannelState(buffer);
@@ -734,7 +930,266 @@
     return Object.keys(scores || {})
       .map(function (nick) { return { nick: nick, pts: scores[nick] }; })
       .sort(function (a, b) { return b.pts - a.pts; })
-      .slice(0, 8);
+      .slice(0, 12);
+  }
+
+  function upsertRankingRow(list, nick, pts) {
+    var out = (list || []).slice();
+    var key = String(nick || '').toLowerCase();
+    var idx = -1;
+    for (var i = 0; i < out.length; i++) {
+      if (String(out[i].nick || '').toLowerCase() === key) { idx = i; break; }
+    }
+    var row = { nick: nick, pts: Number(pts) || 0 };
+    if (idx >= 0) out[idx] = row;
+    else out.push(row);
+    return out.sort(function (a, b) { return b.pts - a.pts; });
+  }
+
+  function scoresFromRanking(list) {
+    var o = Object.create(null);
+    (list || []).forEach(function (r) { o[r.nick] = r.pts; });
+    return o;
+  }
+
+  function rankingForDisplay(game, preferFinal) {
+    if (preferFinal && game.finalRanking && game.finalRanking.length) return game.finalRanking;
+    if (game.scores && Object.keys(game.scores).length) return sortedScores(game.scores);
+    return game.finalRanking || [];
+  }
+
+  function roundScoresList(game) {
+    var rs = game.roundScores || {};
+    return Object.keys(rs).map(function (nick) {
+      return { nick: nick, pts: Number(rs[nick]) || 0 };
+    }).sort(function (a, b) { return b.pts - a.pts; });
+  }
+
+  function rankMedal(index) {
+    if (index === 0) return '🥇';
+    if (index === 1) return '🥈';
+    if (index === 2) return '🥉';
+    return String(index + 1);
+  }
+
+  function appendEndNote(game, line) {
+    line = String(line || '').trim();
+    if (!line || line.length > 220) return game.endNotes || [];
+    var notes = (game.endNotes || []).slice();
+    if (notes.indexOf(line) >= 0) return notes;
+    notes.push(line);
+    return notes.slice(-8);
+  }
+
+  function parseScoreLine(body) {
+    var m = String(body || '').match(/^[•\s]*([^\s:]{1,32})\s*:\s*(\d+)\s+point/i);
+    if (!m) return null;
+    return { nick: m[1].replace(/^[@+%~&]/, ''), pts: Number(m[2]) || 0 };
+  }
+
+  function gameModeOptions() {
+    return [
+      {
+        id: 'facile',
+        emoji: '🌱',
+        label: pick({ fr: 'Facile', en: 'Easy' }),
+        hint: pick({ fr: '3 catégories · 30 s · 10 manches', en: '3 categories · 30 s · 10 rounds' }),
+      },
+      {
+        id: 'moyen',
+        emoji: '⚡',
+        label: pick({ fr: 'Moyen', en: 'Medium' }),
+        hint: pick({ fr: '5 catégories · 40 s · 12 manches', en: '5 categories · 40 s · 12 rounds' }),
+      },
+      {
+        id: 'difficile',
+        emoji: '🔥',
+        label: pick({ fr: 'Difficile', en: 'Hard' }),
+        hint: pick({ fr: '7 catégories · 45 s · 15 manches', en: '7 categories · 45 s · 15 rounds' }),
+      },
+    ];
+  }
+
+  function normalizeModeId(mode) {
+    var m = String(mode || '').trim().toLowerCase();
+    if (m === 'facile' || m === 'moyen' || m === 'difficile') return m;
+    return 'facile';
+  }
+
+  function defaultReplayMode(game, root, orbit) {
+    if (root && root.__opbacReplayMode) return normalizeModeId(root.__opbacReplayMode);
+    if (game && game.mode) return normalizeModeId(game.mode);
+    try {
+      if (orbit && orbit.storage) return normalizeModeId(orbit.storage.get('petitbacMode', 'facile'));
+    } catch (e) { /* ignore */ }
+    return 'facile';
+  }
+
+  function buildReplaySectionHtml(selectedMode) {
+    selectedMode = normalizeModeId(selectedMode);
+    var cards = gameModeOptions().map(function (m) {
+      var on = m.id === selectedMode;
+      return '<button type="button" class="opbac-mode' + (on ? ' opbac-mode--on' : '') + '" data-act="pick-mode" data-mode="' +
+        escHtml(m.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="opbac-mode__emoji" aria-hidden="true">' + m.emoji + '</span>' +
+        '<span class="opbac-mode__label">' + escHtml(m.label) + '</span>' +
+        '<span class="opbac-mode__hint">' + escHtml(m.hint) + '</span></button>';
+    }).join('');
+    return '<div class="opbac-replay" data-opbac-replay>' +
+      '<h3 class="opbac-replay__q">' + escHtml(pick({ fr: 'Une nouvelle partie ?', en: 'Play again?' })) + '</h3>' +
+      '<p class="opbac-replay__sub">' + escHtml(pick({
+        fr: 'Choisissez un niveau, puis confirmez pour relancer.',
+        en: 'Choose a level, then confirm to start again.',
+      })) + '</p>' +
+      '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
+        cards + '</div>' +
+      '<button type="button" class="opbac-replay__cta" data-act="replay">' +
+        escHtml(pick({ fr: '▶ Oui, lancer une partie', en: '▶ Yes, start a game' })) +
+      '</button>' +
+      '<button type="button" class="opbac-replay__help" data-act="aide">' +
+        escHtml(pick({ fr: 'Règles et commandes', en: 'Rules and commands' })) +
+      '</button></div>';
+  }
+
+  function startReplayGame(orbit, buffer, root) {
+    var mode = defaultReplayMode(null, root, orbit);
+    try { orbit.storage.set('petitbacMode', mode); } catch (e) { /* ignore */ }
+    orbit.irc.msg(buffer, '!jeu ' + mode);
+    window.setTimeout(function () {
+      orbit.irc.msg(buffer, '!jouer');
+    }, 350);
+    try {
+      orbit.notify('Petit Bac', pick({
+        fr: 'Partie ' + mode + ' en cours de lancement…',
+        en: 'Starting ' + mode + ' game…',
+      }));
+    } catch (e2) { /* ignore */ }
+  }
+
+  function updateReplayModeUi(root, mode) {
+    mode = normalizeModeId(mode);
+    root.__opbacReplayMode = mode;
+    var buttons = root.querySelectorAll('[data-act="pick-mode"]');
+    buttons.forEach(function (btn) {
+      var on = btn.getAttribute('data-mode') === mode;
+      btn.classList.toggle('opbac-mode--on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function buildHelpCmdRow(cmd, desc) {
+    return '<div class="opbac-help-cmd">' +
+      '<code class="opbac-help-cmd__k">' + escHtml(cmd) + '</code>' +
+      '<span class="opbac-help-cmd__d">' + escHtml(desc) + '</span></div>';
+  }
+
+  function buildHelpHtml(orbit) {
+    var buffer = orbit.state.active();
+    var isOp = buffer ? isChannelOp(orbit, buffer) : false;
+    var steps = helpHowToPlay().map(function (line) {
+      return '<li>' + escHtml(line) + '</li>';
+    }).join('');
+    var cmdRows = helpPlayerCommands().map(function (row) {
+      return buildHelpCmdRow(row.cmd, row.desc);
+    }).join('');
+    var modeCards = gameModeOptions().map(function (m) {
+      return '<div class="opbac-help-mode">' +
+        '<span class="opbac-help-mode__emoji" aria-hidden="true">' + m.emoji + '</span>' +
+        '<strong>' + escHtml(m.label) + '</strong>' +
+        '<span>' + escHtml(m.hint) + '</span></div>';
+    }).join('');
+    var opBlock = isOp
+      ? ('<section class="opbac-help-sec">' +
+          '<h4 class="opbac-help-sec__h">🔧 ' + escHtml(pick({ fr: 'Commandes opérateur', en: 'Operator commands' })) + '</h4>' +
+          '<div class="opbac-help-cmds">' +
+            buildHelpCmdRow('!stop', pick({ fr: 'Arrête la partie en cours', en: 'Stop the current game' })) +
+            buildHelpCmdRow('!scores reset', pick({ fr: 'Réinitialise les scores du salon', en: 'Reset channel scores' })) +
+            buildHelpCmdRow('!bac config', pick({ fr: 'Affiche ou modifie la configuration du jeu', en: 'Show or edit game configuration' })) +
+          '</div>' +
+          '<p class="opbac-help-sec__note">' + escHtml(pick({
+            fr: 'Gestion avancée des mots et catégories : !bac mots … (réservé aux ops).',
+            en: 'Advanced words/categories management: !bac mots … (ops only).',
+          })) + '</p></section>')
+      : '';
+
+    return '<div class="opbac-help">' +
+      '<p class="opbac-help-intro">' + escHtml(pick({
+        fr: 'Trouvez un mot par catégorie commençant par la lettre tirée. Répondez dans la grille du panneau ou dans le tchat.',
+        en: 'Find one word per category starting with the drawn letter. Answer in the panel grid or in chat.',
+      })) + '</p>' +
+      '<section class="opbac-help-sec">' +
+        '<h4 class="opbac-help-sec__h">🎯 ' + escHtml(pick({ fr: 'Comment jouer', en: 'How to play' })) + '</h4>' +
+        '<ol class="opbac-help-steps">' + steps + '</ol>' +
+      '</section>' +
+      '<section class="opbac-help-sec">' +
+        '<h4 class="opbac-help-sec__h">🎮 ' + escHtml(pick({ fr: 'Niveaux de jeu', en: 'Game levels' })) + '</h4>' +
+        '<div class="opbac-help-modes">' + modeCards + '</div>' +
+        '<p class="opbac-help-sec__note">' + escHtml(pick({
+          fr: 'Au lancement ou en fin de partie : choisissez Facile, Moyen ou Difficile puis confirmez.',
+          en: 'When starting or after a game: pick Easy, Medium or Hard then confirm.',
+        })) + '</p>' +
+      '</section>' +
+      '<section class="opbac-help-sec">' +
+        '<h4 class="opbac-help-sec__h">⌨️ ' + escHtml(pick({ fr: 'Commandes utiles', en: 'Useful commands' })) + '</h4>' +
+        '<div class="opbac-help-cmds">' + cmdRows + '</div>' +
+      '</section>' +
+      opBlock +
+      '<p class="opbac-help-foot">' + escHtml(pick({
+        fr: '💡 Les scores live s\'affichent à droite pendant la manche. Mot refusé ? Bouton « Vérifier » ou !verifier <catégorie> <mot>.',
+        en: '💡 Live scores appear on the right during the round. Word rejected? Use Verify or !verifier <category> <word>.',
+      })) + '</p></div>';
+  }
+
+  function closeHelpModal() {
+    if (helpModalClose) {
+      try { helpModalClose(); } catch (e) { /* ignore */ }
+      helpModalClose = null;
+    }
+    if (helpEscHandler) {
+      document.removeEventListener('keydown', helpEscHandler);
+      helpEscHandler = null;
+    }
+    var dom = document.getElementById('opbac-help-overlay');
+    if (dom) dom.remove();
+  }
+
+  function openHelpModal(orbit) {
+    closeHelpModal();
+    var bodyHtml = buildHelpHtml(orbit);
+    var title = pick({ fr: 'Aide du Petit Bac', en: 'Petit Bac help' });
+
+    if (typeof orbit.modal === 'function') {
+      helpModalClose = orbit.modal(function () {
+        return h('div', {
+          className: 'opbac-help-wrap',
+          dangerouslySetInnerHTML: { __html: bodyHtml },
+        });
+      }, { title: title, wide: true });
+      return;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.id = 'opbac-help-overlay';
+    overlay.className = 'opbac-help-overlay';
+    overlay.innerHTML =
+      '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
+        '<div class="opbac-help-dialog__head">' +
+          '<h3>' + escHtml(title) + '</h3>' +
+          '<button type="button" class="opbac-help-dialog__x" data-act="close-help" aria-label="' +
+            escHtml(pick({ fr: 'Fermer', en: 'Close' })) + '">✕</button>' +
+        '</div>' +
+        '<div class="opbac-help-dialog__body">' + bodyHtml + '</div>' +
+      '</div>';
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) closeHelpModal();
+      var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-help"]') : null;
+      if (closeBtn) closeHelpModal();
+    });
+    helpEscHandler = function (ev) {
+      if (ev.key === 'Escape') closeHelpModal();
+    };
+    document.addEventListener('keydown', helpEscHandler);
+    document.body.appendChild(overlay);
   }
 
   function useActiveBuffer(orbit) {
@@ -876,7 +1331,7 @@
             h('button', {
               type: 'button',
               className: 'opbac-foot__btn',
-              onClick: function () { orbit.irc.msg(buffer, '!aide'); },
+              onClick: function () { openHelpModal(orbit); },
             }, pick({ fr: 'Aide', en: 'Help' })),
             h('button', {
               type: 'button',
@@ -887,35 +1342,170 @@
     );
   }
 
-  function TopbarToggle(props) {
-    var orbit = props.orbit;
-    var buffer = useActiveBuffer(orbit);
-    if (!buffer || !channelEnabled(orbit, buffer)) return null;
-    var game = getChannelState(buffer);
-    var live = game && game.phase !== 'idle';
-    return h('button', {
-      type: 'button',
-      className: 'opbac-topbtn' + (live ? ' on' : ''),
-      title: pick({ fr: 'Panneau Petit Bac', en: 'Petit Bac panel' }),
-      'aria-label': pick({ fr: 'Panneau Petit Bac', en: 'Petit Bac panel' }),
-      onClick: function () {
-        if (!game || game.phase === 'idle') {
-          orbit.irc.msg(buffer, '!jouer');
-        }
-      },
-    }, '🎲');
+  function allCategoriesValidated(channel, game) {
+    if (!game || !game.categories || !game.categories.length) return false;
+    var draft = getDraft(channel, game);
+    return game.categories.every(function (cat) {
+      var k = cat.toLowerCase();
+      return draft.validated[k] || draft.validated[cat];
+    });
   }
 
-  function ComposerButton(props) {
-    var orbit = props.orbit;
-    var buffer = useActiveBuffer(orbit);
-    if (!buffer || !channelEnabled(orbit, buffer)) return null;
-    return h('button', {
-      type: 'button',
-      className: 'opbac-topbtn on',
-      title: pick({ fr: 'Petit Bac — lancer / aide', en: 'Petit Bac — start / help' }),
-      onClick: function () { orbit.irc.msg(buffer, '!jouer'); },
-    }, '🎲');
+  function buildCompleteBannerHtml() {
+    return '<div class="opbac-complete" data-opbac-complete role="status" aria-live="polite">' +
+      '<span class="opbac-complete__ring" aria-hidden="true"></span>' +
+      '<span class="opbac-complete__icon" aria-hidden="true">✓</span>' +
+      '<span class="opbac-complete__title">' +
+        escHtml(pick({ fr: 'Grille complète !', en: 'Grid complete!' })) +
+      '</span>' +
+      '<span class="opbac-complete__sub">' +
+        escHtml(pick({
+          fr: 'Toutes vos catégories sont validées — bravo !',
+          en: 'All your categories are validated — well done!',
+        })) +
+      '</span></div>';
+  }
+
+  function triggerCompleteCelebration(root) {
+    root.classList.add('opbac-panel--complete');
+    root.classList.remove('opbac-panel--complete-pop');
+    void root.offsetWidth;
+    root.classList.add('opbac-panel--complete-pop');
+    var banner = root.querySelector('[data-opbac-complete]');
+    if (banner) {
+      banner.classList.remove('opbac-complete--enter');
+      void banner.offsetWidth;
+      banner.classList.add('opbac-complete--enter');
+    }
+    var badge = root.querySelector('[data-opbac-head-badge]');
+    if (badge) badge.classList.add('opbac-head__badge--complete');
+  }
+
+  function syncCompleteCelebration(root, buffer, game) {
+    if (!game || !game.categories || !game.categories.length) {
+      root.classList.remove('opbac-panel--complete', 'opbac-panel--complete-pop');
+      return false;
+    }
+    var rk = roundKey(game);
+    var complete = allCategoriesValidated(buffer, game);
+    if (complete) {
+      if (root.__opbacCompleteRound !== rk) {
+        root.__opbacCompleteRound = rk;
+        triggerCompleteCelebration(root);
+      } else {
+        root.classList.add('opbac-panel--complete');
+        var badgeDone = root.querySelector('[data-opbac-head-badge]');
+        if (badgeDone) badgeDone.classList.add('opbac-head__badge--complete');
+      }
+      return true;
+    }
+    if (root.__opbacCompleteRound === rk) root.__opbacCompleteRound = '';
+    root.classList.remove('opbac-panel--complete', 'opbac-panel--complete-pop');
+    var badge = root.querySelector('[data-opbac-head-badge]');
+    if (badge) badge.classList.remove('opbac-head__badge--complete');
+    return false;
+  }
+
+  function buildRankingTableHtml(rows, myNick, ptsLabel) {
+    if (!rows || !rows.length) {
+      return '<p class="opbac-end__empty">' + escHtml(pick({
+        fr: 'Scores en cours de publication…',
+        en: 'Scores being published…',
+      })) + '</p>';
+    }
+    var body = rows.map(function (row, i) {
+      var isMe = myNick && String(row.nick).toLowerCase() === myNick.toLowerCase();
+      return '<tr class="' + (isMe ? 'opbac-end__me' : '') + '">' +
+        '<td class="opbac-end__rank">' + rankMedal(i) + '</td>' +
+        '<td>' + escHtml(row.nick) + (isMe ? ' ' + escHtml(pick({ fr: '(vous)', en: '(you)' })) : '') + '</td>' +
+        '<td class="opbac-end__pts">' + row.pts + ' ' + escHtml(ptsLabel) + '</td></tr>';
+    }).join('');
+    return '<table class="opbac-end__table"><thead><tr>' +
+      '<th></th><th>' + escHtml(pick({ fr: 'Joueur', en: 'Player' })) + '</th>' +
+      '<th>' + escHtml(pick({ fr: 'Points', en: 'Points' })) + '</th></tr></thead><tbody>' +
+      body + '</tbody></table>';
+  }
+
+  function buildEndScreenHtml(game, myNick, selectedMode) {
+    var isGameEnd = game.phase === 'game_end';
+    var ptWord = pick({ fr: 'pt', en: 'pt' });
+    var html = '<div class="opbac-end opbac-end--enter" data-opbac-end role="status" aria-live="polite">';
+
+    if (isGameEnd) {
+      html += '<div class="opbac-end__hero opbac-end__hero--game">' +
+        '<div class="opbac-end__trophy" aria-hidden="true">🏆</div>' +
+        '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Partie terminée !', en: 'Game over!' })) + '</h2>' +
+        '<p class="opbac-end__sub">' +
+          escHtml(game.totalRounds
+            ? pick({
+              fr: 'Classement final après ' + game.totalRounds + ' manche' + (game.totalRounds > 1 ? 's' : ''),
+              en: 'Final ranking after ' + game.totalRounds + ' round' + (game.totalRounds > 1 ? 's' : ''),
+            })
+            : pick({ fr: 'Voici le classement final de la partie', en: 'Final game ranking' })) +
+        '</p></div>';
+
+      html += '<div class="opbac-end__block">' +
+        '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Classement final', en: 'Final ranking' })) + '</h3>' +
+        buildRankingTableHtml(rankingForDisplay(game, true), myNick, ptWord) +
+        '</div>';
+
+      if (game.topGlobal && game.topGlobal.length) {
+        html += '<div class="opbac-end__block">' +
+          '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Top joueurs (global)', en: 'Top players (global)' })) + '</h3>' +
+          buildRankingTableHtml(game.topGlobal, myNick, ptWord) +
+          '</div>';
+      }
+    } else {
+      html += '<div class="opbac-end__hero opbac-end__hero--round">' +
+        '<div class="opbac-end__trophy" aria-hidden="true">🏁</div>' +
+        '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Fin de manche', en: 'Round over' })) + '</h2>' +
+        '<p class="opbac-end__sub">' +
+          escHtml(game.round && game.totalRounds
+            ? pick({ fr: 'Manche ', en: 'Round ' }) + game.round + ' / ' + game.totalRounds
+            : pick({ fr: 'Scores de la manche et cumul', en: 'Round and cumulative scores' })) +
+        '</p></div>';
+
+      var roundRows = roundScoresList(game);
+      if (roundRows.length) {
+        html += '<div class="opbac-end__block">' +
+          '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Points de la manche', en: 'Round points' })) + '</h3>' +
+          buildRankingTableHtml(roundRows, myNick, ptWord) +
+          '</div>';
+      }
+
+      html += '<div class="opbac-end__block">' +
+        '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Scores cumulés', en: 'Cumulative scores' })) + '</h3>' +
+        buildRankingTableHtml(rankingForDisplay(game, false), myNick, ptWord) +
+        '</div>';
+    }
+
+    var notes = game.endNotes || [];
+    if (isGameEnd) {
+      if (!notes.length) {
+        notes = [
+          pick({ fr: '✏️ Suggestion : !suggestion <message>', en: '✏️ Suggestion: !suggestion <message>' }),
+          pick({ fr: '🐞 Signaler un bug : !bug <message>', en: '🐞 Report a bug: !bug <message>' }),
+        ];
+      }
+      if (notes.length) {
+        html += '<div class="opbac-end__block">' +
+          '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Infos du bot', en: 'From the bot' })) + '</h3>' +
+          '<div class="opbac-end__notes">' +
+          notes.map(function (n) {
+            return '<p class="opbac-end__note">' + escHtml(n) + '</p>';
+          }).join('') +
+          '</div></div>';
+      }
+
+      html += buildReplaySectionHtml(selectedMode);
+    } else if (game.round && game.totalRounds && game.round < game.totalRounds) {
+      html += '<p class="opbac-end__note" style="margin-top:.5rem">' +
+        escHtml(pick({ fr: '⏳ La manche suivante va démarrer…', en: '⏳ Next round starting soon…' })) +
+        '</p>';
+    }
+
+    html += '</div>';
+    return html;
   }
 
   function buildFormHtml(channel, game) {
@@ -972,7 +1562,10 @@
       var k = cat.toLowerCase();
       return (draft.drafts[k] || '').trim() && !(draft.validated[k]);
     });
-    return '<div class="opbac-sheet" style="--opbac-cols:' + cols + '">' + rows +
+    var completeBanner = allDisabled ? buildCompleteBannerHtml() : '';
+    var sheetCls = 'opbac-sheet' + (allDisabled ? ' opbac-sheet--complete' : '');
+    return completeBanner +
+      '<div class="' + sheetCls + '" style="--opbac-cols:' + cols + '">' + rows +
       (hasDraft
         ? ('<button type="button" class="opbac-sheet__all" data-act="sendall"' + (allDisabled ? ' disabled' : '') + '>' +
             escHtml(pick({ fr: 'Tout envoyer', en: 'Send all' })) + '</button>')
@@ -1003,13 +1596,20 @@
 
   function panelSignature(game) {
     if (!game) return 'idle';
-    return [
+    var base = [
       game.phase,
       game.round,
       game.letter,
       (game.categories || []).join('|'),
       game.totalRounds,
     ].join(';');
+    if (game.phase === 'game_end' || game.phase === 'round_end') {
+      base += '|' + JSON.stringify(game.finalRanking || []) +
+        '|' + JSON.stringify(game.scores || {}) +
+        '|' + JSON.stringify(game.roundScores || {}) +
+        '|' + (game.endNotes || []).join('\n');
+    }
+    return base;
   }
 
   function sendVerify(orbit, buffer, catKey, word) {
@@ -1112,7 +1712,17 @@
         return;
       }
       if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
-      if (act === 'aide') orbit.irc.msg(buffer, '!aide');
+      if (act === 'pick-mode') {
+        var picked = normalizeModeId(btn.getAttribute('data-mode'));
+        updateReplayModeUi(root, picked);
+        try { orbit.storage.set('petitbacMode', picked); } catch (e) { /* ignore */ }
+        return;
+      }
+      if (act === 'replay') {
+        startReplayGame(orbit, buffer, root);
+        return;
+      }
+      if (act === 'aide') openHelpModal(orbit);
       if (act === 'sendall') sendAllAnswers(orbit, buffer);
       if (act === 'scores') {
         try {
@@ -1159,6 +1769,11 @@
     var rebuild = root.__opbacSig !== sig;
     var isLive = phase === 'playing' && game.letter && game.categories.length > 0;
     var isIdle = phase === 'idle' && !game.letter;
+    var isGameEnd = phase === 'game_end';
+    var isRoundEnd = phase === 'round_end';
+    var isEnd = isGameEnd || isRoundEnd;
+    var myNick = orbit.state.nick() || '';
+    var replayMode = defaultReplayMode(game, root, orbit);
 
     if (rebuild) {
       saveDraftFromDom(root, buffer);
@@ -1169,57 +1784,87 @@
     var remaining = timing.remaining;
     var progress = timing.progress;
     var wasCollapsed = root.classList.contains('opbac-panel--collapsed');
+    if (isEnd) wasCollapsed = false;
     var headBadge = game.round && game.totalRounds
       ? ('Manche ' + game.round + '/' + game.totalRounds)
       : phaseLabel(phase, game.countdown);
+    if (isGameEnd) {
+      headBadge = pick({ fr: 'Partie terminée', en: 'Game over' });
+    } else if (isRoundEnd) {
+      headBadge = pick({ fr: 'Fin de manche', en: 'Round over' });
+    } else if (isLive && allCategoriesValidated(buffer, game)) {
+      headBadge = pick({ fr: 'Grille complète ✓', en: 'Grid complete ✓' });
+    }
 
     root.className = 'opbac-panel' +
       (wasCollapsed ? ' opbac-panel--collapsed' : '') +
-      (isLive ? ' opbac-panel--playing' : '');
+      (isLive ? ' opbac-panel--playing' : '') +
+      (isGameEnd ? ' opbac-panel--game-end' : '') +
+      (isRoundEnd ? ' opbac-panel--round-end' : '');
 
     if (rebuild) {
+      var bodyHtml = '';
+      if (isIdle && !game.letter) {
+        bodyHtml = '<div class="opbac-idle">' +
+          '<p class="opbac-idle__txt">' + escHtml(pick({
+            fr: 'Trouvez un mot par catégorie — le tchat reste visible en dessous.',
+            en: 'Find one word per category — chat stays visible below.',
+          })) + '</p>' +
+          '<button type="button" class="opbac-idle__cta" data-act="jouer">' +
+            escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
+          '</button>' +
+          '<button type="button" class="opbac-idle__help" data-act="aide">' +
+            escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
+          '</button></div>';
+      } else if (isEnd) {
+        bodyHtml = buildEndScreenHtml(game, myNick, replayMode);
+        root.__opbacReplayMode = replayMode;
+      } else {
+        bodyHtml = buildStageHtml(game, remaining, progress) +
+          '<div class="opbac-scroll"><div data-opbac-form>' + buildFormHtml(buffer, game) + '</div></div>';
+      }
+
       root.innerHTML =
-        buildHeadHtml(headBadge, wasCollapsed, isLive) +
-        '<div class="opbac-body">' +
-          (isIdle && !game.letter
-            ? ('<div class="opbac-idle">' +
-                '<p class="opbac-idle__txt">' + escHtml(pick({
-                  fr: 'Trouvez un mot par catégorie — le tchat reste visible en dessous.',
-                  en: 'Find one word per category — chat stays visible below.',
-                })) + '</p>' +
-                '<button type="button" class="opbac-idle__cta" data-act="jouer">' +
-                  escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
-                '</button>' +
-                '<button type="button" class="opbac-idle__help" data-act="aide">' +
-                  escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
-                '</button></div>')
-            : (buildStageHtml(game, remaining, progress) +
-              '<div class="opbac-scroll"><div data-opbac-form>' + buildFormHtml(buffer, game) + '</div></div>')) +
-        '</div>';
+        buildHeadHtml(headBadge, wasCollapsed, isLive && !isEnd) +
+        '<div class="opbac-body">' + bodyHtml + '</div>';
 
       root.__opbacDraftSig = draftSignature(buffer, game);
 
-      if (isLive) {
+      if (isLive && !isEnd) {
         requestAnimationFrame(function () {
           var first = root.querySelector('.opbac-col__input:not([disabled])');
           if (first) first.focus();
         });
       }
+      if (!isEnd) syncCompleteCelebration(root, buffer, game);
     } else {
       var headBadgeEl = root.querySelector('[data-opbac-head-badge]');
       if (headBadgeEl) headBadgeEl.textContent = headBadge;
-      updateClockDom(root, remaining, progress);
+      if (!isEnd) updateClockDom(root, remaining, progress);
 
-      var formWrap = root.querySelector('[data-opbac-form]');
-      var dSig = draftSignature(buffer, game);
-      if (formWrap && root.__opbacDraftSig !== dSig) {
-        root.__opbacDraftSig = dSig;
-        saveDraftFromDom(root, buffer);
-        formWrap.innerHTML = buildFormHtml(buffer, game);
+      if (isEnd) {
+        var endWrap = root.querySelector('[data-opbac-end]');
+        var endHtml = buildEndScreenHtml(game, myNick, defaultReplayMode(game, root, orbit));
+        if (endWrap) {
+          endWrap.outerHTML = endHtml;
+        } else {
+          var bodyEl = root.querySelector('.opbac-body');
+          if (bodyEl) bodyEl.innerHTML = endHtml;
+        }
+        updateReplayModeUi(root, defaultReplayMode(game, root, orbit));
+      } else {
+        var formWrap = root.querySelector('[data-opbac-form]');
+        var dSig = draftSignature(buffer, game);
+        if (formWrap && root.__opbacDraftSig !== dSig) {
+          root.__opbacDraftSig = dSig;
+          saveDraftFromDom(root, buffer);
+          formWrap.innerHTML = buildFormHtml(buffer, game);
+        }
+        syncCompleteCelebration(root, buffer, game);
       }
     }
 
-    if (!rebuild && isLive) updateClockDom(root, remaining, progress);
+    if (!rebuild && isLive && !isEnd) updateClockDom(root, remaining, progress);
   }
 
   function mountDomPanel(orbit) {
@@ -1238,21 +1883,6 @@
       topbar.insertAdjacentElement('afterend', root);
     }
     renderDomPanel(orbit, root);
-  }
-
-  function MoreMenuItem(props) {
-    var orbit = props.orbit;
-    var buffer = useActiveBuffer(orbit);
-    if (!buffer || !channelEnabled(orbit, buffer)) return null;
-    return h('button', {
-      type: 'button',
-      className: 'nmenu__item',
-      role: 'menuitem',
-      onClick: function () { orbit.irc.msg(buffer, '!jouer'); },
-    },
-      h('span', { className: 'nmenu__ic', 'aria-hidden': true }, '🎲'),
-      h('span', { className: 'nmenu__txt' }, h('b', null, pick({ fr: 'Petit Bac', en: 'Petit Bac' })))
-    );
   }
 
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
@@ -1293,16 +1923,9 @@
     orbit.on('status', syncDom);
     setInterval(syncDom, 250);
 
-    orbit.addUi('topbar_item', function () {
-      return h(TopbarToggle, { orbit: orbit });
-    });
-
-    orbit.addUi('composer_button', function () {
-      return h(ComposerButton, { orbit: orbit });
-    });
-
-    orbit.addUi('topbar_more_item', function () {
-      return h(MoreMenuItem, { orbit: orbit });
+    orbit.addCommand('aide', {
+      help: pick({ fr: 'Afficher l\'aide du Petit Bac', en: 'Show Petit Bac help' }),
+      run: function () { openHelpModal(orbit); },
     });
 
     orbit.addCommand('jouer', {

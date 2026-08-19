@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var LIVE_VER = 2;
+  var LIVE_VER = 3;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -404,8 +404,6 @@
         '.oblive-stat{flex:1;min-width:4.5rem;padding:.35rem .45rem;border-radius:8px;background:var(--bg-soft,rgba(127,127,127,.08));text-align:center}',
         '.oblive-stat__n{display:block;font-size:1rem;font-weight:900;color:var(--accent,#6366f1)}',
         '.oblive-stat__l{font-size:.62rem;font-weight:700;text-transform:uppercase;color:var(--muted,#666)}',
-        '.oblive-topbtn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;border:1px solid var(--border,#ccc);background:var(--bg,#fff);cursor:pointer;font-size:.95rem}',
-        '.oblive-topbtn.on{background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;border-color:transparent}',
       ].join('');
       document.head.appendChild(el);
     }
@@ -582,36 +580,6 @@
       try {
         window.addEventListener('orbit-bac-live-sync', sync);
       } catch (e) { /* ignore */ }
-
-      var React = Orbit.React;
-      var h = React.createElement;
-      var useSyncExternalStore = React.useSyncExternalStore;
-
-      function useActiveBuffer() {
-        return useSyncExternalStore(
-          function (cb) { return orbit.on('buffer.active', cb); },
-          function () { return orbit.state.active(); },
-          function () { return orbit.state.active(); }
-        );
-      }
-
-      orbit.addUi('topbar_item', function () {
-        var buffer = useActiveBuffer();
-        if (!buffer || !channelEnabled(orbit, buffer)) return null;
-        var board = getBoard(buffer);
-        var live = board && board.phase !== 'idle' && board.categories.length > 0;
-        var open = true;
-        try { open = orbit.storage.get(STORAGE_OPEN, cfg(orbit).defaultOpen); } catch (e) { /* ignore */ }
-        return h('button', {
-          type: 'button',
-          className: 'oblive-topbtn' + (live && open ? ' on' : ''),
-          title: pick({ fr: 'Tableau live Petit Bac', en: 'Petit Bac live board' }),
-          onClick: function () {
-            try { orbit.storage.set(STORAGE_OPEN, !open); } catch (e) { /* ignore */ }
-            sync();
-          },
-        }, '📊');
-      });
 
       orbit.addCommand('bacboard', {
         help: pick({ fr: 'Afficher/masquer le tableau live Petit Bac', en: 'Toggle Petit Bac live board' }),
