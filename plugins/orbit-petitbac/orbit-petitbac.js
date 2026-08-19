@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 5;
+  var PBAC_VER = 6;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -93,39 +93,147 @@
       .replace(/\x02|\x0f|\x1f|\x16|\x06|\x07|\x09/g, '');
   }
 
-  function handleIrcLine(channel, nick, text) {
+  function escHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function roundKey(game) {
+    if (!game) return '';
+    return String(game.round || 0) + '|' + String(game.letter || '') + '|' + (game.categories || []).join(',');
+  }
+
+  var draftStore = { byChannel: Object.create(null) };
+
+  function getDraft(channel, game) {
+    var key = normChan(channel);
+    var rk = roundKey(game);
+    var d = draftStore.byChannel[key];
+    if (!d || d.roundKey !== rk) {
+      d = { roundKey: rk, drafts: Object.create(null), validated: Object.create(null), pending: Object.create(null) };
+      draftStore.byChannel[key] = d;
+    }
+    return d;
+  }
+
+  function bumpStore() {
+    store.rev++;
+    store.listeners.forEach(function (l) { l(); });
+  }
+
+  function parseCategories(raw) {
+    return String(raw || '')
+      .split(',')
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+  }
+
+  function handlePlayerFeedback(channel, plain, myNick) {
+    if (!myNick || !plain) return;
+    var m = plain.match(/^([^:]{1,32}):\s*(.+)$/);
+    if (!m || m[1].toLowerCase() !== myNick.toLowerCase()) return;
+    var msg = m[2];
+    var accepted = msg.match(/(?:✔️|💎).*?Cat[ée]gorie\s+(\S+)/i);
+    if (accepted) {
+      var game = getChannelState(channel) || defaultState();
+      var draft = getDraft(channel, game);
+      var cat = accepted[1].replace(/[.,;:!?]+$/, '').toLowerCase();
+      draft.validated[cat] = true;
+      delete draft.pending[cat];
+      bumpStore();
+      return;
+    }
+    if (/❌|⚠️|⛔|n'est pas valide|ne commence pas|d[eé]j[aà]/i.test(msg)) {
+      var game2 = getChannelState(channel) || defaultState();
+      var draft2 = getDraft(channel, game2);
+      Object.keys(draft2.pending).forEach(function (cat) {
+        if (msg.toLowerCase().indexOf('catégorie ' + cat) >= 0 || msg.toLowerCase().indexOf('categorie ' + cat) >= 0) {
+          delete draft2.pending[cat];
+        }
+      });
+      bumpStore();
+    }
+  }
+
+  function stripReplyPrefix(plain) {
+    return String(plain || '').replace(/^[^:]{1,32}:\s*/, '');
+  }
+
+  function handleIrcLine(channel, nick, text, myNick) {
     var plain = stripIrc(text).trim();
     if (!plain) return;
-    var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
-    if (n !== 'bac' && n !== 'maitredujeu') return;
 
-    if (/petit bac est actuellement en cours|la partie d[eé]marre|c'est parti/i.test(plain)) {
+    handlePlayerFeedback(channel, plain, myNick);
+
+    var body = stripReplyPrefix(plain);
+    var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
+    var fromBac = n === 'bac' || n === 'maitredujeu';
+
+    if (fromBac && /petit bac est actuellement en cours|la partie d[eé]marre|c'est parti|une partie est d[eé]j[aà] en cours/i.test(body)) {
       patchChannel(channel, { phase: 'starting' });
     }
-    var manche = plain.match(/manche\s+(\d+)\s*\/\s*(\d+)/i);
+    var manche = body.match(/manche\s+(\d+)\s*\/\s*(\d+)/i);
     if (manche) {
       patchChannel(channel, {
         phase: 'playing',
         round: Number(manche[1]) || 0,
         totalRounds: Number(manche[2]) || 0,
         roundStartAt: Date.now(),
+        duration: (getChannelState(channel) || {}).duration || 60,
       });
     }
-    var lc = plain.match(/lettre\s*:\s*(\S+).*cat[ée]gories\s*:\s*(.+)$/i);
+    var lc = body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*cat[ée]gories\s*:\s*(.+)$/i);
     if (lc) {
       patchChannel(channel, {
         phase: 'playing',
         letter: lc[1].trim().charAt(0).toUpperCase(),
-        categories: lc[2].split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        categories: parseCategories(lc[2]),
         roundStartAt: Date.now(),
+        duration: (getChannelState(channel) || {}).duration || 60,
+      });
+      return;
+    }
+    var letterOnly = body.match(/(?:🔤|🎲)\s*lettre(?:\s+actuelle)?\s*:\s*(\S)/i)
+      || body.match(/lettre(?:\s+actuelle)?\s*:\s*(\S)/i);
+    if (letterOnly) {
+      patchChannel(channel, {
+        phase: 'playing',
+        letter: letterOnly[1].trim().charAt(0).toUpperCase(),
+        roundStartAt: Date.now(),
+        duration: (getChannelState(channel) || {}).duration || 60,
       });
     }
-    var left = plain.match(/il reste\s+(\d+)\s+secondes/i);
-    if (left) {
-      patchChannel(channel, { phase: 'playing', countdown: Number(left[1]) || 0 });
+    var catsOnly = body.match(/(?:📚\s*)?cat[ée]gories\s*:\s*(.+)$/i);
+    if (catsOnly && !/par manche|actuelles/i.test(body)) {
+      patchChannel(channel, {
+        phase: 'playing',
+        categories: parseCategories(catsOnly[1]),
+        roundStartAt: Date.now(),
+        duration: (getChannelState(channel) || {}).duration || 60,
+      });
     }
-    if (/fin de la partie|partie termin[eé]e/i.test(plain)) {
-      patchChannel(channel, { phase: 'game_end' });
+    if (fromBac) {
+      var dur = body.match(/(\d+)\s+secondes/i);
+      if (dur && /manche|partie|tour/i.test(body)) {
+        patchChannel(channel, { duration: Number(dur[1]) || 60 });
+      }
+      var left = body.match(/il reste\s+(\d+)\s+secondes/i);
+      if (left) {
+        patchChannel(channel, { phase: 'playing', countdown: Number(left[1]) || 0 });
+      }
+      if (/fin de la (?:partie|manche)|partie termin[eé]e|manche termin[eé]e/i.test(body)) {
+        var endPhase = /manche termin[eé]e/i.test(body) ? 'round_end' : 'game_end';
+        patchChannel(channel, { phase: endPhase });
+      }
+    }
+
+    var st = getChannelState(channel);
+    if (st && st.letter && st.categories && st.categories.length
+        && st.phase !== 'game_end' && st.phase !== 'round_end'
+        && (st.phase === 'idle' || st.phase === 'starting')) {
+      patchChannel(channel, { phase: 'playing' });
     }
   }
 
@@ -351,6 +459,21 @@
       '.opbac-countdown__n{font-size:3rem;font-weight:900;line-height:1;background:linear-gradient(135deg,#6366f1,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}',
       '.opbac-topbtn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;border:1px solid var(--border,#ccc);background:var(--bg,#fff);cursor:pointer;font-size:1rem}',
       '.opbac-topbtn.on{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent}',
+      '.opbac-form{margin-top:.65rem;border-top:1px solid var(--border,#ddd);padding-top:.65rem}',
+      '.opbac-form__title{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#666);margin-bottom:.45rem}',
+      '.opbac-row{display:flex;align-items:center;gap:.4rem;margin-bottom:.42rem}',
+      '.opbac-row__label{flex:0 0 5.8rem;font-size:.74rem;font-weight:800;color:var(--ink,#111);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}',
+      '.opbac-row__input{flex:1;min-width:0;border:1px solid var(--border,#ccc);border-radius:8px;padding:.38rem .5rem;font-size:.85rem;background:var(--bg,#fff);color:var(--ink,#111)}',
+      '.opbac-row__input:focus{outline:2px solid color-mix(in srgb,var(--accent,#6366f1) 40%,transparent);border-color:var(--accent,#6366f1)}',
+      '.opbac-row__input:disabled{opacity:.65;background:var(--bg-soft,rgba(127,127,127,.08))}',
+      '.opbac-row__btn{flex:none;border:0;border-radius:8px;width:34px;height:34px;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:800;font-size:.95rem}',
+      '.opbac-row__btn:disabled{opacity:.45;cursor:not-allowed}',
+      '.opbac-row--ok .opbac-row__input{border-color:#22c55e;background:color-mix(in srgb,#22c55e 8%,var(--bg,#fff))}',
+      '.opbac-row--ok .opbac-row__label{color:#16a34a}',
+      '.opbac-row--pending .opbac-row__input{border-color:#f59e0b}',
+      '.opbac-form__all{width:100%;margin-top:.25rem;border:0;border-radius:10px;padding:.48rem;font-size:.78rem;font-weight:800;cursor:pointer;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}',
+      '.opbac-form__all:disabled{opacity:.45;cursor:not-allowed}',
+      '.opbac-form__hint{font-size:.72rem;color:var(--muted,#666);margin-top:.35rem;line-height:1.35}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -570,6 +693,143 @@
     }, '🎲');
   }
 
+  function buildFormHtml(channel, game) {
+    if (!game || !game.categories || !game.categories.length || !game.letter) return '';
+    var canAnswer = game.phase === 'playing'
+      || (game.phase !== 'game_end' && game.phase !== 'idle' && game.phase !== 'round_end');
+    if (!canAnswer) return '';
+    var draft = getDraft(channel, game);
+    var letter = game.letter || '';
+    var rows = game.categories.map(function (cat) {
+      var catKey = cat.toLowerCase();
+      var val = draft.drafts[catKey] || draft.drafts[cat] || '';
+      var ok = draft.validated[catKey] || draft.validated[cat];
+      var pending = draft.pending[catKey] || draft.pending[cat];
+      var rowClass = 'opbac-row' + (ok ? ' opbac-row--ok' : (pending ? ' opbac-row--pending' : ''));
+      var ph = letter
+        ? pick({ fr: 'Mot en ' + letter + '…', en: 'Word with ' + letter + '…' })
+        : pick({ fr: 'Votre mot…', en: 'Your word…' });
+      return '<div class="' + rowClass + '" data-cat="' + escHtml(catKey) + '">' +
+        '<span class="opbac-row__label">' + escHtml(cat) + (ok ? ' ✓' : '') + '</span>' +
+        '<input type="text" class="opbac-row__input" data-cat-input="' + escHtml(catKey) + '" ' +
+          'value="' + escHtml(val) + '" placeholder="' + escHtml(ph) + '" ' +
+          (ok ? 'disabled' : '') + ' autocapitalize="off" autocomplete="off" spellcheck="false" />' +
+        '<button type="button" class="opbac-row__btn" data-send-cat="' + escHtml(catKey) + '" ' +
+          (ok ? 'disabled' : '') + ' title="' + escHtml(pick({ fr: 'Envoyer', en: 'Send' })) + '">→</button>' +
+      '</div>';
+    }).join('');
+    var allDisabled = game.categories.every(function (cat) {
+      var k = cat.toLowerCase();
+      return draft.validated[k] || draft.validated[cat];
+    });
+    return '<div class="opbac-form">' +
+      '<div class="opbac-form__title">' + escHtml(pick({ fr: 'Vos réponses', en: 'Your answers' })) + '</div>' +
+      rows +
+      '<button type="button" class="opbac-form__all" data-act="sendall"' + (allDisabled ? ' disabled' : '') + '>' +
+        escHtml(pick({ fr: 'Envoyer toutes mes réponses', en: 'Send all my answers' })) +
+      '</button>' +
+      '<div class="opbac-form__hint">' +
+        escHtml(pick({
+          fr: 'Un mot par catégorie — le bot valide automatiquement.',
+          en: 'One word per category — the bot validates automatically.',
+        })) +
+      '</div></div>';
+  }
+
+  function draftSignature(channel, game) {
+    var d = getDraft(channel, game);
+    return roundKey(game) + '|' + JSON.stringify(d.validated) + '|' + JSON.stringify(d.pending);
+  }
+
+  function panelSignature(game) {
+    if (!game) return 'idle';
+    return [
+      game.phase,
+      game.round,
+      game.letter,
+      (game.categories || []).join('|'),
+      game.totalRounds,
+    ].join(';');
+  }
+
+  function sendCategoryAnswer(orbit, buffer, catKey, word) {
+    word = String(word || '').trim();
+    if (!word) return;
+    var game = getChannelState(buffer) || defaultState();
+    var draft = getDraft(buffer, game);
+    if (draft.validated[catKey]) return;
+    draft.drafts[catKey] = word;
+    draft.pending[catKey] = word;
+    orbit.irc.msg(buffer, word);
+    bumpStore();
+  }
+
+  function sendAllAnswers(orbit, buffer) {
+    var game = getChannelState(buffer) || defaultState();
+    if (!game.categories || !game.categories.length) return;
+    var draft = getDraft(buffer, game);
+    game.categories.forEach(function (cat) {
+      var catKey = cat.toLowerCase();
+      if (draft.validated[catKey]) return;
+      var word = (draft.drafts[catKey] || '').trim();
+      if (word) sendCategoryAnswer(orbit, buffer, catKey, word);
+    });
+  }
+
+  function saveDraftFromDom(root, buffer) {
+    var game = getChannelState(buffer) || defaultState();
+    var draft = getDraft(buffer, game);
+    var inputs = root.querySelectorAll('[data-cat-input]');
+    inputs.forEach(function (inp) {
+      var cat = inp.getAttribute('data-cat-input');
+      if (cat && !draft.validated[cat]) draft.drafts[cat] = inp.value;
+    });
+  }
+
+  function bindDomPanel(root, orbit) {
+    if (root.__opbacBound) return;
+    root.__opbacBound = true;
+    root.addEventListener('click', function (ev) {
+      var buffer = orbit.state.active();
+      if (!buffer || !isBacChannel(orbit, buffer)) return;
+      var sendCat = ev.target && ev.target.closest ? ev.target.closest('[data-send-cat]') : null;
+      if (sendCat) {
+        ev.preventDefault();
+        var cat = sendCat.getAttribute('data-send-cat');
+        var row = sendCat.closest('[data-cat]');
+        var inp = row && row.querySelector('[data-cat-input]');
+        if (cat && inp) sendCategoryAnswer(orbit, buffer, cat, inp.value);
+        return;
+      }
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+      if (!btn) return;
+      var act = btn.getAttribute('data-act');
+      if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
+      if (act === 'aide') orbit.irc.msg(buffer, '!aide');
+      if (act === 'sendall') sendAllAnswers(orbit, buffer);
+    });
+    root.addEventListener('input', function (ev) {
+      var inp = ev.target;
+      if (!inp || !inp.getAttribute || !inp.getAttribute('data-cat-input')) return;
+      var buffer = orbit.state.active();
+      if (!buffer) return;
+      var game = getChannelState(buffer) || defaultState();
+      var draft = getDraft(buffer, game);
+      var cat = inp.getAttribute('data-cat-input');
+      if (cat) draft.drafts[cat] = inp.value;
+    });
+    root.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter') return;
+      var inp = ev.target;
+      if (!inp || !inp.getAttribute || !inp.getAttribute('data-cat-input')) return;
+      ev.preventDefault();
+      var buffer = orbit.state.active();
+      if (!buffer) return;
+      var cat = inp.getAttribute('data-cat-input');
+      if (cat) sendCategoryAnswer(orbit, buffer, cat, inp.value);
+    });
+  }
+
   function renderDomPanel(orbit, root) {
     var buffer = orbit.state.active();
     if (!isBacChannel(orbit, buffer)) {
@@ -577,44 +837,90 @@
       return;
     }
     root.style.display = '';
+    bindDomPanel(root, orbit);
     var game = getChannelState(buffer) || defaultState();
     var phase = game.phase || 'idle';
-    var remaining = 0;
-    if (phase === 'playing' && game.roundStartAt && game.duration > 0) {
-      remaining = Math.max(0, Math.ceil(game.duration - (Date.now() - game.roundStartAt) / 1000));
+    var sig = panelSignature(game);
+    var rebuild = root.__opbacSig !== sig;
+
+    if (rebuild) {
+      saveDraftFromDom(root, buffer);
+      root.__opbacSig = sig;
     }
-    var cats = (game.categories || []).map(function (c) {
-      return '<span class="opbac-cat">' + c + '</span>';
-    }).join('');
-    root.innerHTML =
-      '<div class="opbac-head">' +
-        '<span class="opbac-head__title">Petit Bac</span>' +
-        '<span class="opbac-head__badge">' + (game.round && game.totalRounds
+
+    var remaining = 0;
+    var progress = 0;
+    if (phase === 'playing') {
+      if (game.roundStartAt && game.duration > 0) {
+        var elapsed = (Date.now() - game.roundStartAt) / 1000;
+        remaining = Math.max(0, Math.ceil(game.duration - elapsed));
+        progress = Math.min(1, elapsed / game.duration);
+      } else if (game.countdown > 0) {
+        remaining = game.countdown;
+      }
+    }
+
+    if (rebuild) {
+      var cats = (game.categories || []).map(function (c) {
+        return '<span class="opbac-cat">' + escHtml(c) + '</span>';
+      }).join('');
+      var timerHtml = '';
+      if (phase === 'playing' && remaining > 0) {
+        timerHtml = '<div class="opbac-timer">' +
+          '<div class="opbac-timer__bar"><div class="opbac-timer__fill' +
+            (remaining <= 10 ? ' opbac-timer__fill--warn' : '') +
+            '" data-opbac-progress style="width:' + Math.round(progress * 100) + '%"></div></div>' +
+          '<span class="opbac-timer__txt" data-opbac-timer>' + remaining + 's</span></div>';
+      }
+      root.innerHTML =
+        '<div class="opbac-head">' +
+          '<span class="opbac-head__title">Petit Bac</span>' +
+          '<span class="opbac-head__badge" data-opbac-badge">' +
+            (game.round && game.totalRounds
+              ? ('Manche ' + game.round + '/' + game.totalRounds)
+              : phaseLabel(phase, game.countdown)) +
+          '</span>' +
+        '</div>' +
+        '<div class="opbac-body">' +
+          (game.letter
+            ? ('<div class="opbac-hero"><div class="opbac-letter">' + escHtml(game.letter) + '</div>' +
+               '<div class="opbac-meta"><div class="opbac-meta__phase" data-opbac-phase>' +
+                 escHtml(phaseLabel(phase, game.countdown)) + '</div>' + timerHtml + '</div></div>')
+            : ('<div class="opbac-idle__txt">' + escHtml(pick({
+              fr: 'Tapez !jouer pour lancer une partie.',
+              en: 'Type !jouer to start a game.',
+            })) + '</div>')) +
+          (cats && phase !== 'playing' ? ('<div class="opbac-cats">' + cats + '</div>') : '') +
+          '<div data-opbac-form>' + buildFormHtml(buffer, game) + '</div>' +
+        '</div>' +
+        '<div class="opbac-foot">' +
+          '<button type="button" class="opbac-foot__btn" data-act="aide">' + escHtml(pick({ fr: 'Aide', en: 'Help' })) + '</button>' +
+          '<button type="button" class="opbac-foot__btn opbac-foot__btn--primary" data-act="jouer">' +
+            escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '</button>' +
+        '</div>';
+      root.__opbacDraftSig = draftSignature(buffer, game);
+    } else {
+      var badgeEl = root.querySelector('[data-opbac-badge]');
+      if (badgeEl) {
+        badgeEl.textContent = game.round && game.totalRounds
           ? ('Manche ' + game.round + '/' + game.totalRounds)
-          : phaseLabel(phase, game.countdown)) + '</span>' +
-      '</div>' +
-      '<div class="opbac-body">' +
-        (game.letter
-          ? ('<div class="opbac-hero"><div class="opbac-letter">' + game.letter + '</div>' +
-             '<div class="opbac-meta"><div class="opbac-meta__phase">' + phaseLabel(phase, game.countdown) + '</div>' +
-             (remaining ? ('<div class="opbac-timer__txt">' + remaining + 's</div>') : '') + '</div></div>')
-          : ('<div class="opbac-idle__txt">' + pick({
-            fr: 'Tapez !jouer pour lancer une partie. Répondez dans le tchat, un mot par ligne et par catégorie.',
-            en: 'Type !jouer to start. Answer in chat, one word per line per category.',
-          }) + '</div>')) +
-        (cats ? ('<div class="opbac-cats">' + cats + '</div>') : '') +
-      '</div>' +
-      '<div class="opbac-foot">' +
-        '<button type="button" class="opbac-foot__btn" data-act="aide">' + pick({ fr: 'Aide', en: 'Help' }) + '</button>' +
-        '<button type="button" class="opbac-foot__btn opbac-foot__btn--primary" data-act="jouer">' + pick({ fr: 'Jouer', en: 'Play' }) + '</button>' +
-      '</div>';
-    root.onclick = function (ev) {
-      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
-      if (!btn) return;
-      var act = btn.getAttribute('data-act');
-      if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
-      if (act === 'aide') orbit.irc.msg(buffer, '!aide');
-    };
+          : phaseLabel(phase, game.countdown);
+      }
+      var timerEl = root.querySelector('[data-opbac-timer]');
+      var progEl = root.querySelector('[data-opbac-progress]');
+      if (timerEl && remaining > 0) timerEl.textContent = remaining + 's';
+      if (progEl && game.duration > 0) {
+        progEl.style.width = Math.round(progress * 100) + '%';
+        if (remaining <= 10) progEl.classList.add('opbac-timer__fill--warn');
+      }
+      var formWrap = root.querySelector('[data-opbac-form]');
+      var dSig = draftSignature(buffer, game);
+      if (formWrap && root.__opbacDraftSig !== dSig) {
+        root.__opbacDraftSig = dSig;
+        saveDraftFromDom(root, buffer);
+        formWrap.innerHTML = buildFormHtml(buffer, game);
+      }
+    }
   }
 
   function mountDomPanel(orbit) {
@@ -653,7 +959,7 @@
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     pluginOrbit = orbit;
     injectStyles();
-    console.info('[orbit-petitbac] loaded v5');
+    console.info('[orbit-petitbac] loaded v6');
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }
@@ -677,7 +983,8 @@
         var chan = (msg.params && msg.params[0]) || '';
         if (!isChannelName(chan)) return;
         if (!channelEnabled(orbit, chan)) return;
-        handleIrcLine(chan, msg.nick, (msg.params && msg.params[1]) || '');
+        var myNick = orbit.state.nick() || '';
+        handleIrcLine(chan, msg.nick, (msg.params && msg.params[1]) || '', myNick);
         syncDom();
       }
     });
