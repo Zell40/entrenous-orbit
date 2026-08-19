@@ -87,6 +87,11 @@
     "joinText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinButtonText": "Rejoindre"
   },
+  "petitbac": {
+    "channels": ["#Baccalaureat.chat"],
+    "showWhenIdle": true,
+    "defaultCollapsed": false
+  },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js", "sandbox": true, "permissions": ["storage"] },
@@ -95,7 +100,8 @@
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=12"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
+    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=1"
   ],
   "builtins": [],
   "analytics": {

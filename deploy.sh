@@ -56,6 +56,13 @@ git pull --ff-only --quiet origin "$PLUGINS_BRANCH"
 git branch --set-upstream-to="origin/$PLUGINS_BRANCH" "$PLUGINS_BRANCH" >/dev/null 2>&1 || true
 PLUGINS_HEAD=$(git rev-parse HEAD)
 
+# git pull may have replaced this script on disk; the current shell still runs
+# the version that was loaded at startup — re-exec once so new deploy steps apply.
+if [ "${ENTRENOUS_DEPLOY_REEXEC:-}" != 1 ]; then
+  export ENTRENOUS_DEPLOY_REEXEC=1
+  exec bash "$PLUGINS_REPO/deploy.sh" "$@"
+fi
+
 COMBO="${ORBIT_HEAD}+${PLUGINS_HEAD}"
 LAST=""
 [ -f "$DEPLOYED_MARKER" ] && LAST=$(cat "$DEPLOYED_MARKER")
@@ -121,6 +128,9 @@ mkdir -p "$WEBROOT/$HELPSERV_WELCOME_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-helpserv-welcome/orbit-helpserv-welcome.js" \
       "$WEBROOT/$HELPSERV_WELCOME_DIR/"
 
+# Petit Bac (Limnoria TAGMSG UI)
+PETITBAC_DIR="plugins/third/orbit-petitbac"
+
 # Video conference (Jitsi). NEVER overwrite visio-jwt.local.php — rsync
 # --delete is already excluded; only drop the example beside it once.
 mkdir -p "$WEBROOT/$CONFERENCE_DIR"
@@ -142,6 +152,11 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]
         "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php.example"
   echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi token secrets)"
 fi
+
+# Petit Bac — Orbit overlay for Limnoria game TAGMSG
+mkdir -p "$WEBROOT/$PETITBAC_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/orbit-petitbac.js" \
+      "$WEBROOT/$PETITBAC_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
