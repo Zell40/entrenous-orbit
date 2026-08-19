@@ -75,6 +75,12 @@ fi
 log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
 
 log "build orbit"
+cd "$ORBIT_REPO"
+if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+  npm ci
+else
+  npm install
+fi
 npm run build
 
 # --- publish Orbit dist, preserving runtime upload data + secrets ---
