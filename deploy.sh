@@ -98,6 +98,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/$CONFERENCE_DIR/" \
   --exclude="/plugins/third/orbit-helpserv-welcome/" \
   --exclude="/plugins/third/orbit-petitbac/" \
+  --exclude="/plugins/third/orbit-bac-live/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -160,6 +161,12 @@ fi
 mkdir -p "$WEBROOT/$PETITBAC_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/orbit-petitbac.js" \
       "$WEBROOT/$PETITBAC_DIR/"
+
+# Petit Bac live board (multi-player grid)
+BAC_LIVE_DIR="plugins/third/orbit-bac-live"
+mkdir -p "$WEBROOT/$BAC_LIVE_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-bac-live/orbit-bac-live.js" \
+      "$WEBROOT/$BAC_LIVE_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
@@ -291,5 +298,15 @@ if ! grep -q 'orbit-petitbac' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-petitbac (plugin file + config.json entry)"
+
+if [ ! -f "$WEBROOT/$BAC_LIVE_DIR/orbit-bac-live.js" ]; then
+  log "ERROR: missing $WEBROOT/$BAC_LIVE_DIR/orbit-bac-live.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-bac-live' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-bac-live plugin entry"
+  exit 1
+fi
+log "verified orbit-bac-live (plugin file + config.json entry)"
 
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
