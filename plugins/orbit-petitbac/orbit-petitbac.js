@@ -4,7 +4,15 @@
  */
 (function () {
   'use strict';
-  if (typeof Orbit === 'undefined' || !Orbit.plugin) return;
+
+  function boot(retry) {
+    if (typeof Orbit === 'undefined' || !Orbit.plugin) {
+      if (retry < 80) setTimeout(function () { boot(retry + 1); }, 50);
+      else console.error('[orbit-petitbac] Orbit API unavailable after retries');
+      return;
+    }
+    if (window.__ORBIT_PETITBAC__) return;
+    window.__ORBIT_PETITBAC__ = 3;
 
   var React = Orbit.React;
   var h = React.createElement;
@@ -45,10 +53,62 @@
     };
   }
 
-  function channelEnabled(orbit, channel) {
+  function resolveChannelName(orbit, keyOrName) {
+    if (!keyOrName) return '';
+    var st = orbit.state.get();
+    if (st && st.buffers && st.buffers[keyOrName] && st.buffers[keyOrName].name) {
+      return st.buffers[keyOrName].name;
+    }
+    return keyOrName;
+  }
+
+  function channelEnabled(orbit, channelKey) {
+    var name = resolveChannelName(orbit, channelKey);
     var c = cfg(orbit);
-    if (c.channelsAll) return isChannelName(channel);
-    return c.channels.indexOf(normChan(channel)) >= 0;
+    if (c.channelsAll) return isChannelName(name) || isChannelName(channelKey);
+    return c.channels.indexOf(normChan(name)) >= 0;
+  }
+
+  function stripIrc(text) {
+    return String(text || '')
+      .replace(/\x03(\d{1,2}(,\d{1,2})?)?/g, '')
+      .replace(/\x02|\x0f|\x1f|\x16|\x06|\x07|\x09/g, '');
+  }
+
+  function handleIrcLine(channel, nick, text) {
+    var plain = stripIrc(text).trim();
+    if (!plain) return;
+    var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
+    if (n !== 'bac' && n !== 'maitredujeu') return;
+
+    if (/petit bac est actuellement en cours|la partie d[eé]marre|c'est parti/i.test(plain)) {
+      patchChannel(channel, { phase: 'starting' });
+    }
+    var manche = plain.match(/manche\s+(\d+)\s*\/\s*(\d+)/i);
+    if (manche) {
+      patchChannel(channel, {
+        phase: 'playing',
+        round: Number(manche[1]) || 0,
+        totalRounds: Number(manche[2]) || 0,
+        roundStartAt: Date.now(),
+      });
+    }
+    var lc = plain.match(/lettre\s*:\s*(\S+).*cat[ée]gories\s*:\s*(.+)$/i);
+    if (lc) {
+      patchChannel(channel, {
+        phase: 'playing',
+        letter: lc[1].trim().charAt(0).toUpperCase(),
+        categories: lc[2].split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        roundStartAt: Date.now(),
+      });
+    }
+    var left = plain.match(/il reste\s+(\d+)\s+secondes/i);
+    if (left) {
+      patchChannel(channel, { phase: 'playing', countdown: Number(left[1]) || 0 });
+    }
+    if (/fin de la partie|partie termin[eé]e/i.test(plain)) {
+      patchChannel(channel, { phase: 'game_end' });
+    }
   }
 
   function defaultState() {
@@ -480,19 +540,55 @@
     }, '🎲');
   }
 
+  function ComposerButton(props) {
+    var orbit = props.orbit;
+    var buffer = useActiveBuffer(orbit);
+    if (!buffer || !channelEnabled(orbit, buffer)) return null;
+    return h('button', {
+      type: 'button',
+      className: 'opbac-topbtn on',
+      title: pick({ fr: 'Petit Bac — lancer / aide', en: 'Petit Bac — start / help' }),
+      onClick: function () { orbit.irc.msg(buffer, '!jouer'); },
+    }, '🎲');
+  }
+
+  function MoreMenuItem(props) {
+    var orbit = props.orbit;
+    var buffer = useActiveBuffer(orbit);
+    if (!buffer || !channelEnabled(orbit, buffer)) return null;
+    return h('button', {
+      type: 'button',
+      className: 'nmenu__item',
+      role: 'menuitem',
+      onClick: function () { orbit.irc.msg(buffer, '!jouer'); },
+    },
+      h('span', { className: 'nmenu__ic', 'aria-hidden': true }, '🎲'),
+      h('span', { className: 'nmenu__txt' }, h('b', null, pick({ fr: 'Petit Bac', en: 'Petit Bac' })))
+    );
+  }
+
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     injectStyles();
-    try { console.info('[orbit-petitbac] loading v2'); } catch (e) { /* ignore */ }
+    console.info('[orbit-petitbac] loaded v3');
 
     orbit.on('raw', function (msg) {
-      if (String(msg.command || '').toUpperCase() !== 'TAGMSG') return;
-      var tags = msg.tags || {};
-      if (tagVal(tags, PB) !== 'v1') return;
-      var target = (msg.params && msg.params[0]) || '';
-      if (!isChannelName(target)) return;
-      if (!channelEnabled(orbit, target)) return;
-      handlePetitBacEvent(target, tags);
-      log('orbit-petitbac', tagVal(tags, EV), target);
+      var cmd = String(msg.command || '').toUpperCase();
+      if (cmd === 'TAGMSG') {
+        var tags = msg.tags || {};
+        if (tagVal(tags, PB) !== 'v1') return;
+        var target = (msg.params && msg.params[0]) || '';
+        if (!isChannelName(target)) return;
+        if (!channelEnabled(orbit, target)) return;
+        handlePetitBacEvent(target, tags);
+        log('orbit-petitbac', tagVal(tags, EV), target);
+        return;
+      }
+      if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
+        var chan = (msg.params && msg.params[0]) || '';
+        if (!isChannelName(chan)) return;
+        if (!channelEnabled(orbit, chan)) return;
+        handleIrcLine(chan, msg.nick, (msg.params && msg.params[1]) || '');
+      }
     });
 
     orbit.addUi('overlay', function () {
@@ -501,6 +597,14 @@
 
     orbit.addUi('topbar_item', function () {
       return h(TopbarToggle, { orbit: orbit });
+    });
+
+    orbit.addUi('composer_button', function () {
+      return h(ComposerButton, { orbit: orbit });
+    });
+
+    orbit.addUi('topbar_more_item', function () {
+      return h(MoreMenuItem, { orbit: orbit });
     });
 
     orbit.addCommand('jouer', {
@@ -516,6 +620,10 @@
     });
 
     log('orbit-petitbac ready');
-    try { console.info('[orbit-petitbac] ready — salon(s):', (cfg(orbit).channels || []).join(', ')); } catch (e2) { /* ignore */ }
+    console.info('[orbit-petitbac] ready — channels:', (cfg(orbit).channels || []).join(', '));
   });
+
+  }
+
+  boot(0);
 })();
