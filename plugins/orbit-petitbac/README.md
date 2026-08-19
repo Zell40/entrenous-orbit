@@ -43,6 +43,11 @@ Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+pb=v1`, `+ev=…`) s
 | `game_go` | lancement |
 | `round_start` | `+letter`, `+categories`, `+duration`, `+round` |
 | `round_countdown` | alertes 20 / 10 / 5 s |
+| `round_tick` | `+seconds_left` (resync timer, toutes les 5 s) |
+| `state_sync` | état courant pour un joueur qui arrive en cours de partie |
+| `word_ok` | `+nick` `+word` `+category` `+points` |
+| `word_ko` | `+nick` `+word` `+reason` (`wrong_letter`, `already_used`, …) |
+| `verify_hint` / `verify_pending` / `verify_ok` / `verify_ko` | proposition `!verifier` |
 | `round_end` | `+round_scores` (JSON) |
 | `game_end` | `+final_ranking`, `+top_global` (JSON) |
 

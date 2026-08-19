@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 10;
+  var PBAC_VER = 11;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -490,6 +490,58 @@
         countdown: Number(tagVal(tags, '+seconds')) || 0,
         countdownAt: Date.now(),
       });
+      return;
+    }
+
+    if (ev === 'round_tick') {
+      patchChannel(channel, {
+        phase: 'playing',
+        countdown: Number(tagVal(tags, '+seconds_left')) || 0,
+        countdownAt: Date.now(),
+      });
+      return;
+    }
+
+    if (ev === 'state_sync') {
+      var catsS = tagVal(tags, '+categories');
+      var durS = Number(tagVal(tags, '+duration')) || ((getChannelState(channel) || {}).duration) || 60;
+      var leftS = Number(tagVal(tags, '+seconds_left'));
+      if (!(leftS >= 0)) leftS = durS;
+      patchChannel(channel, {
+        phase: tagVal(tags, '+paused') === '1' ? 'paused' : 'playing',
+        round: Number(tagVal(tags, '+round')) || 0,
+        letter: tagVal(tags, '+letter'),
+        categories: catsS ? catsS.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [],
+        duration: durS,
+        totalRounds: Number(tagVal(tags, '+max_rounds')) || ((getChannelState(channel) || {}).totalRounds) || 0,
+        countdown: leftS,
+        countdownAt: Date.now(),
+        roundStartAt: Date.now() - Math.max(0, (durS - leftS) * 1000),
+      });
+      return;
+    }
+
+    if (ev === 'word_ok') {
+      var gameOk = getChannelState(channel) || defaultState();
+      var catOk = matchCatKey(gameOk, tagVal(tags, '+category'));
+      if (catOk) {
+        var draftOk = getDraft(channel, gameOk);
+        draftOk.validated[catOk] = true;
+        delete draftOk.pending[catOk];
+        if (draftOk.rejected) delete draftOk.rejected[catOk];
+        bumpStore();
+      }
+      return;
+    }
+
+    if (ev === 'word_ko') {
+      var gameKo = getChannelState(channel) || defaultState();
+      markRejected(
+        channel,
+        matchCatKey(gameKo, tagVal(tags, '+category')),
+        tagVal(tags, '+word'),
+        tagVal(tags, '+reason') || ''
+      );
       return;
     }
 
