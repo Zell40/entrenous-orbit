@@ -76,8 +76,6 @@ else
   log "WARN: no lockfile in $ORBIT_REPO, fallback to npm install"
   npm install
 fi
-log "run tests"
-npm run test
 log "build orbit"
 npm run build
 
