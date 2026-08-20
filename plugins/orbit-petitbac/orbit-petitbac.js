@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 30;
+  var PBAC_VER = 31;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var PANEL_HEIGHT_MIN = 220;
@@ -3194,7 +3194,7 @@
         root.__opbacEndSig = endSig;
         bodyHtml = buildEndScreenHtml(game, myNick, replayMode, endAnimate);
         root.__opbacReplayMode = replayMode;
-        requestModeList(orbit, buffer);
+        if (isGameEnd && isBacBotPresent(orbit, buffer)) requestModeList(orbit, buffer);
       } else {
         bodyHtml = buildPlayingBodyHtml(buffer, game, remaining, progress);
       }
