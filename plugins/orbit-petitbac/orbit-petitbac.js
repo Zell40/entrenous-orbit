@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 46;
+  var PBAC_VER = 47;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -46,6 +46,9 @@
   var listeAt = 0;
   var waitingListe = false;
   var pendingCreate = false;
+  var createdNotice = '';
+  var createdModeId = '';
+  var STORAGE_LOBBY_TAB = 'opbacLobbyTab';
   var activeVote = null;
 
   function pick(table) {
@@ -1567,11 +1570,7 @@
     if (ev === 'mode_created') {
       pendingCreate = false;
       listeAt = 0;
-      var created = tagVal(tags, '+mode');
-      if (created && pluginOrbit) {
-        try { pluginOrbit.storage.set('petitbacMode', created); } catch (e) { /* ignore */ }
-      }
-      bumpStore();
+      markModeCreated(tagVal(tags, '+mode'));
       var bufCreated = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
         ? pluginOrbit.state.active()
         : '';
@@ -1714,15 +1713,16 @@
       '.opbac-vote__btn{border:0;border-radius:999px;padding:.45rem .9rem;font-size:.82rem;font-weight:900;cursor:pointer;min-height:38px}',
       '.opbac-vote__btn--yes{background:#16a34a;color:#fff}',
       '.opbac-vote__btn--no{background:#dc2626;color:#fff}',
-      '.opbac-idle{padding:.7rem .85rem .85rem;text-align:center}',
-      '.opbac-idle__art{width:min(160px,52vw);height:auto;margin:0 auto .45rem;display:block;border-radius:12px;box-shadow:0 8px 24px -12px rgba(99,102,241,.35)}',
-      '.opbac-idle__txt{font-size:.84rem;color:var(--muted,#666);margin:0 0 .45rem;line-height:1.35}',
-      '.opbac-idle__launch{display:flex;flex-direction:column;align-items:center;gap:.3rem;margin:.15rem 0 .55rem}',
-      '.opbac-idle__cta{display:flex;width:100%;max-width:32rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.85rem 1.2rem;font-size:1.05rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:52px;box-shadow:0 12px 28px -10px rgba(99,102,241,.65)}',
+      '.opbac-panel--full:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body,.opbac-panel--split:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body{overflow:hidden;min-height:0}',
+      '.opbac-idle{display:flex;flex-direction:column;align-items:stretch;gap:.35rem;padding:.4rem .65rem .4rem;text-align:center;min-height:0;flex:1 1 auto;overflow:hidden;box-sizing:border-box;height:100%}',
+      '.opbac-idle__art{display:none}',
+      '.opbac-idle__txt{display:none}',
+      '.opbac-idle__launch{display:flex;flex-direction:column;align-items:center;gap:.28rem;margin:0;flex:0 0 auto}',
+      '.opbac-idle__cta{display:flex;width:100%;max-width:28rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.7rem 1.1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:46px;box-shadow:0 10px 24px -10px rgba(99,102,241,.65)}',
       '.opbac-idle__cta:hover{filter:brightness(1.06)}',
-      '.opbac-idle__launch .opbac-skip-rules{margin:.1rem auto 0;max-width:32rem}',
+      '.opbac-idle__launch .opbac-skip-rules{margin:0 auto;max-width:28rem;padding:.32rem .5rem;font-size:.72rem}',
       '.opbac-idle__help{margin-top:0;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
-      '.opbac-idle__stopped{margin:0 auto .45rem;max-width:26rem;padding:.38rem .65rem;border-radius:10px;font-size:.78rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd))}',
+      '.opbac-idle__stopped{margin:0 auto;max-width:26rem;padding:.32rem .6rem;border-radius:10px;font-size:.76rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd));flex:0 0 auto}',
       '.opbac-offline{padding:1.15rem .95rem 1.25rem;text-align:center}',
       '.opbac-offline__art{width:min(200px,70vw);height:auto;margin:0 auto .7rem;display:block;border-radius:14px;opacity:.88}',
       '.opbac-offline__title{margin:0 0 .4rem;font-size:1.05rem;font-weight:900;color:var(--ink,#111)}',
@@ -1749,10 +1749,11 @@
       '.opbac-prep__step-ic{flex-shrink:0;width:1.15rem;text-align:center}',
       '.opbac-skip-rules{display:flex;align-items:flex-start;gap:.5rem;margin:.9rem auto 0;max-width:22rem;padding:.55rem .65rem;border-radius:10px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));text-align:left;font-size:.78rem;font-weight:700;color:var(--ink,#333);cursor:pointer;user-select:none;line-height:1.35}',
       '.opbac-skip-rules input{margin:.12rem 0 0;flex-shrink:0;width:1.05rem;height:1.05rem;accent-color:#6366f1}',
-      '.opbac-idle__stats{margin:0 auto .55rem;max-width:34rem;text-align:left;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif}',
-      '.opbac-idle__stats-h{margin:.55rem 0 .3rem;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-idle__stats{margin:0;max-width:none;text-align:left;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif;min-height:0}',
+      '.opbac-recap .opbac-idle__stats,.opbac-recap__body .opbac-sum,.opbac-recap__body .opbac-hist{min-height:0}',
+      '.opbac-idle__stats-h{margin:.35rem 0 .25rem;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
       '.opbac-idle__stats-h:first-child{margin-top:0}',
-      '.opbac-idle__stats-card{margin:0 0 .45rem;padding:.5rem .55rem;border-radius:12px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
+      '.opbac-idle__stats-card{margin:0 0 .35rem;padding:.4rem .5rem;border-radius:10px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
       '.opbac-idle__stats-sum{margin:0;font-size:.84rem;font-weight:700;color:var(--ink,#222);line-height:1.4}',
       '.opbac-idle__stats-empty{margin:0;font-size:.8rem;color:var(--muted,#666);font-weight:600}',
       '.opbac-sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:0 0 .45rem}',
@@ -1782,9 +1783,9 @@
       '.opbac-podium__medal{font-size:1.35rem;line-height:1}',
       '.opbac-podium__nick{font-size:.78rem;font-weight:900;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.opbac-podium__pts{font-size:.82rem;font-weight:900;color:#4f46e5;font-variant-numeric:tabular-nums}',
-      '.opbac-hist{display:flex;flex-direction:column;gap:.3rem;max-height:7.2rem;overflow-y:auto}',
-      '.opbac-hist__card{padding:.4rem .5rem;border-radius:10px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5))}',
-      '.opbac-idle__stats .opbac-rank{max-height:6.4rem;overflow-y:auto}',
+      '.opbac-hist{display:flex;flex-direction:column;gap:.28rem}',
+      '.opbac-hist__card{padding:.32rem .45rem;border-radius:9px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5))}',
+      '.opbac-idle__stats .opbac-rank{gap:.22rem}',
       '.opbac-hist__when{display:block;font-size:.68rem;font-weight:800;color:var(--muted,#666);margin:0 0 .4rem}',
       '.opbac-hist__players{display:flex;flex-wrap:wrap;gap:.3rem}',
       '.opbac-hist__p{display:inline-flex;align-items:center;gap:.28rem;padding:.22rem .5rem;border-radius:999px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5));font-size:.72rem;font-weight:800;max-width:100%}',
@@ -1906,10 +1907,8 @@
       '.opbac-end__chat-hint{margin:.85rem 0 0;text-align:center}',
       '.opbac-end__chat-btn{border:0;background:none;color:var(--accent,#6366f1);font-size:.8rem;font-weight:800;cursor:pointer;text-decoration:underline}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
-      '.opbac-replay__sub{margin:0 0 .75rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
-      '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.35rem;margin-bottom:.4rem}',
-      '@media(max-width:560px){.opbac-modes{grid-template-columns:1fr}}',
-      '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem .4rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
+      '.opbac-replay__sub{margin:0 0 .45rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
+      '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.1rem;padding:.4rem .3rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
       '.opbac-mode:hover{border-color:color-mix(in srgb,#6366f1 40%,var(--border,#ccc));transform:translateY(-1px)}',
       '.opbac-mode--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff));box-shadow:0 0 0 3px color-mix(in srgb,#6366f1 18%,transparent)}',
       '.opbac-mode__emoji{font-size:1.25rem;line-height:1}',
@@ -1918,21 +1917,32 @@
       '.opbac-replay__cta{display:flex;width:100%;max-width:32rem;margin:0 auto;align-items:center;justify-content:center;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1.05rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 12px 28px -10px rgba(99,102,241,.65);min-height:52px}',
       '.opbac-replay__cta:hover{filter:brightness(1.06)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
-      '.opbac-playpick__sec{margin:.05rem 0 .45rem}',
-      '.opbac-playpick__h{margin:0 0 .3rem;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
-      '.opbac-customs{display:flex;flex-direction:column;gap:.28rem;max-height:5.2rem;overflow-y:auto;margin-bottom:.35rem}',
-      '.opbac-customs__empty{margin:0;font-size:.78rem;color:var(--muted,#666)}',
-      '.opbac-custom{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;text-align:left;border:1.5px solid var(--border,#ddd);border-radius:10px;padding:.38rem .5rem;background:var(--bg,#fff);cursor:pointer;font:inherit;color:inherit}',
+      '.opbac-playpick{display:flex;flex-direction:column;gap:.35rem;flex:0 1 auto;min-height:0;overflow:hidden}',
+      '.opbac-setup{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(15rem,.75fr);gap:.45rem;text-align:left;flex:1 1 auto;min-height:0;overflow:hidden}',
+      '@media(max-width:760px){.opbac-setup{grid-template-columns:1fr;overflow:auto}}',
+      '.opbac-setup__modes,.opbac-setup__create{display:flex;flex-direction:column;padding:.45rem .5rem .5rem;border-radius:12px;border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff));min-width:0;min-height:0;overflow:auto}',
+      '.opbac-create-ok{margin:.35rem 0 0;padding:.35rem .45rem;border-radius:10px;background:#ecfdf5;border:1px solid #86efac;color:#166534;font-size:.72rem;font-weight:800;line-height:1.35}',
+      '.opbac-recap{flex:1 1 0;min-height:6rem;display:flex;flex-direction:column;text-align:left;overflow:hidden}',
+      '.opbac-recap__tabs{display:flex;gap:.3rem;flex:0 0 auto;margin:0 0 .3rem}',
+      '.opbac-recap__tab{border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:999px;padding:.26rem .7rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:28px}',
+      '.opbac-recap__tab--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
+      '.opbac-recap__body{flex:1 1 auto;min-height:0;overflow:auto}',
+      '.opbac-playpick__sec{margin:.05rem 0 .35rem}',
+      '.opbac-playpick__h{margin:0 0 .28rem;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-customs{display:flex;flex-direction:column;gap:.25rem;flex:1 1 auto;min-height:0;max-height:min(8.2rem,22vh);overflow-y:auto;margin:0}',
+      '.opbac-customs__empty{margin:0;font-size:.74rem;color:var(--muted,#666)}',
+      '.opbac-custom{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;text-align:left;border:1.5px solid var(--border,#ddd);border-radius:10px;padding:.32rem .45rem;background:var(--bg,#fff);cursor:pointer;font:inherit;color:inherit}',
       '.opbac-custom--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff))}',
-      '.opbac-custom__name{font-size:.82rem;font-weight:800;color:var(--ink,#111)}',
-      '.opbac-custom__hint{font-size:.68rem;font-weight:700;color:var(--muted,#666);white-space:nowrap}',
-      '.opbac-create{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;margin:.2rem 0 .4rem}',
-      '.opbac-create label{display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#666)}',
-      '.opbac-create input{border:1px solid var(--border,#ccc);border-radius:8px;padding:.4rem .45rem;font-size:.88rem;font-weight:700;min-height:38px;background:var(--bg,#fff);color:var(--ink,#111)}',
-      '.opbac-create__btn{grid-column:1/-1;border:0;border-radius:12px;padding:.72rem 1rem;font-size:.88rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;min-height:46px;box-shadow:0 8px 20px -10px rgba(79,70,229,.6)}',
+      '.opbac-custom__name{font-size:.78rem;font-weight:800;color:var(--ink,#111)}',
+      '.opbac-custom__hint{font-size:.64rem;font-weight:700;color:var(--muted,#666);white-space:nowrap}',
+      '.opbac-create{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.3rem;margin:.1rem 0 .3rem}',
+      '.opbac-create label{display:flex;flex-direction:column;gap:.15rem;font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#666)}',
+      '.opbac-create input{border:1px solid var(--border,#ccc);border-radius:8px;padding:.32rem .4rem;font-size:.82rem;font-weight:700;min-height:34px;background:var(--bg,#fff);color:var(--ink,#111)}',
+      '.opbac-create__btn{display:inline-flex;align-items:center;justify-content:center;width:auto;align-self:start;border:0;border-radius:10px;padding:.38rem .8rem;font-size:.74rem;font-weight:800;cursor:pointer;background:#4f46e5;color:#fff;min-height:32px}',
       '.opbac-create__btn:hover{filter:brightness(1.06)}',
-      '.opbac-play-note{margin:.2rem 0 0;font-size:.7rem;color:var(--muted,#666);line-height:1.3}',
-      '@media(min-width:880px){.opbac-idle{padding:.4rem .8rem .5rem}.opbac-idle__art{width:min(108px,20vw);margin:0 auto .25rem}.opbac-idle__txt{margin:0 0 .3rem;font-size:.8rem}.opbac-idle__launch{margin:.1rem 0 .4rem}.opbac-hist{max-height:6.2rem}.opbac-idle__stats .opbac-rank{max-height:5.4rem}.opbac-customs{max-height:4.6rem}}',
+      '.opbac-play-note{margin:.25rem 0 0;font-size:.64rem;color:var(--muted,#666);line-height:1.3}',
+      '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.3rem;margin-bottom:.4rem}',
+      '@media(max-width:560px){.opbac-modes{grid-template-columns:1fr}}',
       'body.opbac-active .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
       'body.opbac-active .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
       'body.opbac-active .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
@@ -2258,6 +2268,9 @@
     if (name === 'full') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
     }
+    if (name === 'rules') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>';
+    }
     return '';
   }
 
@@ -2364,6 +2377,9 @@
       '<div class="opbac-head__actions">' +
         '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
           escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
+        '<button type="button" class="opbac-head__btn" data-act="rules" title="' +
+          escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '">' +
+          iconSvg('rules') + '</button>' +
         (!gameActive
           ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
           escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">▶</button>')
@@ -2992,41 +3008,174 @@
     sendPbCmd(orbit, buffer, 'scores');
   }
 
-  function buildIdleStatsHtml(game, myNick) {
+  function currentLobbyTab() {
+    try {
+      if (pluginOrbit) {
+        var tab = String(pluginOrbit.storage.get(STORAGE_LOBBY_TAB, 'scores') || 'scores');
+        if (tab === 'stats' || tab === 'top') return tab;
+      }
+    } catch (e) { /* ignore */ }
+    return 'scores';
+  }
+
+  function setLobbyTab(tab) {
+    if (tab !== 'stats' && tab !== 'top') tab = 'scores';
+    try { if (pluginOrbit) pluginOrbit.storage.set(STORAGE_LOBBY_TAB, tab); } catch (e) { /* ignore */ }
+    return tab;
+  }
+
+  function requestLobbyTabData(orbit, buffer, tab, force) {
+    if (!orbit || !buffer) return;
+    tab = tab || currentLobbyTab();
+    if (tab === 'stats') {
+      sendPbCmd(orbit, buffer, 'stat');
+      return;
+    }
+    if (tab === 'top') {
+      if (force) patchChannel(buffer, { topGlobal: [], topLoaded: false });
+      sendPbCmd(orbit, buffer, 'top', '10');
+      return;
+    }
+    requestLobbyStats(orbit, buffer, force);
+  }
+
+  function buildScoresRecapHtml(game, myNick) {
     var ranking = (game.lobbyRanking && game.lobbyRanking.length)
       ? game.lobbyRanking
       : (game.finalRanking && game.finalRanking.length
         ? game.finalRanking
         : rankingForDisplay(game, true));
-    var html = '<div class="opbac-idle__stats" data-opbac-idle-stats>';
+    var html = '';
     if (game.lobbySummary) html += buildSummaryChipsHtml(game.lobbySummary);
     if (ranking && ranking.length) {
       html += '<p class="opbac-idle__stats-h">' +
         escHtml(pick({ fr: 'Classement / scores', en: 'Ranking / scores' })) + '</p>' +
         '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(ranking.slice(0, 5), myNick) + '</div>';
     }
-    if (game.topGlobal && game.topGlobal.length) {
-      html += '<p class="opbac-idle__stats-h">' +
-        escHtml(pick({ fr: 'Top joueurs (global)', en: 'Top players (global)' })) + '</p>' +
-        '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(game.topGlobal.slice(0, 5), myNick) + '</div>';
-    }
     if (game.lobbyHistory && game.lobbyHistory.length) {
       html += '<p class="opbac-idle__stats-h">' +
         escHtml(pick({ fr: 'Dernières parties', en: 'Recent games' })) + '</p>' +
         buildHistoryHtml(game.lobbyHistory.slice(0, 8), myNick);
     }
-    html += '</div>';
+    if (!html) {
+      html = '<p class="opbac-idle__stats-empty">' + escHtml(pick({
+        fr: 'Aucun score pour le moment.',
+        en: 'No scores yet.',
+      })) + '</p>';
+    }
     return html;
   }
 
-  function buildLaunchHtml(label, withRules) {
+  function buildTopRecapHtml(game, myNick) {
+    var rows = (game && game.topGlobal) || [];
+    if (!rows.length) {
+      if (game && game.topLoaded) {
+        return '<p class="opbac-end__empty">' + escHtml(pick({
+          fr: 'Aucun classement pour le moment.',
+          en: 'No ranking yet.',
+        })) + '</p>';
+      }
+      return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
+        fr: 'Chargement du classement…',
+        en: 'Loading ranking…',
+      })) + '</p>';
+    }
+    return '<p class="opbac-idle__stats-h">' +
+      escHtml(pick({ fr: 'Top 10 joueurs', en: 'Top 10 players' })) + '</p>' +
+      '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(rows.slice(0, 10), myNick) + '</div>';
+  }
+
+  function buildRecapBodyHtml(game, myNick, tab) {
+    tab = tab || currentLobbyTab();
+    if (tab === 'stats') return buildStatCardHtml(game && game.statCard);
+    if (tab === 'top') return buildTopRecapHtml(game, myNick);
+    return buildScoresRecapHtml(game || defaultState(), myNick);
+  }
+
+  function buildIdleStatsHtml(game, myNick) {
+    return '<div class="opbac-idle__stats" data-opbac-idle-stats>' +
+      buildScoresRecapHtml(game, myNick) + '</div>';
+  }
+
+  function buildRecapHtml(game, myNick) {
+    var tab = currentLobbyTab();
+    var tabs = [
+      ['scores', pick({ fr: 'Scores', en: 'Scores' })],
+      ['stats', pick({ fr: 'Stats', en: 'Stats' })],
+      ['top', pick({ fr: 'Top 10', en: 'Top 10' })],
+    ];
+    var html = '<div class="opbac-recap" data-opbac-recap>' +
+      '<div class="opbac-recap__tabs" role="tablist">';
+    tabs.forEach(function (item) {
+      html += '<button type="button" class="opbac-recap__tab' + (item[0] === tab ? ' opbac-recap__tab--on' : '') +
+        '" data-act="lobby-tab" data-tab="' + item[0] + '" aria-pressed="' + (item[0] === tab ? 'true' : 'false') + '">' +
+        escHtml(item[1]) + '</button>';
+    });
+    html += '</div><div class="opbac-recap__body" data-opbac-idle-stats>' +
+      buildRecapBodyHtml(game, myNick, tab) + '</div></div>';
+    return html;
+  }
+
+  function updateLobbyTabUi(root, tab, game, myNick) {
+    if (!root) return;
+    tab = setLobbyTab(tab);
+    root.querySelectorAll('[data-act="lobby-tab"]').forEach(function (btn) {
+      var on = btn.getAttribute('data-tab') === tab;
+      btn.classList.toggle('opbac-recap__tab--on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    var body = root.querySelector('[data-opbac-idle-stats]');
+    if (body) body.innerHTML = buildRecapBodyHtml(game || defaultState(), myNick || '', tab);
+  }
+
+  function syncCreatedNotice(root) {
+    if (!root || !root.querySelector) return;
+    var host = root.querySelector('[data-opbac-create-ok]');
+    if (!host) return;
+    host.innerHTML = createdNotice
+      ? ('<p class="opbac-create-ok">' + escHtml(createdNotice) + '</p>')
+      : '';
+  }
+
+  function markModeCreated(modeId) {
+    modeId = sanitizeModeId(modeId);
+    if (!modeId) return;
+    createdModeId = modeId;
+    createdNotice = pick({
+      fr: 'Votre mode « ' + modeId + ' » a été créé et est sélectionné pour le prochain lancement.',
+      en: 'Your mode “' + modeId + '” was created and is selected for the next launch.',
+    });
+    if (pluginOrbit) {
+      try { pluginOrbit.storage.set('petitbacMode', modeId); } catch (e) { /* ignore */ }
+      try { pluginOrbit.notify('Petit Bac', createdNotice); } catch (e2) { /* ignore */ }
+    }
+    bumpStore();
+    refreshPlayMenuCustom(modeId);
+    var panel = document.getElementById('opbac-dom-panel');
+    if (panel) {
+      updateReplayModeUi(panel, modeId);
+      syncCreatedNotice(panel);
+    }
+  }
+
+  function rememberPickedMode(orbit, host, modeId) {
+    modeId = sanitizeModeId(modeId);
+    if (createdModeId && modeId !== createdModeId) {
+      createdNotice = '';
+      createdModeId = '';
+    }
+    try { if (orbit) orbit.storage.set('petitbacMode', modeId); } catch (e) { /* ignore */ }
+    updateReplayModeUi(host, modeId);
+    var panel = document.getElementById('opbac-dom-panel');
+    if (panel && panel !== host) updateReplayModeUi(panel, modeId);
+    syncCreatedNotice(host);
+    if (panel) syncCreatedNotice(panel);
+  }
+
+  function buildLaunchHtml(label) {
     return '<div class="opbac-idle__launch">' +
       '<button type="button" class="opbac-idle__cta" data-act="replay">' + escHtml(label) + '</button>' +
       buildSkipRulesCheckHtml() +
-      (withRules
-        ? ('<button type="button" class="opbac-idle__help" data-act="rules">' +
-            escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '</button>')
-        : '') +
       '</div>';
   }
 
@@ -3038,17 +3187,12 @@
         '</p>')
       : '';
     return '<div class="opbac-idle">' +
-      imgHtml('idle-hero.svg', pick({ fr: 'Petit Bac', en: 'Petit Bac' }), 'opbac-idle__art') +
       stopBanner +
-      '<p class="opbac-idle__txt">' + escHtml(pick({
-        fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
-        en: 'Pick a level, a custom game, or create your own.',
-      })) + '</p>' +
       buildPlayPickerHtml(replayMode, buildLaunchHtml(pick({
         fr: '▶ Lancer une partie',
         en: '▶ Start a game',
-      }), true)) +
-      buildIdleStatsHtml(game, myNick) +
+      }))) +
+      buildRecapHtml(game, myNick) +
       '</div>';
   }
 
@@ -3161,13 +3305,11 @@
       var me = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
         ? String(pluginOrbit.state.nick() || '').toLowerCase()
         : '';
-      if (me) {
-        try { pluginOrbit.storage.set('petitbacMode', me); } catch (e) { /* ignore */ }
-        bumpStore();
-        refreshPlayMenuCustom(me);
-        var buf = pluginOrbit.state.active && pluginOrbit.state.active();
-        if (buf) requestModeList(pluginOrbit, buf);
-      }
+      if (me && sanitizeModeId(me) !== createdModeId) markModeCreated(me);
+      var bufNotice = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
+        ? pluginOrbit.state.active()
+        : '';
+      if (bufNotice) requestModeList(pluginOrbit, bufNotice, true);
       return true;
     }
     return false;
@@ -3322,13 +3464,17 @@
         '<input type="number" min="10" max="300" value="40" data-create-dur></label>' +
       '<label>' + escHtml(pick({ fr: 'Manches', en: 'Rounds' })) +
         '<input type="number" min="1" max="50" value="12" data-create-rounds></label>' +
+      '</div>' +
       '<button type="button" class="opbac-create__btn" data-act="create-mode">' +
         escHtml(pick({ fr: '✨ Créer mon jeu', en: '✨ Create my game' })) +
-      '</button></div>' +
+      '</button>' +
       '<p class="opbac-play-note">' + escHtml(pick({
-        fr: 'Le bot enregistre le mode sous votre pseudo. Vous pourrez ensuite le relancer depuis la liste.',
-        en: 'The bot saves the mode under your nick. You can start it again from the list.',
-      })) + '</p>';
+        fr: 'Enregistré sous votre pseudo, puis sélectionné pour le prochain lancement.',
+        en: 'Saved under your nick, then selected for the next launch.',
+      })) + '</p>' +
+      '<div data-opbac-create-ok>' +
+        (createdNotice ? ('<p class="opbac-create-ok">' + escHtml(createdNotice) + '</p>') : '') +
+      '</div>';
   }
 
   function buildPlayPickerHtml(selectedMode, launchHtml) {
@@ -3342,18 +3488,21 @@
         '<span class="opbac-mode__hint">' + escHtml(m.hint) + '</span></button>';
     }).join('');
     return '<div class="opbac-playpick" data-opbac-playpick>' +
-      '<div class="opbac-playpick__sec">' +
-        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Niveaux officiels', en: 'Official levels' })) + '</p>' +
-        '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
-          cards + '</div></div>' +
+      '<div class="opbac-setup">' +
+        '<div class="opbac-setup__modes">' +
+          '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Modes disponibles', en: 'Available modes' })) + '</p>' +
+          '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
+            cards + '</div>' +
+          '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Jeux personnalisés', en: 'Custom games' })) + '</p>' +
+          '<div class="opbac-customs" data-opbac-customs>' + buildCustomModesHtml(selectedMode) + '</div>' +
+        '</div>' +
+        '<div class="opbac-setup__create">' +
+          '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Créer mon jeu', en: 'Create my game' })) + '</p>' +
+          buildCreateModeHtml() +
+        '</div>' +
+      '</div>' +
       (launchHtml || '') +
-      '<div class="opbac-playpick__sec">' +
-        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Jeux personnalisés', en: 'Custom games' })) + '</p>' +
-        '<div class="opbac-customs" data-opbac-customs>' + buildCustomModesHtml(selectedMode) + '</div></div>' +
-      '<div class="opbac-playpick__sec">' +
-        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Créer mon jeu', en: 'Create my game' })) + '</p>' +
-        buildCreateModeHtml() +
-      '</div></div>';
+    '</div>';
   }
 
   function refreshPlayMenuCustom(selectId) {
@@ -3367,6 +3516,7 @@
       var wrap = host.querySelector('[data-opbac-customs]');
       if (wrap) wrap.innerHTML = buildCustomModesHtml(selected);
       if (selectId) updateReplayModeUi(host, selectId);
+      syncCreatedNotice(host);
     });
   }
 
@@ -3381,11 +3531,7 @@
       if (!buffer) return;
       var pickBtn = ev.target.closest ? ev.target.closest('[data-act="pick-mode"]') : null;
       if (pickBtn) {
-        var picked = sanitizeModeId(pickBtn.getAttribute('data-mode'));
-        updateReplayModeUi(overlay, picked);
-        var panel = document.getElementById('opbac-dom-panel');
-        if (panel) updateReplayModeUi(panel, picked);
-        try { orbit.storage.set('petitbacMode', picked); } catch (e) { /* ignore */ }
+        rememberPickedMode(orbit, overlay, pickBtn.getAttribute('data-mode'));
         return;
       }
       var createBtn = ev.target.closest ? ev.target.closest('[data-act="create-mode"]') : null;
@@ -3426,7 +3572,7 @@
           buildPlayPickerHtml(selected, buildLaunchHtml(pick({
             fr: '▶ Lancer la partie',
             en: '▶ Start the game',
-          }), false)) +
+          }))) +
         '</div></div>';
     bindPlayOverlay(orbit, overlay);
     playEscHandler = function (ev) {
@@ -3465,10 +3611,8 @@
       buildPlayPickerHtml(selectedMode, buildLaunchHtml(pick({
         fr: '▶ Oui, lancer une partie',
         en: '▶ Yes, start a game',
-      }), false)) +
-      '<button type="button" class="opbac-replay__help" data-act="rules">' +
-        escHtml(pick({ fr: 'Règles et commandes', en: 'Rules and commands' })) +
-      '</button></div>';
+      }))) +
+      '</div>';
   }
 
   function startReplayGame(orbit, buffer, root) {
@@ -4174,14 +4318,9 @@
       game.fullComboNick || '',
       game.fullComboRound || '',
       JSON.stringify(game.scores || {}),
-      game.lobbySummary || '',
-      JSON.stringify(game.lobbyRanking || []),
-      JSON.stringify(game.lobbyHistory || []),
       JSON.stringify(game.livePlayers || {}),
-      JSON.stringify(game.statCard || null),
       JSON.stringify(game.vote || null),
       JSON.stringify(game.mancheHistory || []),
-      game.topLoaded ? '1' : '0',
     ].join(';');
     if (game.phase === 'game_end' || game.phase === 'round_end') {
       base += '|' + JSON.stringify(game.finalRanking || []) +
@@ -4354,9 +4493,14 @@
         return;
       }
       if (act === 'pick-mode') {
-        var picked = sanitizeModeId(btn.getAttribute('data-mode'));
-        updateReplayModeUi(root, picked);
-        try { orbit.storage.set('petitbacMode', picked); } catch (e) { /* ignore */ }
+        rememberPickedMode(orbit, root, btn.getAttribute('data-mode'));
+        return;
+      }
+      if (act === 'lobby-tab') {
+        var tab = btn.getAttribute('data-tab') || 'scores';
+        var gameTab = getChannelState(buffer) || defaultState();
+        updateLobbyTabUi(root, tab, gameTab, orbit.state.nick() || '');
+        requestLobbyTabData(orbit, buffer, tab, true);
         return;
       }
       if (act === 'create-mode') {
@@ -4521,7 +4665,7 @@
         bodyHtml = buildIdleHtml(game, replayMode, myNick);
         if (isBacBotPresent(orbit, buffer)) {
           requestModeList(orbit, buffer);
-          requestLobbyStats(orbit, buffer);
+          requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
         }
       } else if (isEnd) {
         var endSig = endScreenSignature(game);
@@ -4573,8 +4717,9 @@
       }
       var idleStats = root.querySelector('[data-opbac-idle-stats]');
       if (idleStats && isIdle) {
-        idleStats.outerHTML = buildIdleStatsHtml(game, myNick);
+        idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
       }
+      if (isIdle) syncCreatedNotice(root);
       var scoresWrap = root.querySelector('[data-opbac-scores]');
       if (scoresWrap && (isLive || hasGrid) && !isEnd) {
         scoresWrap.outerHTML = buildSideScoresHtml(game);
