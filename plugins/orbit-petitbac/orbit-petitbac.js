@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 37;
+  var PBAC_VER = 38;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -252,13 +252,18 @@
       .replace(/ /g, '\\s');
   }
 
+  function sendPbTarget(orbit, buffer) {
+    return resolveChannelName(orbit, buffer) || buffer;
+  }
+
   function sendPbCmd(orbit, buffer, name, arg) {
     if (!orbit || !buffer || !name) return;
+    var target = sendPbTarget(orbit, buffer);
     var tags = '+pb=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
     try {
       if (orbit.irc && orbit.irc.send) {
-        orbit.irc.send('@' + tags + ' TAGMSG ' + buffer);
+        orbit.irc.send('@' + tags + ' TAGMSG ' + target);
         return;
       }
     } catch (e) { /* ignore */ }
@@ -266,15 +271,16 @@
 
   function sendPbPlay(orbit, buffer, word, cat) {
     if (!orbit || !buffer || !word) return;
+    var target = sendPbTarget(orbit, buffer);
     var tags = '+pb=v1;+ev=play;+word=' + escapeIrcTag(word);
     if (cat) tags += ';+cat=' + escapeIrcTag(cat);
     try {
       if (orbit.irc && orbit.irc.send) {
-        orbit.irc.send('@' + tags + ' TAGMSG ' + buffer);
+        orbit.irc.send('@' + tags + ' TAGMSG ' + target);
         return;
       }
     } catch (e) { /* ignore */ }
-    try { orbit.irc.msg(buffer, word); } catch (e2) { /* ignore */ }
+    try { orbit.irc.msg(target, word); } catch (e2) { /* ignore */ }
   }
 
   function maybeRequestGameSync(orbit, buffer, game) {

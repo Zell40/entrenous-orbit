@@ -175,7 +175,7 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]
   echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi token secrets)"
 fi
 
-# Petit Bac — Orbit overlay for Limnoria game TAGMSG
+# Petit Bac — Orbit overlay for Limnoria game TAGMSG (incl. live board)
 mkdir -p "$WEBROOT/$PETITBAC_DIR/assets"
 cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/orbit-petitbac.js" \
       "$WEBROOT/$PETITBAC_DIR/"
@@ -183,12 +183,6 @@ if [ -d "$PLUGINS_REPO/plugins/orbit-petitbac/assets" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/assets/"*.svg \
         "$WEBROOT/$PETITBAC_DIR/assets/" 2>/dev/null || true
 fi
-
-# Petit Bac live board (multi-player grid)
-BAC_LIVE_DIR="plugins/third/orbit-bac-live"
-mkdir -p "$WEBROOT/$BAC_LIVE_DIR"
-cp -f "$PLUGINS_REPO/plugins/orbit-bac-live/orbit-bac-live.js" \
-      "$WEBROOT/$BAC_LIVE_DIR/"
 
 # Échecs (CapEchecs TAGMSG UI)
 ECHECS_DIR="plugins/third/orbit-echecs"
@@ -332,16 +326,6 @@ if ! grep -q 'orbit-petitbac' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-petitbac (plugin file + config.json entry)"
-
-if [ ! -f "$WEBROOT/$BAC_LIVE_DIR/orbit-bac-live.js" ]; then
-  log "ERROR: missing $WEBROOT/$BAC_LIVE_DIR/orbit-bac-live.js after overlay"
-  exit 1
-fi
-if ! grep -q 'orbit-bac-live' "$WEBROOT/config.json"; then
-  log "ERROR: config.json missing orbit-bac-live plugin entry"
-  exit 1
-fi
-log "verified orbit-bac-live (plugin file + config.json entry)"
 
 if [ ! -f "$WEBROOT/$ECHECS_DIR/orbit-echecs.js" ]; then
   log "ERROR: missing $WEBROOT/$ECHECS_DIR/orbit-echecs.js after overlay"
