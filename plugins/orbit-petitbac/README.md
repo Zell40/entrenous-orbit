@@ -11,7 +11,7 @@ Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+pb=v1`, `+ev=…`) s
 
 ## Installation
 
-1. Déployer via `deploy.sh` (copie vers `webchat-new/plugins/third/orbit-petitbac/`).
+1. Déployer via `deploy.sh` (copie vers `webchat-new/plugins/third/orbit-petitbac/` + dossier `assets/`).
 2. Vérifier l’entrée dans `config/config.json` :
 
 ```json
@@ -59,10 +59,13 @@ Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+pb=v1`, `+ev=…`) s
 ## Développement local (Windows)
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "C:\Users\famil\orbit\public\plugins\third\orbit-petitbac"
+New-Item -ItemType Directory -Force -Path "C:\Users\famil\orbit\public\plugins\third\orbit-petitbac\assets"
 New-Item -ItemType SymbolicLink -Force `
   -Path "C:\Users\famil\orbit\public\plugins\third\orbit-petitbac\orbit-petitbac.js" `
   -Target "C:\Users\famil\entrenous-orbit\plugins\orbit-petitbac\orbit-petitbac.js"
+Copy-Item -Recurse -Force `
+  "C:\Users\famil\entrenous-orbit\plugins\orbit-petitbac\assets\*" `
+  "C:\Users\famil\orbit\public\plugins\third\orbit-petitbac\assets\"
 ```
 
 Ajouter le plugin dans la config locale Orbit, puis `npm run dev`.

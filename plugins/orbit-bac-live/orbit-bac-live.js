@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var LIVE_VER = 3;
+  var LIVE_VER = 4;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -52,8 +52,8 @@
       return {
         channels: channels.map(normChan),
         channelsAll: channels.some(function (ch) { return ch === '*'; }),
-        defaultOpen: c.defaultOpen === true,
-        defaultCollapsed: c.defaultCollapsed !== false,
+        defaultOpen: c.defaultOpen !== false,
+        defaultCollapsed: c.defaultCollapsed === true,
         maxPlayers: Math.max(4, Math.min(24, Number(c.maxPlayers) || 14)),
       };
     }
@@ -380,6 +380,10 @@
       el.id = 'orbit-bac-live-css';
       el.textContent = [
         '.oblive-panel{flex:0 0 auto;width:100%;border-bottom:1px solid var(--border,#ddd);background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
+        '.members .oblive-panel{border-bottom:1px solid var(--border,#ddd);max-height:min(48vh,420px);display:flex;flex-direction:column;overflow:hidden}',
+        '.members .oblive-body{flex:1;min-height:0;overflow:auto}',
+        '.oblive-panel--flash{animation:obliveFlash .9s ease 1}',
+        '@keyframes obliveFlash{0%,100%{box-shadow:none}40%{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent,#6366f1) 55%,transparent)}}',
         '.oblive-panel--collapsed .oblive-body,.oblive-panel--collapsed .oblive-foot{display:none}',
         '.oblive-head{display:flex;align-items:center;gap:.45rem;padding:.38rem .75rem;background:color-mix(in srgb,var(--accent,#6366f1) 8%,var(--bg,#fff));color:var(--ink,#111);cursor:pointer}',
         '.oblive-head__title{font-weight:800;font-size:.78rem;flex:1}',
@@ -413,11 +417,18 @@
       var open = false;
       try { open = orbit.storage.get(STORAGE_OPEN, cfg(orbit).defaultOpen); } catch (e) { open = cfg(orbit).defaultOpen; }
 
-      if (!channelEnabled(orbit, buffer) || !open) {
+      if (!channelEnabled(orbit, buffer)) {
         root.style.display = 'none';
+        document.body.classList.remove('oblive-active');
+        return;
+      }
+      if (!open) {
+        root.style.display = 'none';
+        document.body.classList.remove('oblive-active');
         return;
       }
       root.style.display = '';
+      document.body.classList.add('oblive-active');
 
       var board = getBoard(buffer) || defaultBoard();
       var myNick = orbit.state.nick() || '';
@@ -503,15 +514,21 @@
         root.setAttribute('role', 'region');
         root.setAttribute('aria-label', pick({ fr: 'Tableau live Petit Bac', en: 'Petit Bac live board' }));
       }
-      var main = document.querySelector('.main');
-      var anchor = document.getElementById('opbac-dom-panel');
-      var topbar = main && main.querySelector('.topbar');
-      if (!main || !topbar) return;
-
-      if (anchor && anchor.parentNode === main) {
-        if (root.previousElementSibling !== anchor) anchor.insertAdjacentElement('afterend', root);
-      } else if (root.previousElementSibling !== topbar) {
-        topbar.insertAdjacentElement('afterend', root);
+      var members = document.querySelector('aside.members, .members');
+      if (members) {
+        var membersHead = members.querySelector('.members__h');
+        if (membersHead && root.nextElementSibling !== membersHead) {
+          members.insertBefore(root, membersHead);
+        } else if (root.parentNode !== members) {
+          members.insertBefore(root, members.firstChild);
+        }
+      } else {
+        var main = document.querySelector('.main');
+        var topbar = main && main.querySelector('.topbar');
+        if (!main || !topbar) return;
+        if (root.parentNode !== main || root.previousElementSibling !== topbar) {
+          topbar.insertAdjacentElement('afterend', root);
+        }
       }
 
       if (!root.__obliveBound) {

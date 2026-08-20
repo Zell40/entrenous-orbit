@@ -76,12 +76,31 @@ log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
 
 log "build orbit"
 cd "$ORBIT_REPO"
+BUILD_LOG="$(mktemp)"
+cleanup_build_log() { rm -f "$BUILD_LOG"; }
+trap cleanup_build_log EXIT
+NPM_FLAGS=(--no-fund --no-audit --loglevel=error)
 if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-  npm ci
+  if ! npm ci "${NPM_FLAGS[@]}" >"$BUILD_LOG" 2>&1; then
+    log "ERROR npm ci failed"
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
 else
-  npm install
+  if ! npm install "${NPM_FLAGS[@]}" >"$BUILD_LOG" 2>&1; then
+    log "ERROR npm install failed"
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
 fi
-npm run build
+if ! npm run build >"$BUILD_LOG" 2>&1; then
+  log "ERROR npm run build failed"
+  cat "$BUILD_LOG" >&2
+  exit 1
+fi
+cleanup_build_log
+trap 'echo "$(date -Is) ERROR line $LINENO: $BASH_COMMAND" >&2' ERR
+log "build orbit ok"
 
 # --- publish Orbit dist, preserving runtime upload data + secrets ---
 # IMPORTANT: any WEBROOT file not in dist/ is deleted by --delete unless
@@ -155,9 +174,13 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]
 fi
 
 # Petit Bac — Orbit overlay for Limnoria game TAGMSG
-mkdir -p "$WEBROOT/$PETITBAC_DIR"
+mkdir -p "$WEBROOT/$PETITBAC_DIR/assets"
 cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/orbit-petitbac.js" \
       "$WEBROOT/$PETITBAC_DIR/"
+if [ -d "$PLUGINS_REPO/plugins/orbit-petitbac/assets" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-petitbac/assets/"*.svg \
+        "$WEBROOT/$PETITBAC_DIR/assets/" 2>/dev/null || true
+fi
 
 # Petit Bac live board (multi-player grid)
 BAC_LIVE_DIR="plugins/third/orbit-bac-live"

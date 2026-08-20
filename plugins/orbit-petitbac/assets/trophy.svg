@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" role="img" aria-label="Trophée">
+  <defs>
+    <linearGradient id="pb-trophy" x1="20" y1="8" x2="60" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 12h32v8c0 12-6 22-16 26s-16-14-16-26v-8z" fill="url(#pb-trophy)"/>
+  <path d="M16 16h8v4c0 8-3 12-8 14M56 16h8v4c0 8 3 12 8 14" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>
+  <rect x="30" y="46" width="20" height="8" rx="2" fill="#b45309"/>
+  <rect x="24" y="54" width="32" height="10" rx="3" fill="#92400e"/>
+  <path d="M34 24h12l-2 10h-8l-2-10z" fill="#fff" opacity=".35"/>
+</svg>

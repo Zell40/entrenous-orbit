@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 17;
+  var PBAC_VER = 20;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -100,6 +100,61 @@
       .replace(/"/g, '&quot;');
   }
 
+  var ASSET_BASE = '/app/plugins/third/orbit-petitbac/assets/';
+
+  function assetUrl(name) {
+    return ASSET_BASE + String(name || '');
+  }
+
+  function imgHtml(name, alt, cls) {
+    return '<img class="' + escHtml(cls || 'opbac-img') + '" src="' + escHtml(assetUrl(name)) + '" alt="' +
+      escHtml(alt || '') + '" loading="lazy" decoding="async" draggable="false"/>';
+  }
+
+  function refreshSpinnerHtml(cls) {
+    return '<span class="opbac-refresh' + (cls ? ' ' + escHtml(cls) : '') + '" role="status" aria-hidden="true"></span>';
+  }
+
+  function categoryIconKind(cat) {
+    var s = String(cat || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (/animal|oiseau|mamif|insect|reptil|poisson/.test(s)) return 'animal';
+    if (/pays|ville|capitale|continent|monde|region|ile/.test(s)) return 'geo';
+    if (/fruit|legume|nourriture|plat|boisson|manger|vegetal|repas/.test(s)) return 'food';
+    if (/prenom|nom/.test(s)) return 'person';
+    if (/metier|profession|job|travail/.test(s)) return 'job';
+    if (/marque|enseigne|marques/.test(s)) return 'brand';
+    if (/couleur/.test(s)) return 'color';
+    if (/sport|jeu/.test(s)) return 'sport';
+    if (/film|serie|acteur|chanteur|artiste|musique|chanson/.test(s)) return 'media';
+    return 'default';
+  }
+
+  function categoryIconHtml(cat) {
+    var kind = categoryIconKind(cat);
+    var paths = {
+      animal: '<path d="M8 18c2-3 5-4 8-4s6 1 8 4c2 3 1 7-2 9-2 1-4 1-6 0-2 1-4 1-6 0-3-2-4-6-2-9z" fill="currentColor" opacity=".9"/><circle cx="9" cy="13" r="1.2" fill="#fff"/><circle cx="15" cy="13" r="1.2" fill="#fff"/>',
+      geo: '<circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M2 9h14M9 2c2 2.5 3 5 3 7s-1 4.5-3 7M9 2C7 4.5 6 7 6 9s1 4.5 3 7" stroke="currentColor" stroke-width="1.2" fill="none"/>',
+      food: '<path d="M10 3v4c0 2.5-1.5 4-3.5 4.5V17h3v-5.5C11.5 11 13 9.5 13 7V3h-3z" fill="currentColor"/><path d="M15 3v7c0 2 1.5 3.5 3.5 3.8V17H15V3z" fill="currentColor" opacity=".75"/>',
+      person: '<circle cx="9" cy="6.5" r="3" fill="currentColor"/><path d="M3 17c0-3.5 2.7-6 6-6s6 2.5 6 6" fill="currentColor" opacity=".85"/>',
+      job: '<rect x="3" y="7" width="12" height="9" rx="1.5" fill="currentColor" opacity=".85"/><path d="M7 7V5.5C7 4.7 7.7 4 8.5 4h3C12.3 4 13 4.7 13 5.5V7" stroke="currentColor" stroke-width="1.4" fill="none"/>',
+      brand: '<path d="M4 4h8l4 4v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z" fill="currentColor" opacity=".85"/><path d="M8 4v4h4" stroke="#fff" stroke-width="1.2" fill="none"/>',
+      color: '<circle cx="6" cy="10" r="3" fill="#ef4444"/><circle cx="10" cy="7" r="3" fill="#3b82f6"/><circle cx="14" cy="10" r="3" fill="#22c55e"/><circle cx="10" cy="13" r="3" fill="#f59e0b"/>',
+      sport: '<circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 9h12M9 3c2 2 3 4 3 6s-1 4-3 6M9 3c-2 2-3 4-3 6s1 4 3 6" stroke="currentColor" stroke-width="1.2" fill="none"/>',
+      media: '<rect x="3" y="5" width="12" height="10" rx="2" fill="currentColor" opacity=".85"/><path d="M8 9l3 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
+      default: '<rect x="4" y="4" width="10" height="12" rx="2" fill="currentColor" opacity=".85"/><path d="M7 8h6M7 11h4" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>',
+    };
+    return '<svg class="opbac-col__ico" viewBox="0 0 18 18" aria-hidden="true" focusable="false">' +
+      (paths[kind] || paths.default) + '</svg>';
+  }
+
+  function pinChatIfFollowing() {
+    var el = document.querySelector('.main .messages');
+    if (!el) return;
+    var dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (dist < 200) el.scrollTop = el.scrollHeight;
+  }
+
   function roundKey(game) {
     if (!game) return '';
     return String(game.round || 0) + '|' + String(game.letter || '') + '|' + (game.categories || []).join(',');
@@ -159,20 +214,129 @@
     return catKey;
   }
 
-  function markRejected(channel, catKey, word, reason) {
+  function shouldSuggestInfo(reasonCode, msg) {
+    var code = String(reasonCode || '').toLowerCase();
+    var m = String(msg || '').toLowerCase();
+    if (code === 'not_found' || code === 'invalid') return true;
+    if (/pas trouv|dictionnaire|wikip[eé]dia|n.?est pas valide|not found|not recognized/.test(m)) return true;
+    return false;
+  }
+
+  function rejectMessageForCode(code, word) {
+    var w = String(word || '').trim();
+    var quoted = w ? (' « ' + w + ' »') : '';
+    switch (String(code || '').toLowerCase()) {
+      case 'invalid':
+        return pick({ fr: 'Mot' + quoted + ' non reconnu pour cette manche.', en: 'Word' + quoted + ' not recognized for this round.' });
+      case 'not_found':
+        return pick({ fr: 'Mot' + quoted + ' introuvable (dictionnaire / Wikipédia).', en: 'Word' + quoted + ' not found (dictionary / Wikipedia).' });
+      case 'wrong_letter':
+        return pick({ fr: 'Le mot ne commence pas par la bonne lettre.', en: 'Word does not start with the correct letter.' });
+      case 'already_used':
+        return pick({ fr: 'Ce mot a déjà été utilisé.', en: 'This word was already used.' });
+      case 'already_round':
+        return pick({ fr: 'Catégorie déjà validée dans cette manche.', en: 'Category already validated this round.' });
+      case 'bad_cat':
+        return pick({ fr: 'Mot invalide pour cette catégorie.', en: 'Word invalid for this category.' });
+      case 'excluded':
+        return pick({ fr: 'Mot exclu du jeu.', en: 'Word excluded from the game.' });
+      default:
+        return pick({ fr: 'Mot non accepté.', en: 'Word not accepted.' });
+    }
+  }
+
+  function buildInfoHintHtml(word) {
+    word = String(word || '').trim();
+    if (!word) return '';
+    var cmd = '!info ' + word;
+    return '<div class="opbac-info-hint" role="note">' +
+      '<span class="opbac-info-hint__icon" aria-hidden="true">🔍</span>' +
+      '<div class="opbac-info-hint__body">' +
+        '<span class="opbac-info-hint__lbl">' +
+          escHtml(pick({ fr: 'Consulter sur Wikipédia', en: 'Look up on Wikipedia' })) +
+        '</span>' +
+        '<code class="opbac-info-hint__cmd">' + escHtml(cmd) + '</code>' +
+      '</div>' +
+      '<button type="button" class="opbac-info-hint__btn" data-act="info" data-info-word="' +
+        escHtml(word) + '" title="' + escHtml(pick({ fr: 'Envoyer la commande', en: 'Send command' })) + '">' +
+        escHtml(pick({ fr: 'Consulter', en: 'Look up' })) +
+      '</button></div>';
+  }
+
+  function sendInfo(orbit, buffer, word) {
+    word = String(word || '').trim();
+    if (!word || !buffer) return;
+    orbit.irc.msg(buffer, '!info ' + word);
+    if (orbit.notify) {
+      try {
+        orbit.notify('Petit Bac', pick({
+          fr: 'Commande envoyée : !info ' + word,
+          en: 'Command sent: !info ' + word,
+        }));
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  function markRejected(channel, catKey, word, reason, meta) {
     if (!word && !catKey) return;
+    meta = meta || {};
     var game = getChannelState(channel) || defaultState();
     var draft = getDraft(channel, game);
     draft.rejected = draft.rejected || Object.create(null);
-    var key = catKey || word.toLowerCase();
+    var key = catKey || String(word || '').toLowerCase();
+    var code = meta.code || '';
+    var msg = reason;
+    if (code && (!msg || msg === code)) msg = rejectMessageForCode(code, word);
+    if (!msg) msg = pick({ fr: 'Mot non accepté', en: 'Word not accepted' });
     draft.rejected[key] = {
       word: word,
       catKey: catKey,
-      msg: reason || pick({ fr: 'Mot non accepté', en: 'Word not accepted' }),
+      msg: msg,
+      reason: code,
+      suggestInfo: meta.suggestInfo != null ? meta.suggestInfo : shouldSuggestInfo(code, msg),
       verifying: false,
     };
     if (catKey) delete draft.pending[catKey];
     bumpStore();
+  }
+
+  function showWordValidatedPopup(orbit, catLabel, word, pts) {
+    orbit = orbit || pluginOrbit;
+    catLabel = String(catLabel || '').trim();
+    word = String(word || '').trim();
+    if (!word && !catLabel) return;
+    var prev = document.getElementById('opbac-word-toast');
+    if (prev) prev.remove();
+    var el = document.createElement('div');
+    el.id = 'opbac-word-toast';
+    el.className = 'opbac-word-toast';
+    el.setAttribute('role', 'status');
+    el.innerHTML =
+      '<div class="opbac-word-toast__icon" aria-hidden="true">' +
+        imgHtml('complete.svg', pick({ fr: 'Mot accepté', en: 'Word accepted' }), '') +
+      '</div>' +
+      '<div class="opbac-word-toast__body">' +
+        '<strong class="opbac-word-toast__title">' +
+          escHtml(pick({ fr: 'Mot accepté !', en: 'Word accepted!' })) +
+        '</strong>' +
+        (word ? ('<span class="opbac-word-toast__word">« ' + escHtml(word) + ' »</span>') : '') +
+        (catLabel ? ('<span class="opbac-word-toast__cat">' + escHtml(catLabel) + '</span>') : '') +
+        '<span class="opbac-word-toast__pts">+' + (Number(pts) || 1) + ' ' +
+          escHtml(pick({ fr: 'pt', en: 'pt' })) + '</span></div>';
+    document.body.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('opbac-word-toast--show'); });
+    window.setTimeout(function () {
+      el.classList.add('opbac-word-toast--hide');
+      window.setTimeout(function () { if (el.parentNode) el.remove(); }, 320);
+    }, 4200);
+    if (orbit && orbit.notify) {
+      try {
+        orbit.notify('Petit Bac', pick({
+          fr: '✓ ' + (word || catLabel) + ' (+' + (Number(pts) || 1) + ' pt)',
+          en: '✓ ' + (word || catLabel) + ' (+' + (Number(pts) || 1) + ' pt)',
+        }));
+      } catch (e) { /* ignore */ }
+    }
   }
 
   function handlePlayerFeedback(channel, plain, myNick) {
@@ -195,7 +359,22 @@
       markRejected(channel, hintCat, hintWord, pick({
         fr: 'Mot refusé — vous pouvez le faire vérifier',
         en: 'Word rejected — you can request verification',
-      }));
+      }), { suggestInfo: false });
+      return;
+    }
+
+    var infoLine = plain.match(/!info\s+(\S+)/i);
+    if (infoLine && /🔍|d[eé]finition|wikip[eé]dia/i.test(plain)) {
+      var infoWord = infoLine[1].replace(/[.!?,;:]+$/, '').trim();
+      if (infoWord) {
+        Object.keys(draft.rejected || {}).forEach(function (k) {
+          var entry = draft.rejected[k];
+          if (entry && String(entry.word || '').toLowerCase() === infoWord.toLowerCase()) {
+            entry.suggestInfo = true;
+          }
+        });
+        bumpStore();
+      }
       return;
     }
 
@@ -214,6 +393,9 @@
           if (draft.rejected[k] && draft.rejected[k].catKey === cat) delete draft.rejected[k];
         });
       }
+      var catLabel = resolveCatName(game, cat);
+      var wordOk = extractQuotedWord(msg) || draft.drafts[cat] || '';
+      showWordValidatedPopup(null, catLabel, wordOk, /💎/.test(msg) ? 2 : 1);
       bumpStore();
       return;
     }
@@ -237,7 +419,13 @@
         catKey = Object.keys(draft.pending)[0];
       }
       var short = msg.replace(/^[^«"]*[«"]?[^»"]*[»"]?\s*/i, '').slice(0, 100);
-      markRejected(channel, catKey, word || draft.drafts[catKey] || '', short || msg.slice(0, 100));
+      markRejected(
+        channel,
+        catKey,
+        word || draft.drafts[catKey] || '',
+        short || msg.slice(0, 100),
+        { suggestInfo: shouldSuggestInfo('', short || msg) }
+      );
       return;
     }
 
@@ -312,6 +500,24 @@
       });
     }
     if (fromBac) {
+      var infoBot = body.match(/!info\s+(\S+)/i);
+      if (infoBot && /🔍|d[eé]finition|wikip[eé]dia/i.test(body)) {
+        var infoW = infoBot[1].replace(/[.!?,;:]+$/, '').trim();
+        if (infoW) {
+          var gameInfo = getChannelState(channel) || defaultState();
+          var draftInfo = getDraft(channel, gameInfo);
+          if (draftInfo.rejected) {
+            Object.keys(draftInfo.rejected).forEach(function (k) {
+              var entry = draftInfo.rejected[k];
+              if (entry && String(entry.word || '').toLowerCase() === infoW.toLowerCase()) {
+                entry.suggestInfo = true;
+              }
+            });
+            bumpStore();
+          }
+        }
+      }
+
       var dur = body.match(/(\d+)\s+secondes/i);
       if (dur && /manche|partie|tour/i.test(body)) {
         patchChannel(channel, { duration: Number(dur[1]) || 60 });
@@ -588,6 +794,12 @@
         draftOk.validated[catOk] = true;
         delete draftOk.pending[catOk];
         if (draftOk.rejected) delete draftOk.rejected[catOk];
+        showWordValidatedPopup(
+          pluginOrbit,
+          resolveCatName(gameOk, catOk),
+          tagVal(tags, '+word'),
+          Number(tagVal(tags, '+points')) || 1
+        );
         bumpStore();
       }
       return;
@@ -595,11 +807,15 @@
 
     if (ev === 'word_ko') {
       var gameKo = getChannelState(channel) || defaultState();
+      var koReason = tagVal(tags, '+reason') || 'invalid';
+      var koWord = tagVal(tags, '+word');
+      var koCat = matchCatKey(gameKo, tagVal(tags, '+category'));
       markRejected(
         channel,
-        matchCatKey(gameKo, tagVal(tags, '+category')),
-        tagVal(tags, '+word'),
-        tagVal(tags, '+reason') || ''
+        koCat,
+        koWord,
+        rejectMessageForCode(koReason, koWord),
+        { code: koReason, suggestInfo: shouldSuggestInfo(koReason, '') }
       );
       return;
     }
@@ -643,17 +859,18 @@
     el.id = 'orbit-petitbac-css';
     el.textContent = [
       '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
-      '.opbac-panel--playing .opbac-body{max-height:none;overflow:visible}',
+      '.opbac-panel .opbac-body{max-height:min(42vh,400px);overflow-y:auto;-webkit-overflow-scrolling:touch}',
       '.opbac-panel--collapsed .opbac-body{display:none}',
       '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff}',
       '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;gap:.5rem}',
+      '.opbac-head__logo{width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,.15)}',
       '.opbac-head__title{font-weight:800;font-size:.88rem;letter-spacing:.01em}',
       '.opbac-head__badge{font-size:.68rem;font-weight:800;padding:.15rem .5rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap}',
       '.opbac-head__actions{display:flex;align-items:center;gap:.3rem}',
       '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1}',
       '.opbac-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.opbac-body{padding:0}',
-      '.opbac-arena{display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff))}',
+      '.opbac-arena{position:relative;display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover}',
       '.opbac-arena__block{display:flex;flex-direction:column;align-items:center;gap:.2rem}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
@@ -666,7 +883,8 @@
       '.opbac-clock__n{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(1.75rem,6vw,2.6rem);font-weight:900;font-variant-numeric:tabular-nums;color:var(--ink,#111)}',
       '.opbac-clock__unit{position:absolute;bottom:14%;width:100%;text-align:center;font-size:.58rem;font-weight:800;text-transform:uppercase;color:var(--muted,#888)}',
       '.opbac-scroll{flex:0 0 auto;overflow:visible;padding:.5rem .75rem .65rem}',
-      '.opbac-idle{padding:1.1rem .85rem;text-align:center}',
+      '.opbac-idle{padding:1rem .85rem 1.1rem;text-align:center}',
+      '.opbac-idle__art{width:min(240px,78vw);height:auto;margin:0 auto .75rem;display:block;border-radius:14px;box-shadow:0 8px 24px -12px rgba(99,102,241,.35)}',
       '.opbac-idle__txt{font-size:.9rem;color:var(--muted,#666);margin:0 0 .75rem;line-height:1.45}',
       '.opbac-idle__cta{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-radius:999px;padding:.75rem 1.35rem;font-size:.95rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:48px}',
       '.opbac-idle__help{margin-top:.55rem;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
@@ -674,15 +892,24 @@
       '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
       '.opbac-col--ok{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff))}',
-      '.opbac-col--pending{border-color:#fcd34d}',
+      '.opbac-col--pending{border-color:#fcd34d;background:color-mix(in srgb,#fbbf24 6%,var(--bg,#fff))}',
+      '.opbac-col__pending{display:inline-block;width:.85rem;height:.85rem;border-width:1.5px;vertical-align:middle;margin-left:.15rem}',
       '.opbac-col--reject{border-color:#fca5a5;background:color-mix(in srgb,#ef4444 5%,var(--bg,#fff))}',
-      '.opbac-col__cat{font-size:.8rem;font-weight:900;text-transform:capitalize;color:var(--ink,#111);text-align:center;line-height:1.2}',
+      '.opbac-col__cat{font-size:.8rem;font-weight:900;text-transform:capitalize;color:var(--ink,#111);text-align:center;line-height:1.2;display:flex;align-items:center;justify-content:center;gap:.3rem}',
+      '.opbac-col__ico{width:1.05rem;height:1.05rem;flex-shrink:0;color:#6366f1}',
       '.opbac-col__input{width:100%;border:1px solid var(--border,#ccc);border-radius:9px;padding:.55rem .5rem;font-size:.95rem;min-height:44px;background:var(--bg,#fff);text-align:center}',
       '.opbac-col__input:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 2px color-mix(in srgb,#6366f1 22%,transparent)}',
       '.opbac-col__input:disabled{opacity:.65}',
       '.opbac-col__send{width:100%;border:0;border-radius:9px;padding:.48rem .5rem;font-size:.78rem;font-weight:800;cursor:pointer;background:#6366f1;color:#fff;min-height:40px}',
       '.opbac-col__send:disabled{opacity:.4;cursor:not-allowed}',
       '.opbac-col__err{font-size:.65rem;font-weight:700;color:#dc2626;margin:0;line-height:1.25;text-align:center}',
+      '.opbac-info-hint{display:flex;align-items:center;gap:.45rem;margin-top:.15rem;padding:.45rem .5rem;border-radius:10px;background:color-mix(in srgb,#3b82f6 7%,var(--bg,#fff));border:1px solid color-mix(in srgb,#3b82f6 22%,var(--border,#ddd))}',
+      '.opbac-info-hint__icon{font-size:1rem;line-height:1;flex-shrink:0}',
+      '.opbac-info-hint__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.12rem}',
+      '.opbac-info-hint__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#1d4ed8}',
+      '.opbac-info-hint__cmd{display:block;font-family:ui-monospace,Consolas,monospace;font-size:.72rem;font-weight:800;color:#1e3a8a;background:rgba(255,255,255,.55);padding:.18rem .35rem;border-radius:6px;word-break:break-word}',
+      '.opbac-info-hint__btn{flex-shrink:0;border:0;border-radius:8px;padding:.38rem .55rem;font-size:.68rem;font-weight:800;cursor:pointer;background:#2563eb;color:#fff;white-space:nowrap}',
+      '.opbac-info-hint__btn:hover{filter:brightness(1.06)}',
       '.opbac-col__verify{width:100%;border:0;border-radius:8px;padding:.35rem .45rem;font-size:.65rem;font-weight:800;cursor:pointer;background:#fff7ed;color:#c2410c;border:1px solid #fdba74}',
       '.opbac-col__verify--sent{opacity:.6}',
       '.opbac-sheet__all{grid-column:1/-1;width:100%;margin-top:.1rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ccc));border-radius:10px;padding:.5rem;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:#6366f1;min-height:40px}',
@@ -691,7 +918,8 @@
       '.opbac-help-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
       '.opbac-help-dialog{width:min(680px,100%);max-height:min(88vh,760px);display:flex;flex-direction:column;background:var(--bg,#fff);border-radius:16px;border:1px solid var(--border,#ddd);box-shadow:0 24px 64px -20px rgba(15,23,42,.45);overflow:hidden}',
       '.opbac-help-dialog__head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem .85rem;border-bottom:1px solid var(--border,#e5e5e5)}',
-      '.opbac-help-dialog__head h3{margin:0;font-size:1.15rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-help-dialog__head h3{margin:0;font-size:1.15rem;font-weight:900;color:var(--ink,#111);display:flex;align-items:center;gap:.55rem}',
+      '.opbac-help-dialog__logo{width:1.65rem;height:1.65rem;border-radius:6px;flex-shrink:0}',
       '.opbac-help-dialog__x{width:34px;height:34px;border:0;border-radius:9px;background:var(--bg-soft,rgba(127,127,127,.12));color:var(--muted,#666);cursor:pointer;font-size:.95rem}',
       '.opbac-help-dialog__x:hover{background:var(--bg-soft-2,rgba(127,127,127,.18))}',
       '.opbac-help-dialog__body,.opbac-help{padding:1rem 1.15rem 1.2rem;overflow-y:auto;line-height:1.5;max-height:min(72vh,620px)}',
@@ -716,37 +944,24 @@
       '.opbac-help-cmd__k{display:inline-block;padding:.15rem .45rem;border-radius:7px;background:color-mix(in srgb,#6366f1 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 25%,var(--border,#ddd));font-family:ui-monospace,Consolas,monospace;font-size:.76rem;font-weight:800;color:#4338ca;word-break:break-word}',
       '.opbac-help-cmd__d{font-size:.82rem;color:var(--ink,#222);line-height:1.35}',
       '.opbac-help-foot{margin:1rem 0 0;padding-top:.85rem;border-top:1px solid var(--border,#ddd);font-size:.78rem;color:var(--muted,#666);line-height:1.45}',
-      '.opbac-complete{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.9rem 1rem;margin-bottom:.2rem;border-radius:14px;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;text-align:center;position:relative;overflow:hidden;box-shadow:0 10px 28px -12px rgba(21,128,61,.55)}',
-      '.opbac-complete__ring{position:absolute;inset:50% auto auto 50%;width:4rem;height:4rem;margin:-2rem 0 0 -2rem;border-radius:50%;border:3px solid rgba(255,255,255,.55);pointer-events:none}',
-      '.opbac-complete__icon{width:2.6rem;height:2.6rem;border-radius:50%;background:rgba(255,255,255,.22);display:grid;place-items:center;font-size:1.45rem;font-weight:900;line-height:1}',
-      '.opbac-complete__title{font-size:1.05rem;font-weight:900;letter-spacing:.01em}',
-      '.opbac-complete__sub{font-size:.78rem;font-weight:700;opacity:.92}',
-      '.opbac-complete--enter{animation:opbacCompletePop .65s cubic-bezier(.2,.9,.2,1) both}',
-      '.opbac-complete--enter .opbac-complete__ring{animation:opbacCompleteRing 1s ease-out both}',
-      '.opbac-complete--enter .opbac-complete__icon{animation:opbacCompleteIcon .55s cubic-bezier(.2,.9,.2,1) .12s both}',
-      '@keyframes opbacCompletePop{0%{transform:scale(.86) translateY(8px);opacity:0}55%{transform:scale(1.04) translateY(0)}100%{transform:scale(1);opacity:1}}',
-      '@keyframes opbacCompleteRing{0%{transform:scale(.5);opacity:.85}100%{transform:scale(2.4);opacity:0}}',
-      '@keyframes opbacCompleteIcon{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}',
-      '@keyframes opbacColPop{0%{transform:translateY(6px) scale(.96);opacity:.5}100%{transform:none;opacity:1}}',
-      '@keyframes opbacPanelGlow{0%,100%{box-shadow:inset 0 0 0 0 transparent}35%{box-shadow:inset 0 0 0 2px color-mix(in srgb,#22c55e 50%,transparent),0 8px 32px -10px rgba(34,197,94,.35)}70%{box-shadow:inset 0 0 0 1px color-mix(in srgb,#22c55e 25%,transparent)}}',
+      '.opbac-complete{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:.35rem;padding:.85rem 1rem;margin-bottom:.2rem;border-radius:14px;background:linear-gradient(135deg,#ecfdf5,#dcfce7);border:1px solid #86efac;color:#166534;text-align:center}',
+      '.opbac-complete__img{width:3rem;height:3rem;display:block;margin:0 auto .15rem}',
+      '.opbac-complete__title{font-size:1rem;font-weight:900;letter-spacing:.01em}',
+      '.opbac-complete__sub{font-size:.78rem;font-weight:700;opacity:.9}',
       '.opbac-panel--complete{border-bottom-color:color-mix(in srgb,#22c55e 35%,var(--border,#ddd))}',
-      '.opbac-panel--complete-pop{animation:opbacPanelGlow 1.1s ease}',
-      '.opbac-sheet--complete .opbac-col--ok{animation:opbacColPop .45s ease backwards}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(1){animation-delay:.04s}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(2){animation-delay:.08s}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(3){animation-delay:.12s}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(4){animation-delay:.16s}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(5){animation-delay:.2s}',
-      '.opbac-sheet--complete .opbac-col--ok:nth-child(6){animation-delay:.24s}',
       '.opbac-head__badge--complete{background:rgba(34,197,94,.85)!important}',
       '.opbac-panel--game-end{border-bottom-color:color-mix(in srgb,#eab308 40%,var(--border,#ddd))}',
       '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
       '.opbac-end{padding:.85rem .9rem 1rem}',
-      '.opbac-end--enter{animation:opbacEndIn .55s cubic-bezier(.2,.9,.2,1) both}',
-      '@keyframes opbacEndIn{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}',
-      '.opbac-end__hero{text-align:center;padding:1rem .75rem 1.1rem;border-radius:16px;margin-bottom:.85rem;color:#fff}',
-      '.opbac-end__hero--game{background:linear-gradient(135deg,#7c3aed,#4338ca);box-shadow:0 12px 32px -14px rgba(67,56,202,.55)}',
-      '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5);box-shadow:0 10px 28px -14px rgba(79,70,229,.45)}',
+      '.opbac-end--enter{animation:opbacFadeIn .35s ease 1 both}',
+      '@keyframes opbacFadeIn{0%{opacity:0}100%{opacity:1}}',
+      '@keyframes opbacSpin{to{transform:rotate(360deg)}}',
+      '.opbac-refresh{display:inline-block;width:1.35rem;height:1.35rem;border:2px solid color-mix(in srgb,var(--accent,#6366f1) 35%,var(--border,#ccc));border-top-color:var(--accent,#6366f1);border-radius:50%;animation:opbacSpin .75s linear infinite;vertical-align:middle}',
+      '.opbac-end__refresh{width:1.75rem;height:1.75rem;margin:0 auto .45rem;display:block}',
+      '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff}',
+      '.opbac-end__hero--game{background:linear-gradient(135deg,#6d28d9,#4f46e5)}',
+      '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5)}',
+      '.opbac-end__illus{width:3.25rem;height:3.25rem;margin:0 auto .45rem;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.12))}',
       '.opbac-end__trophy{font-size:2.2rem;line-height:1;margin-bottom:.35rem}',
       '.opbac-end__title{font-size:1.25rem;font-weight:900;letter-spacing:.01em;margin:0 0 .25rem}',
       '.opbac-end__sub{font-size:.82rem;font-weight:700;opacity:.92;margin:0}',
@@ -765,7 +980,7 @@
       '.opbac-end__btn{flex:1;min-width:8rem;border:0;border-radius:999px;padding:.65rem 1rem;font-size:.84rem;font-weight:800;cursor:pointer}',
       '.opbac-end__btn--primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}',
       '.opbac-end__btn--ghost{background:var(--bg-soft,rgba(127,127,127,.1));color:var(--ink,#111);border:1px solid var(--border,#ddd)}',
-      '.opbac-end__empty{font-size:.82rem;color:var(--muted,#666);text-align:center;padding:.65rem}',
+      '.opbac-end__empty{font-size:.82rem;color:var(--muted,#666);text-align:center;padding:.65rem;display:flex;align-items:center;justify-content:center;gap:.45rem}',
       '.opbac-replay{margin-top:.25rem;padding:1rem .85rem 1.05rem;border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 8%,var(--bg,#fff)),var(--bg-soft,rgba(127,127,127,.05)));border:2px solid color-mix(in srgb,#6366f1 28%,var(--border,#ddd));text-align:center}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-replay__sub{margin:0 0 .75rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
@@ -780,6 +995,22 @@
       '.opbac-replay__cta{display:block;width:100%;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 10px 24px -10px rgba(99,102,241,.55);margin-bottom:.45rem}',
       '.opbac-replay__cta:hover{filter:brightness(1.05)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
+      'body.opbac-active .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
+      'body.opbac-active .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
+      'body.opbac-active .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
+      'body.opbac-active .chan-hero__by,body.opbac-active .chan-hero__more{display:none}',
+      'body.opbac-active .main__room-bg{height:min(22%,160px)!important}',
+      '@media(max-width:880px){body.opbac-active .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.opbac-active .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}}',
+      '.opbac-word-toast{position:fixed;z-index:10000;left:50%;bottom:max(1rem,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(12px);display:flex;align-items:center;gap:.65rem;padding:.65rem .85rem;border-radius:14px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#22c55e 35%,var(--border,#ddd));box-shadow:0 12px 40px -12px rgba(15,23,42,.35);opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;max-width:min(92vw,22rem)}',
+      '.opbac-word-toast--show{opacity:1;transform:translateX(-50%) translateY(0)}',
+      '.opbac-word-toast--hide{opacity:0;transform:translateX(-50%) translateY(8px)}',
+      '.opbac-word-toast__icon{width:2.1rem;height:2.1rem;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:transparent}',
+      '.opbac-word-toast__icon img{width:2.1rem;height:2.1rem;display:block}',
+      '.opbac-word-toast__body{display:flex;flex-direction:column;gap:.12rem;min-width:0}',
+      '.opbac-word-toast__title{font-size:.88rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-word-toast__word{font-size:.82rem;font-weight:700;color:var(--ink,#222)}',
+      '.opbac-word-toast__cat{font-size:.72rem;font-weight:700;color:var(--muted,#666);text-transform:capitalize}',
+      '.opbac-word-toast__pts{font-size:.72rem;font-weight:800;color:#16a34a}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -837,6 +1068,7 @@
   function buildHeadHtml(headBadge, wasCollapsed, isLive) {
     return '<div class="opbac-head">' +
       '<div class="opbac-head__brand">' +
+        imgHtml('logo.svg', 'Petit Bac', 'opbac-head__logo') +
         '<span class="opbac-head__title">Petit Bac</span>' +
         '<span class="opbac-head__badge" data-opbac-head-badge">' + escHtml(headBadge) + '</span>' +
       '</div>' +
@@ -1174,7 +1406,7 @@
     overlay.innerHTML =
       '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
         '<div class="opbac-help-dialog__head">' +
-          '<h3>' + escHtml(title) + '</h3>' +
+          '<h3>' + imgHtml('logo.svg', '', 'opbac-help-dialog__logo') + escHtml(title) + '</h3>' +
           '<button type="button" class="opbac-help-dialog__x" data-act="close-help" aria-label="' +
             escHtml(pick({ fr: 'Fermer', en: 'Close' })) + '">✕</button>' +
         '</div>' +
@@ -1353,8 +1585,7 @@
 
   function buildCompleteBannerHtml() {
     return '<div class="opbac-complete" data-opbac-complete role="status" aria-live="polite">' +
-      '<span class="opbac-complete__ring" aria-hidden="true"></span>' +
-      '<span class="opbac-complete__icon" aria-hidden="true">✓</span>' +
+      imgHtml('complete.svg', pick({ fr: 'Grille complète', en: 'Grid complete' }), 'opbac-complete__img') +
       '<span class="opbac-complete__title">' +
         escHtml(pick({ fr: 'Grille complète !', en: 'Grid complete!' })) +
       '</span>' +
@@ -1368,22 +1599,13 @@
 
   function triggerCompleteCelebration(root) {
     root.classList.add('opbac-panel--complete');
-    root.classList.remove('opbac-panel--complete-pop');
-    void root.offsetWidth;
-    root.classList.add('opbac-panel--complete-pop');
-    var banner = root.querySelector('[data-opbac-complete]');
-    if (banner) {
-      banner.classList.remove('opbac-complete--enter');
-      void banner.offsetWidth;
-      banner.classList.add('opbac-complete--enter');
-    }
     var badge = root.querySelector('[data-opbac-head-badge]');
     if (badge) badge.classList.add('opbac-head__badge--complete');
   }
 
   function syncCompleteCelebration(root, buffer, game) {
     if (!game || !game.categories || !game.categories.length) {
-      root.classList.remove('opbac-panel--complete', 'opbac-panel--complete-pop');
+      root.classList.remove('opbac-panel--complete');
       return false;
     }
     var rk = roundKey(game);
@@ -1400,7 +1622,7 @@
       return true;
     }
     if (root.__opbacCompleteRound === rk) root.__opbacCompleteRound = '';
-    root.classList.remove('opbac-panel--complete', 'opbac-panel--complete-pop');
+    root.classList.remove('opbac-panel--complete');
     var badge = root.querySelector('[data-opbac-head-badge]');
     if (badge) badge.classList.remove('opbac-head__badge--complete');
     return false;
@@ -1408,7 +1630,7 @@
 
   function buildRankingTableHtml(rows, myNick, ptsLabel) {
     if (!rows || !rows.length) {
-      return '<p class="opbac-end__empty">' + escHtml(pick({
+      return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
         fr: 'Scores en cours de publication…',
         en: 'Scores being published…',
       })) + '</p>';
@@ -1426,14 +1648,39 @@
       body + '</tbody></table>';
   }
 
-  function buildEndScreenHtml(game, myNick, selectedMode) {
+  function endScreenSignature(game) {
+    if (!game) return '';
+    return [
+      game.phase,
+      game.round,
+      game.totalRounds,
+      JSON.stringify(game.finalRanking || []),
+      JSON.stringify(game.scores || {}),
+      JSON.stringify(game.roundScores || {}),
+      JSON.stringify(game.topGlobal || []),
+      (game.endNotes || []).join('\n'),
+    ].join('|');
+  }
+
+  function endHeroVisualHtml(game, isGameEnd) {
+    var finalRows = isGameEnd ? rankingForDisplay(game, true) : rankingForDisplay(game, false);
+    var roundRows = isGameEnd ? [] : roundScoresList(game);
+    var pending = isGameEnd ? !finalRows.length : (!roundRows.length && !finalRows.length);
+    if (pending) return refreshSpinnerHtml('opbac-end__refresh');
+    if (isGameEnd) {
+      return imgHtml('trophy.svg', pick({ fr: 'Partie terminée', en: 'Game over' }), 'opbac-end__illus');
+    }
+    return imgHtml('round-end.svg', pick({ fr: 'Fin de manche', en: 'Round over' }), 'opbac-end__illus');
+  }
+
+  function buildEndScreenHtml(game, myNick, selectedMode, animate) {
     var isGameEnd = game.phase === 'game_end';
     var ptWord = pick({ fr: 'pt', en: 'pt' });
-    var html = '<div class="opbac-end opbac-end--enter" data-opbac-end role="status" aria-live="polite">';
+    var html = '<div class="opbac-end' + (animate ? ' opbac-end--enter' : '') + '" data-opbac-end role="status" aria-live="polite">';
 
     if (isGameEnd) {
       html += '<div class="opbac-end__hero opbac-end__hero--game">' +
-        '<div class="opbac-end__trophy" aria-hidden="true">🏆</div>' +
+        endHeroVisualHtml(game, true) +
         '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Partie terminée !', en: 'Game over!' })) + '</h2>' +
         '<p class="opbac-end__sub">' +
           escHtml(game.totalRounds
@@ -1457,7 +1704,7 @@
       }
     } else {
       html += '<div class="opbac-end__hero opbac-end__hero--round">' +
-        '<div class="opbac-end__trophy" aria-hidden="true">🏁</div>' +
+        endHeroVisualHtml(game, false) +
         '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Fin de manche', en: 'Round over' })) + '</h2>' +
         '<p class="opbac-end__sub">' +
           escHtml(game.round && game.totalRounds
@@ -1543,9 +1790,15 @@
       var errHtml = rej && rej.msg && !ok
         ? ('<p class="opbac-col__err">' + escHtml(rej.msg) + '</p>')
         : '';
+      var infoHtml = (rej && rej.suggestInfo && verifyWord && !ok)
+        ? buildInfoHintHtml(verifyWord)
+        : '';
       return '<div class="' + colClass + '" data-cat="' + escHtml(catKey) + '">' +
-        '<span class="opbac-col__cat">' + escHtml(cat) + (ok ? ' ✓' : '') + '</span>' +
+        '<span class="opbac-col__cat">' + categoryIconHtml(cat) + escHtml(cat) +
+          (pending && !ok ? refreshSpinnerHtml('opbac-col__pending') : '') +
+          (ok ? ' ✓' : '') + '</span>' +
         errHtml +
+        infoHtml +
         '<input type="text" class="opbac-col__input" data-cat-input="' + escHtml(catKey) + '" ' +
           'value="' + escHtml(val) + '" placeholder="' + escHtml(ph) + '" ' +
           (ok ? 'disabled' : '') + ' autocapitalize="off" autocomplete="off" spellcheck="false" enterkeyhint="send" />' +
@@ -1700,6 +1953,18 @@
         if (vCat && vWord) sendVerify(orbit, buffer, vCat, vWord);
         return;
       }
+      var infoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="info"]') : null;
+      if (infoBtn) {
+        ev.preventDefault();
+        var infoWord = infoBtn.getAttribute('data-info-word');
+        if (!infoWord) {
+          var infoRow = infoBtn.closest('[data-cat]');
+          var infoInp = infoRow && infoRow.querySelector('[data-cat-input]');
+          infoWord = infoInp ? infoInp.value : '';
+        }
+        if (infoWord) sendInfo(orbit, buffer, infoWord);
+        return;
+      }
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
       if (!btn) return;
       var act = btn.getAttribute('data-act');
@@ -1726,11 +1991,28 @@
       if (act === 'sendall') sendAllAnswers(orbit, buffer);
       if (act === 'scores') {
         try {
-          var liveOpen = orbit.storage.get('bacLiveOpen', false);
-          orbit.storage.set('bacLiveOpen', !liveOpen);
-          if (!liveOpen) orbit.storage.set('bacLiveCollapsed', false);
+          orbit.storage.set('bacLiveOpen', true);
+          orbit.storage.set('bacLiveCollapsed', false);
         } catch (e) { /* ignore */ }
         try { window.dispatchEvent(new CustomEvent('orbit-bac-live-sync')); } catch (e2) { /* ignore */ }
+        window.setTimeout(function () {
+          var livePanel = document.getElementById('oblive-dom-panel');
+          if (!livePanel) return;
+          livePanel.classList.remove('oblive-panel--flash');
+          void livePanel.offsetWidth;
+          livePanel.classList.add('oblive-panel--flash');
+          window.setTimeout(function () { livePanel.classList.remove('oblive-panel--flash'); }, 950);
+          try { livePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e3) { /* ignore */ }
+        }, 60);
+        try {
+          if (window.matchMedia('(max-width:880px)').matches) {
+            var app = document.querySelector('.app');
+            if (app && !app.classList.contains('members-open')) {
+              var pill = document.querySelector('.topbar__pill');
+              if (pill) pill.click();
+            }
+          }
+        } catch (e4) { /* ignore */ }
       }
     });
     root.addEventListener('input', function (ev) {
@@ -1757,7 +2039,9 @@
 
   function renderDomPanel(orbit, root) {
     var buffer = orbit.state.active();
-    if (!isBacChannel(orbit, buffer)) {
+    var onBac = isBacChannel(orbit, buffer);
+    document.body.classList.toggle('opbac-active', !!onBac);
+    if (!onBac) {
       root.style.display = 'none';
       return;
     }
@@ -1806,6 +2090,7 @@
       var bodyHtml = '';
       if (isIdle && !game.letter) {
         bodyHtml = '<div class="opbac-idle">' +
+          imgHtml('idle-hero.svg', pick({ fr: 'Petit Bac', en: 'Petit Bac' }), 'opbac-idle__art') +
           '<p class="opbac-idle__txt">' + escHtml(pick({
             fr: 'Trouvez un mot par catégorie — le tchat reste visible en dessous.',
             en: 'Find one word per category — chat stays visible below.',
@@ -1817,7 +2102,11 @@
             escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
           '</button></div>';
       } else if (isEnd) {
-        bodyHtml = buildEndScreenHtml(game, myNick, replayMode);
+        var endSig = endScreenSignature(game);
+        var endAnimate = root.__opbacEndPhase !== phase;
+        root.__opbacEndPhase = phase;
+        root.__opbacEndSig = endSig;
+        bodyHtml = buildEndScreenHtml(game, myNick, replayMode, endAnimate);
         root.__opbacReplayMode = replayMode;
       } else {
         bodyHtml = buildStageHtml(game, remaining, progress) +
@@ -1843,13 +2132,17 @@
       if (!isEnd) updateClockDom(root, remaining, progress);
 
       if (isEnd) {
-        var endWrap = root.querySelector('[data-opbac-end]');
-        var endHtml = buildEndScreenHtml(game, myNick, defaultReplayMode(game, root, orbit));
-        if (endWrap) {
-          endWrap.outerHTML = endHtml;
-        } else {
-          var bodyEl = root.querySelector('.opbac-body');
-          if (bodyEl) bodyEl.innerHTML = endHtml;
+        var endSig2 = endScreenSignature(game);
+        if (root.__opbacEndSig !== endSig2) {
+          root.__opbacEndSig = endSig2;
+          var endWrap = root.querySelector('[data-opbac-end]');
+          var endHtml = buildEndScreenHtml(game, myNick, defaultReplayMode(game, root, orbit), false);
+          if (endWrap) {
+            endWrap.outerHTML = endHtml;
+          } else {
+            var bodyEl = root.querySelector('.opbac-body');
+            if (bodyEl) bodyEl.innerHTML = endHtml;
+          }
         }
         updateReplayModeUi(root, defaultReplayMode(game, root, orbit));
       } else {
@@ -1865,6 +2158,8 @@
     }
 
     if (!rebuild && isLive && !isEnd) updateClockDom(root, remaining, progress);
+    if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
+    requestAnimationFrame(function () { pinChatIfFollowing(); });
   }
 
   function mountDomPanel(orbit) {
@@ -1888,7 +2183,7 @@
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     pluginOrbit = orbit;
     injectStyles();
-    console.info('[orbit-petitbac] loaded v10');
+    console.info('[orbit-petitbac] loaded v' + PBAC_VER);
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }

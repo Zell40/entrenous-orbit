@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" role="img" aria-label="Fin de manche">
+  <defs>
+    <linearGradient id="pb-flag" x1="16" y1="12" x2="64" y2="68" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="14" width="8" height="54" rx="3" fill="#4338ca"/>
+  <path d="M26 18h34c4 0 6 2 6 6v8c0 4-2 6-6 6H26V18z" fill="url(#pb-flag)"/>
+  <path d="M26 38h30c4 0 6 2 6 6v6c0 4-2 6-6 6H26V38z" fill="#6366f1" opacity=".85"/>
+  <circle cx="58" cy="58" r="14" fill="#22c55e" stroke="#fff" stroke-width="3"/>
+  <path d="M52 58l4 4 8-10" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
