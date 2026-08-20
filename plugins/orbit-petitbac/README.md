@@ -2,7 +2,9 @@
 
 Interface **Orbit** pour le bot Limnoria **Petit Bac** sur EntreNous.
 
-Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+pb=v1`, `+ev=…`) sans polluer le fil de chat. Ce plugin affiche un panneau moderne : lettre, catégories, compte à rebours, scores.
+Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+pb=v1`, `+ev=…`) sans polluer le fil de chat. Ce plugin affiche un panneau moderne : lettre, catégories, compte à rebours, scores, tableau live des réponses, commandes.
+
+Le mode **plein écran** recouvre tout le tchat (topic, messages et barre de saisie). Le mode **split** laisse le tchat visible en dessous.
 
 ## Prérequis
 

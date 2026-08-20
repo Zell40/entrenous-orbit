@@ -13,6 +13,7 @@
       "#Motus.chat",
       "#Uno.chat",
       "#Echecs.chat",
+      "#HarryPotter.chat",
       "#CCAS.chat",
       "#EDFGDF.chat",
       "#Enedis.chat"
@@ -20,7 +21,7 @@
     "intents": {
       "chat": ["#EntreNous.chat"],
       "love": ["#EDFGDF.chat"],
-      "play": ["#Baccalaureat.chat", "#Echecs.chat"]
+      "play": ["#Baccalaureat.chat", "#Echecs.chat", "#HarryPotter.chat"]
     }
   },
   "branding": {
@@ -90,17 +91,18 @@
   "petitbac": {
     "channels": ["#Baccalaureat.chat"],
     "showWhenIdle": true,
-    "defaultCollapsed": false
-  },
-  "bacLive": {
-    "channels": ["#Baccalaureat.chat"],
-    "defaultOpen": true,
     "defaultCollapsed": false,
     "maxPlayers": 14
   },
   "echecs": {
     "channels": ["#Echecs.chat"],
     "showWhenIdle": true
+  },
+  "harrypotter": {
+    "channels": ["#HarryPotter.chat"],
+    "showWhenIdle": true,
+    "defaultCollapsed": false,
+    "botNicks": ["Choixpeau", "HarryPotter"]
   },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
@@ -111,9 +113,9 @@
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
-    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=35",
-    "/app/plugins/third/orbit-bac-live/orbit-bac-live.js?v=4",
-    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=1"
+    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=37",
+    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=1",
+    "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=1"
   ],
   "builtins": [],
   "analytics": {

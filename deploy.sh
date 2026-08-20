@@ -116,6 +116,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-petitbac/" \
   --exclude="/plugins/third/orbit-bac-live/" \
   --exclude="/plugins/third/orbit-echecs/" \
+  --exclude="/plugins/third/orbit-harrypotter/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -194,6 +195,12 @@ ECHECS_DIR="plugins/third/orbit-echecs"
 mkdir -p "$WEBROOT/$ECHECS_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-echecs/orbit-echecs.js" \
       "$WEBROOT/$ECHECS_DIR/"
+
+# Harry Potter (Limnoria TAGMSG UI)
+HARRYPOTTER_DIR="plugins/third/orbit-harrypotter"
+mkdir -p "$WEBROOT/$HARRYPOTTER_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-harrypotter/orbit-harrypotter.js" \
+      "$WEBROOT/$HARRYPOTTER_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
@@ -345,5 +352,15 @@ if ! grep -q 'orbit-echecs' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-echecs (plugin file + config.json entry)"
+
+if [ ! -f "$WEBROOT/$HARRYPOTTER_DIR/orbit-harrypotter.js" ]; then
+  log "ERROR: missing $WEBROOT/$HARRYPOTTER_DIR/orbit-harrypotter.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-harrypotter' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-harrypotter plugin entry"
+  exit 1
+fi
+log "verified orbit-harrypotter (plugin file + config.json entry)"
 
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
