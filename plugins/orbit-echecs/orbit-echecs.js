@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 4;
+  var OEC_VER = 6;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -385,7 +385,7 @@
     if (!on) return;
     if (mode === VIEW_CHAT) {
       root.classList.add('oec-panel--chat');
-      root.style.display = 'none';
+      root.style.display = '';
       return;
     }
     root.style.display = '';
@@ -410,7 +410,8 @@
       '.oec-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;background:#1a1c19;color:#f5f5f4;font-family:var(--font,system-ui,sans-serif)}',
       '.oec-panel--full{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;border-bottom:0}',
       '.oec-panel--split{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
-      '.oec-panel--chat{display:none!important}',
+      '.oec-panel--chat{flex:0 0 auto;min-height:0;display:flex;flex-direction:column}',
+      '.oec-panel--chat .oec-stage{display:none!important}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
       '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(22rem,min(58vh,48vw)) minmax(16rem,1fr);grid-template-rows:auto auto 1fr auto;align-items:stretch}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:22rem;min-height:0;height:auto!important;max-height:none!important;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column}body.oec-split #oec-dom-panel{flex:0 0 auto}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
@@ -425,8 +426,8 @@
       '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.7rem .8rem;overflow:hidden}',
       '.oec-board-wrap{width:min(100%,calc(100dvh - 7.2rem));max-width:min(72dvh,100%);flex:0 0 auto}',
       'body.oec-split .oec-board-wrap{width:100%;max-width:100%}',
-      '.oec-board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
-      '.oec-sq{position:relative;display:grid;place-items:center;cursor:pointer}',
+      '.oec-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
+      '.oec-sq{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden;cursor:pointer}',
       '.oec-sq--light{background:#eed7ac}',
       '.oec-sq--dark{background:#b58863}',
       '.oec-sq--last{box-shadow:inset 0 0 0 100px rgba(205,210,106,.42)}',
@@ -437,7 +438,7 @@
       '.oec-sq__coord--rank{left:3px;top:3px}',
       '.oec-sq--dark .oec-sq__coord{color:#f5e6cc}',
       '.oec-sq--light .oec-sq__coord{color:#6b4f34}',
-      '.oec-piece{width:86%;height:86%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28));pointer-events:none}',
+      '.oec-piece{width:86%;height:86%;max-width:100%;max-height:100%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28));pointer-events:none}',
       '.oec-piece--mini{width:18px;height:18px;filter:none}',
       '.oec-piece--ghost{position:fixed;width:56px;height:56px;z-index:80;pointer-events:none;transform:translate(-50%,-50%);filter:drop-shadow(0 8px 12px rgba(0,0,0,.4))}',
       '.oec-meta{flex:0 1 16rem;min-width:12rem;max-width:18rem}',
@@ -757,7 +758,6 @@
     }
     applyViewMode(orbit, getViewMode(orbit));
     if (ui.drag) return;
-    if (getViewMode(orbit) === VIEW_CHAT) return;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' + getViewMode(orbit);
     if (root.__oecSig === sig) return;
     root.__oecSig = sig;
