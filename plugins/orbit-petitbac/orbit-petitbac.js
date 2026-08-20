@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 31;
+  var PBAC_VER = 33;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var PANEL_HEIGHT_MIN = 220;
@@ -404,47 +404,6 @@
     window.setTimeout(function () { if (burst.parentNode) burst.remove(); }, 1450);
   }
 
-  function showWordValidatedPopup(orbit, catLabel, word, pts) {
-    orbit = orbit || pluginOrbit;
-    catLabel = String(catLabel || '').trim();
-    word = String(word || '').trim();
-    pts = Number(pts) || 1;
-    if (!word && !catLabel) return;
-    showScoreBurst(pts);
-    var prev = document.getElementById('opbac-word-toast');
-    if (prev) prev.remove();
-    var el = document.createElement('div');
-    el.id = 'opbac-word-toast';
-    el.className = 'opbac-word-toast';
-    el.setAttribute('role', 'status');
-    el.innerHTML =
-      '<div class="opbac-word-toast__icon" aria-hidden="true">' +
-        imgHtml('complete.svg', pick({ fr: 'Mot accepté', en: 'Word accepted' }), '') +
-      '</div>' +
-      '<div class="opbac-word-toast__body">' +
-        '<strong class="opbac-word-toast__title">' +
-          escHtml(pick({ fr: 'Mot accepté !', en: 'Word accepted!' })) +
-        '</strong>' +
-        (word ? ('<span class="opbac-word-toast__word">« ' + escHtml(word) + ' »</span>') : '') +
-        (catLabel ? ('<span class="opbac-word-toast__cat">' + escHtml(catLabel) + '</span>') : '') +
-        '<span class="opbac-word-toast__pts">+' + pts + ' ' +
-          escHtml(pick({ fr: 'pt', en: 'pt' })) + '</span></div>';
-    document.body.appendChild(el);
-    requestAnimationFrame(function () { el.classList.add('opbac-word-toast--show'); });
-    window.setTimeout(function () {
-      el.classList.add('opbac-word-toast--hide');
-      window.setTimeout(function () { if (el.parentNode) el.remove(); }, 320);
-    }, 4200);
-    if (orbit && orbit.notify) {
-      try {
-        orbit.notify('Petit Bac', pick({
-          fr: '✓ ' + (word || catLabel) + ' (+' + pts + ' pt)',
-          en: '✓ ' + (word || catLabel) + ' (+' + pts + ' pt)',
-        }));
-      } catch (e) { /* ignore */ }
-    }
-  }
-
   function handlePlayerFeedback(channel, plain, myNick) {
     if (!myNick || !plain) return;
     var game = getChannelState(channel) || defaultState();
@@ -508,9 +467,7 @@
           if (draft.rejected[k] && draft.rejected[k].catKey === cat) delete draft.rejected[k];
         });
       }
-      var catLabel = resolveCatName(game, cat);
-      var wordOk = extractQuotedWord(msg) || draft.drafts[cat] || '';
-      showWordValidatedPopup(null, catLabel, wordOk, /💎/.test(msg) ? 2 : 1);
+      showScoreBurst(/💎/.test(msg) ? 2 : 1);
       bumpStore();
       return;
     }
@@ -1039,12 +996,7 @@
           ? String(pluginOrbit.state.nick() || '')
           : '';
         if (!nickOkPopup || !meOk || String(nickOkPopup).toLowerCase() === meOk.toLowerCase()) {
-          showWordValidatedPopup(
-            pluginOrbit,
-            resolveCatName(gameOk, catOk),
-            tagVal(tags, '+word'),
-            Number(tagVal(tags, '+points')) || 1
-          );
+          showScoreBurst(Number(tagVal(tags, '+points')) || 1);
         }
         var nickOk = tagVal(tags, '+nick') || tagVal(tags, '+player');
         var ptsOk = parsePts(tagVal(tags, '+points'));
@@ -1152,8 +1104,9 @@
       '.opbac-panel--collapsed .opbac-head__cta{display:inline-flex}',
       '.opbac-panel--collapsed .opbac-head__btn[data-act="play-menu"]{display:none}',
       '.opbac-body{padding:0}',
-      '.opbac-arena{position:relative;display:flex;align-items:center;justify-content:center;min-height:7.4rem;padding:.75rem 15.5rem .55rem .85rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover;flex:0 0 auto}',
-      '.opbac-arena__play{display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);position:relative;z-index:1}',
+      '.opbac-arena{position:relative;display:block;min-height:7.4rem;padding:.75rem 15.5rem .55rem .85rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover;flex:0 0 auto}',
+      '.opbac-arena__letter{position:absolute;left:.85rem;top:50%;transform:translateY(-50%);z-index:1;display:flex;flex-direction:column;align-items:center;gap:.2rem}',
+      '.opbac-arena__clock{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;display:flex;flex-direction:column;align-items:center;gap:.2rem}',
       '.opbac-arena__block{display:flex;flex-direction:column;align-items:center;gap:.2rem}',
       '.opbac-arena__scores{position:absolute;right:.75rem;top:50%;transform:translateY(-50%);z-index:2;width:min(14rem,calc(100% - 1.5rem));min-width:8.5rem;padding:.4rem .55rem;border-radius:12px;background:color-mix(in srgb,var(--bg,#fff) 88%,#6366f1);border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));max-height:7.2rem;overflow-y:auto;overflow-x:hidden}',
       '.opbac-arena__scores-h{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#888);margin:0 0 .3rem;display:flex;align-items:center;gap:.3rem}',
@@ -1163,7 +1116,7 @@
       '.opbac-arena__scores-rank{flex-shrink:0;font-size:.85rem;line-height:1}',
       '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0;font-weight:800;white-space:nowrap}',
       '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
-      '@media(max-width:720px){.opbac-arena{flex-direction:column;justify-content:flex-start;padding:.75rem .85rem .55rem;min-height:0}.opbac-arena__scores{position:static;transform:none;width:100%;max-width:none;max-height:5.5rem}}',
+      '@media(max-width:720px){.opbac-arena{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.65rem;padding:.75rem .85rem .55rem;min-height:0}.opbac-arena__letter{position:static;transform:none;flex:0 0 auto}.opbac-arena__clock{position:static;transform:none;flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:5.5rem}.opbac-arena__scores{position:static;transform:none;width:100%;max-width:none;max-height:5.5rem;flex:1 1 100%}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
       '.opbac-clock{position:relative;isolation:isolate;overflow:hidden;width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);flex-shrink:0}',
@@ -1337,16 +1290,6 @@
       'body.opbac-active .chan-hero__by,body.opbac-active .chan-hero__more{display:none}',
       'body.opbac-active .main__room-bg{height:min(22%,160px)!important}',
       '@media(max-width:880px){body.opbac-active .chan-hero{grid-template-columns:32px 1fr;padding:.15rem .45rem;gap:.35rem}body.opbac-active .chan-hero__media{width:32px;height:32px;min-height:32px;border-radius:8px}}',
-      '.opbac-word-toast{position:fixed;z-index:10000;left:50%;bottom:max(1rem,env(safe-area-inset-bottom));transform:translateX(-50%) translateY(12px);display:flex;align-items:center;gap:.65rem;padding:.65rem .85rem;border-radius:14px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#22c55e 35%,var(--border,#ddd));box-shadow:0 12px 40px -12px rgba(15,23,42,.35);opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;max-width:min(92vw,22rem)}',
-      '.opbac-word-toast--show{opacity:1;transform:translateX(-50%) translateY(0)}',
-      '.opbac-word-toast--hide{opacity:0;transform:translateX(-50%) translateY(8px)}',
-      '.opbac-word-toast__icon{width:2.1rem;height:2.1rem;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:transparent}',
-      '.opbac-word-toast__icon img{width:2.1rem;height:2.1rem;display:block}',
-      '.opbac-word-toast__body{display:flex;flex-direction:column;gap:.12rem;min-width:0}',
-      '.opbac-word-toast__title{font-size:.88rem;font-weight:900;color:var(--ink,#111)}',
-      '.opbac-word-toast__word{font-size:.82rem;font-weight:700;color:var(--ink,#222)}',
-      '.opbac-word-toast__cat{font-size:.72rem;font-weight:700;color:var(--muted,#666);text-transform:capitalize}',
-      '.opbac-word-toast__pts{font-size:.72rem;font-weight:800;color:#16a34a}',
       '.opbac-score-burst{position:absolute;left:50%;top:38%;z-index:60;pointer-events:none;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);filter:drop-shadow(0 10px 22px rgba(15,23,42,.18))}',
       '.opbac-score-burst__n{font-size:clamp(2.6rem,9vw,4.4rem);font-weight:900;line-height:1;letter-spacing:-.03em;color:#16a34a;animation:opbacScorePop 1.35s cubic-bezier(.16,1.2,.3,1) both}',
       '.opbac-score-burst__lbl{margin-top:.15rem;font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#15803d;opacity:.9;animation:opbacScoreLbl 1.35s ease both}',
@@ -1438,15 +1381,13 @@
   function buildStageHtml(game, remaining, progress) {
     if (!game.letter) return '';
     return '<div class="opbac-arena">' +
-      '<div class="opbac-arena__play">' +
-        '<div class="opbac-arena__block">' +
-          '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
-          '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter) + '</div>' +
-        '</div>' +
-        '<div class="opbac-arena__block">' +
-          '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Temps', en: 'Time' })) + '</span>' +
-          buildClockHtml(remaining, progress, 0) +
-        '</div>' +
+      '<div class="opbac-arena__letter opbac-arena__block">' +
+        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
+        '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter) + '</div>' +
+      '</div>' +
+      '<div class="opbac-arena__clock opbac-arena__block">' +
+        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Temps', en: 'Time' })) + '</span>' +
+        buildClockHtml(remaining, progress, 0) +
       '</div>' +
       buildSideScoresHtml(game) +
     '</div>';
