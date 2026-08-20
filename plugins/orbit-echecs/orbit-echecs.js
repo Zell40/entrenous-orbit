@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 1;
+  var OEC_VER = 2;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -606,7 +606,7 @@
       });
     }
     root.style.display = '';
-    if (main && topbar && (root.parentNode !== main || root.previousElementSibling !== topbar)) {
+    if (main && topbar && root.parentNode !== main) {
       topbar.insertAdjacentElement('afterend', root);
     }
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '');

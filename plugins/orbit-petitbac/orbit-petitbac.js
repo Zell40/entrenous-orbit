@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 38;
+  var PBAC_VER = 39;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -127,9 +127,7 @@
     if (/baccalaureat/i.test(n)) return true;
     var c = cfg(orbit);
     if (c.channelsAll) return true;
-    if (c.channels.indexOf(n) >= 0) return true;
-    var play = (((orbit.config().startup || {}).intents || {}).play) || [];
-    return play.some(function (ch) { return normChan(ch) === n; });
+    return c.channels.indexOf(n) >= 0;
   }
 
   function channelEnabled(orbit, channelKey) {
@@ -4107,8 +4105,20 @@
     requestAnimationFrame(function () { pinChatIfFollowing(); });
   }
 
+  function hideBacPanel(root) {
+    document.body.classList.remove('opbac-active', 'opbac-full');
+    if (!root) return;
+    root.style.display = 'none';
+    root.classList.remove('opbac-panel--full', 'opbac-panel--split', 'opbac-panel--playing');
+  }
+
   function mountDomPanel(orbit) {
+    var onBac = isBacChannel(orbit, orbit.state.active());
     var root = document.getElementById('opbac-dom-panel');
+    if (!onBac) {
+      hideBacPanel(root);
+      return;
+    }
     if (!root) {
       root = document.createElement('div');
       root.id = 'opbac-dom-panel';
@@ -4119,7 +4129,7 @@
     var main = document.querySelector('.main');
     var topbar = main && main.querySelector('.topbar');
     if (!main || !topbar) return;
-    if (root.parentNode !== main || root.previousElementSibling !== topbar) {
+    if (root.parentNode !== main) {
       topbar.insertAdjacentElement('afterend', root);
     }
     renderDomPanel(orbit, root);

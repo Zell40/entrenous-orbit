@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var HP_VER = 1;
+  var HP_VER = 2;
   var HP = '+hp';
   var EV = '+ev';
   var HOUSES = {
@@ -459,7 +459,15 @@
   }
 
   function mountDomPanel(orbit) {
+    var on = isHpChannel(orbit, orbit.state.active());
     var root = document.getElementById('ohp-dom-panel');
+    if (!on) {
+      if (root) {
+        root.hidden = true;
+        root.innerHTML = '';
+      }
+      return;
+    }
     if (!root) {
       root = document.createElement('div');
       root.id = 'ohp-dom-panel';
@@ -470,10 +478,8 @@
     var main = document.querySelector('.main');
     var topbar = main && main.querySelector('.topbar');
     if (!main || !topbar) return;
-    if (root.parentNode !== main || root.previousElementSibling !== topbar) {
-      var bac = document.getElementById('opbac-dom-panel');
-      if (bac && bac.parentNode === main) bac.insertAdjacentElement('afterend', root);
-      else topbar.insertAdjacentElement('afterend', root);
+    if (root.parentNode !== main) {
+      topbar.insertAdjacentElement('afterend', root);
     }
     renderDomPanel(orbit, root);
   }
