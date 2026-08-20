@@ -1,0 +1,22 @@
+---
+description: Où vit Petit Bac et comment travailler vite (un dépôt, un chat)
+alwaysApply: true
+---
+
+# Petit Bac — travailler vite
+
+Ne relis pas tout le plugin. Cherche d’abord, puis lis 80 lignes autour.
+
+## Dépôts (n’ouvrir que ceux du sujet)
+
+- Plugin Orbit : `plugins/orbit-petitbac/orbit-petitbac.js` + `config/config.json` (`?v=` = `PBAC_VER`)
+- Bot Limnoria : `C:/Users/famil/Bac/plugins/PetitBac/` (`local/game.py`, `events.py`, `verif.py`, `vote.py`, `stats.py`)
+- Client Orbit : `C:/Users/famil/orbit` — seulement si le bug est dans le tchat/shell
+- Site WP : `C:/Users/famil/EntreNous-web` — hors Petit Bac
+
+## Règles
+
+- Un chat = une tâche. Si le fil a déjà un résumé / des screenshots anciens : demander un **nouveau chat**.
+- Cache-bust : incrémenter `PBAC_VER` **et** `config.json ?v=` ensemble.
+- Jamais `git add` / `commit` / `push`. Proposer le message FR (1–2 lignes).
+- Après un changement bot : dire de **recharger PetitBac**.

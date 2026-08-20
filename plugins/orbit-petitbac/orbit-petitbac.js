@@ -6,11 +6,12 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 42;
+  var PBAC_VER = 46;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
   var STORAGE_LIVE_OPEN = 'opbacLiveOpen';
+  var STORAGE_SKIP_RULES = 'opbacSkipRules';
   var PANEL_HEIGHT_MIN = 220;
   var PANEL_HEIGHT_MAX = 1200;
   var CHAT_RESERVE_MIN = 120; /* topic + composer at least */
@@ -265,6 +266,44 @@
         return;
       }
     } catch (e) { /* ignore */ }
+  }
+
+  function skipRulesPref(orbit) {
+    var o = orbit || pluginOrbit;
+    try { if (o) return o.storage.get(STORAGE_SKIP_RULES, false) === true; } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function setSkipRulesPref(orbit, skip) {
+    var o = orbit || pluginOrbit;
+    try { if (o) o.storage.set(STORAGE_SKIP_RULES, !!skip); } catch (e) { /* ignore */ }
+    bumpStore();
+  }
+
+  function sendJouerCmd(orbit, buffer) {
+    sendPbCmd(orbit, buffer, 'jouer', skipRulesPref(orbit) ? 'noregles' : '');
+  }
+
+  function buildSkipRulesCheckHtml(orbit) {
+    var on = skipRulesPref(orbit);
+    return '<label class="opbac-skip-rules">' +
+      '<input type="checkbox" data-skip-rules' + (on ? ' checked' : '') + '>' +
+      escHtml(pick({
+        fr: 'Ne plus afficher les règles au lancement',
+        en: 'Don\'t show the rules at launch',
+      })) +
+      '</label>';
+  }
+
+  function bindSkipRulesUi(root, orbit) {
+    if (!root || root.__opbacSkipBound) return;
+    root.__opbacSkipBound = true;
+    root.addEventListener('change', function (ev) {
+      var inp = ev.target;
+      if (!inp || !inp.getAttribute || inp.getAttribute('data-skip-rules') == null) return;
+      setSkipRulesPref(orbit || pluginOrbit, !!inp.checked);
+      if (inp.checked) closeOverlayModal('rules');
+    });
   }
 
   function sendPbPlay(orbit, buffer, word, cat) {
@@ -656,7 +695,7 @@
     if (startInfo) {
       var stStart = getChannelState(channel) || defaultState();
       patchChannel(channel, {
-        phase: 'rules',
+        phase: 'starting',
         totalRounds: Number(startInfo[1]) || stStart.totalRounds || 0,
         duration: Number(startInfo[2]) || stStart.duration || 60,
         round: stStart.round || 1,
@@ -1675,12 +1714,15 @@
       '.opbac-vote__btn{border:0;border-radius:999px;padding:.45rem .9rem;font-size:.82rem;font-weight:900;cursor:pointer;min-height:38px}',
       '.opbac-vote__btn--yes{background:#16a34a;color:#fff}',
       '.opbac-vote__btn--no{background:#dc2626;color:#fff}',
-      '.opbac-idle{padding:1rem .85rem 1.1rem;text-align:center}',
-      '.opbac-idle__art{width:min(240px,78vw);height:auto;margin:0 auto .75rem;display:block;border-radius:14px;box-shadow:0 8px 24px -12px rgba(99,102,241,.35)}',
-      '.opbac-idle__txt{font-size:.9rem;color:var(--muted,#666);margin:0 0 .75rem;line-height:1.45}',
-      '.opbac-idle__cta{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-radius:999px;padding:.75rem 1.35rem;font-size:.95rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:48px}',
-      '.opbac-idle__help{margin-top:.55rem;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
-      '.opbac-idle__stopped{margin:0 auto .65rem;max-width:26rem;padding:.45rem .7rem;border-radius:10px;font-size:.82rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd))}',
+      '.opbac-idle{padding:.7rem .85rem .85rem;text-align:center}',
+      '.opbac-idle__art{width:min(160px,52vw);height:auto;margin:0 auto .45rem;display:block;border-radius:12px;box-shadow:0 8px 24px -12px rgba(99,102,241,.35)}',
+      '.opbac-idle__txt{font-size:.84rem;color:var(--muted,#666);margin:0 0 .45rem;line-height:1.35}',
+      '.opbac-idle__launch{display:flex;flex-direction:column;align-items:center;gap:.3rem;margin:.15rem 0 .55rem}',
+      '.opbac-idle__cta{display:flex;width:100%;max-width:32rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.85rem 1.2rem;font-size:1.05rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:52px;box-shadow:0 12px 28px -10px rgba(99,102,241,.65)}',
+      '.opbac-idle__cta:hover{filter:brightness(1.06)}',
+      '.opbac-idle__launch .opbac-skip-rules{margin:.1rem auto 0;max-width:32rem}',
+      '.opbac-idle__help{margin-top:0;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
+      '.opbac-idle__stopped{margin:0 auto .45rem;max-width:26rem;padding:.38rem .65rem;border-radius:10px;font-size:.78rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd))}',
       '.opbac-offline{padding:1.15rem .95rem 1.25rem;text-align:center}',
       '.opbac-offline__art{width:min(200px,70vw);height:auto;margin:0 auto .7rem;display:block;border-radius:14px;opacity:.88}',
       '.opbac-offline__title{margin:0 0 .4rem;font-size:1.05rem;font-weight:900;color:var(--ink,#111)}',
@@ -1705,13 +1747,51 @@
       '.opbac-prep__step--done{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff));color:#166534}',
       '.opbac-prep__step--on{border-color:#a5b4fc;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff));color:#3730a3}',
       '.opbac-prep__step-ic{flex-shrink:0;width:1.15rem;text-align:center}',
-      '.opbac-idle__stats{margin:0 auto 1rem;max-width:34rem;text-align:left}',
-      '.opbac-idle__stats-h{margin:0 0 .45rem;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
-      '.opbac-idle__stats-card{margin:0 0 .65rem;padding:.65rem .7rem;border-radius:12px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
+      '.opbac-skip-rules{display:flex;align-items:flex-start;gap:.5rem;margin:.9rem auto 0;max-width:22rem;padding:.55rem .65rem;border-radius:10px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));text-align:left;font-size:.78rem;font-weight:700;color:var(--ink,#333);cursor:pointer;user-select:none;line-height:1.35}',
+      '.opbac-skip-rules input{margin:.12rem 0 0;flex-shrink:0;width:1.05rem;height:1.05rem;accent-color:#6366f1}',
+      '.opbac-idle__stats{margin:0 auto .55rem;max-width:34rem;text-align:left;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif}',
+      '.opbac-idle__stats-h{margin:.55rem 0 .3rem;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-idle__stats-h:first-child{margin-top:0}',
+      '.opbac-idle__stats-card{margin:0 0 .45rem;padding:.5rem .55rem;border-radius:12px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
       '.opbac-idle__stats-sum{margin:0;font-size:.84rem;font-weight:700;color:var(--ink,#222);line-height:1.4}',
       '.opbac-idle__stats-empty{margin:0;font-size:.8rem;color:var(--muted,#666);font-weight:600}',
-      '.opbac-idle__hist{margin:.35rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.25rem}',
-      '.opbac-idle__hist li{font-size:.74rem;font-weight:700;color:var(--muted,#555);line-height:1.35}',
+      '.opbac-sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:0 0 .45rem}',
+      '.opbac-sum__chip{padding:.4rem .45rem;border-radius:12px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));text-align:center}',
+      '.opbac-sum__n{display:block;font-size:1.2rem;font-weight:900;color:#4338ca;font-variant-numeric:tabular-nums}',
+      '.opbac-sum__l{display:block;margin-top:.1rem;font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#666)}',
+      '.opbac-rank{display:flex;flex-direction:column;gap:.32rem}',
+      '.opbac-rank__row{display:grid;grid-template-columns:2rem minmax(0,1fr) auto;align-items:center;gap:.4rem;padding:.42rem .5rem;border-radius:10px;background:var(--bg,#fff);border:1px solid var(--border,#e5e5e5)}',
+      '.opbac-rank__row--1{background:linear-gradient(135deg,#fffbeb,#fef3c7);border-color:#fcd34d}',
+      '.opbac-rank__row--2{background:linear-gradient(135deg,#f8fafc,#e2e8f0);border-color:#cbd5e1}',
+      '.opbac-rank__row--3{background:linear-gradient(135deg,#fff7ed,#ffedd5);border-color:#fdba74}',
+      '.opbac-rank__row--me{box-shadow:inset 0 0 0 2px color-mix(in srgb,#6366f1 70%,transparent)}',
+      '.opbac-rank__medal{text-align:center;font-size:1.05rem;line-height:1}',
+      '.opbac-rank__n{width:1.55rem;height:1.55rem;margin:0 auto;border-radius:50%;display:grid;place-items:center;font-size:.68rem;font-weight:900;background:var(--bg-soft,rgba(127,127,127,.12));color:var(--muted,#666)}',
+      '.opbac-rank__nick{font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink,#111)}',
+      '.opbac-rank__you{font-size:.62rem;font-weight:800;color:#6366f1;margin-left:.2rem}',
+      '.opbac-rank__pts{font-weight:900;font-variant-numeric:tabular-nums;color:#4f46e5;white-space:nowrap}',
+      '.opbac-rank__pts small{font-size:.62rem;font-weight:800;opacity:.72;margin-left:.12rem}',
+      '.opbac-podium{display:grid;grid-template-columns:1fr 1.2fr 1fr;align-items:end;gap:.4rem;margin:0 0 .85rem}',
+      '.opbac-podium--2{grid-template-columns:1fr 1fr}',
+      '.opbac-podium__slot{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:.2rem;padding:.5rem .3rem .65rem;border-radius:14px;text-align:center;border:1px solid var(--border,#e5e5e5);min-width:0}',
+      '.opbac-podium__slot--1{background:linear-gradient(180deg,#fffbeb,#fde68a);border-color:#fbbf24;min-height:7rem;order:2}',
+      '.opbac-podium__slot--2{background:linear-gradient(180deg,#f8fafc,#e2e8f0);border-color:#cbd5e1;min-height:5.6rem;order:1}',
+      '.opbac-podium__slot--3{background:linear-gradient(180deg,#fff7ed,#fed7aa);border-color:#fdba74;min-height:5rem;order:3}',
+      '.opbac-podium--2 .opbac-podium__slot--1{order:1}',
+      '.opbac-podium--2 .opbac-podium__slot--2{order:2}',
+      '.opbac-podium__medal{font-size:1.35rem;line-height:1}',
+      '.opbac-podium__nick{font-size:.78rem;font-weight:900;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.opbac-podium__pts{font-size:.82rem;font-weight:900;color:#4f46e5;font-variant-numeric:tabular-nums}',
+      '.opbac-hist{display:flex;flex-direction:column;gap:.3rem;max-height:7.2rem;overflow-y:auto}',
+      '.opbac-hist__card{padding:.4rem .5rem;border-radius:10px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5))}',
+      '.opbac-idle__stats .opbac-rank{max-height:6.4rem;overflow-y:auto}',
+      '.opbac-hist__when{display:block;font-size:.68rem;font-weight:800;color:var(--muted,#666);margin:0 0 .4rem}',
+      '.opbac-hist__players{display:flex;flex-wrap:wrap;gap:.3rem}',
+      '.opbac-hist__p{display:inline-flex;align-items:center;gap:.28rem;padding:.22rem .5rem;border-radius:999px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5));font-size:.72rem;font-weight:800;max-width:100%}',
+      '.opbac-hist__p--win{background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#fbbf24}',
+      '.opbac-hist__p-nick{max-width:7.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.opbac-hist__p-pts{color:#4f46e5;font-variant-numeric:tabular-nums}',
+      '.opbac-hist__raw{margin:0;font-size:.74rem;font-weight:700;color:var(--muted,#555);line-height:1.35}',
       '.opbac-sheet{display:grid;grid-template-columns:repeat(var(--opbac-cols,3),minmax(0,1fr));gap:.55rem;width:100%;align-items:stretch}',
       '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
@@ -1792,7 +1872,9 @@
       '.opbac-head__badge--complete{background:rgba(34,197,94,.85)!important}',
       '.opbac-panel--game-end{border-bottom-color:color-mix(in srgb,#eab308 40%,var(--border,#ddd))}',
       '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
-      '.opbac-end{padding:.85rem .9rem 1rem}',
+      '.opbac-panel--round-end .opbac-end{flex:0 1 auto;min-height:0;overflow:auto}',
+      '.opbac-panel--round-end .opbac-live{flex:1 1 40%;min-height:8rem}',
+      '.opbac-end{padding:.85rem .9rem 1rem;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif}',
       '.opbac-end--enter{animation:opbacFadeIn .35s ease 1 both}',
       '@keyframes opbacFadeIn{0%{opacity:0}100%{opacity:1}}',
       '@keyframes opbacSpin{to{transform:rotate(360deg)}}',
@@ -1825,7 +1907,7 @@
       '.opbac-end__chat-btn{border:0;background:none;color:var(--accent,#6366f1);font-size:.8rem;font-weight:800;cursor:pointer;text-decoration:underline}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-replay__sub{margin:0 0 .75rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
-      '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;margin-bottom:.75rem}',
+      '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.35rem;margin-bottom:.4rem}',
       '@media(max-width:560px){.opbac-modes{grid-template-columns:1fr}}',
       '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.55rem .4rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
       '.opbac-mode:hover{border-color:color-mix(in srgb,#6366f1 40%,var(--border,#ccc));transform:translateY(-1px)}',
@@ -1833,22 +1915,24 @@
       '.opbac-mode__emoji{font-size:1.25rem;line-height:1}',
       '.opbac-mode__label{font-size:.82rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-mode__hint{font-size:.62rem;font-weight:700;color:var(--muted,#666);line-height:1.25}',
-      '.opbac-replay__cta{display:block;width:100%;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 10px 24px -10px rgba(99,102,241,.55);margin-bottom:.45rem}',
-      '.opbac-replay__cta:hover{filter:brightness(1.05)}',
+      '.opbac-replay__cta{display:flex;width:100%;max-width:32rem;margin:0 auto;align-items:center;justify-content:center;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1.05rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 12px 28px -10px rgba(99,102,241,.65);min-height:52px}',
+      '.opbac-replay__cta:hover{filter:brightness(1.06)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
-      '.opbac-playpick__sec{margin:.15rem 0 .7rem}',
-      '.opbac-playpick__h{margin:0 0 .4rem;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
-      '.opbac-customs{display:flex;flex-direction:column;gap:.35rem;max-height:9rem;overflow-y:auto;margin-bottom:.55rem}',
+      '.opbac-playpick__sec{margin:.05rem 0 .45rem}',
+      '.opbac-playpick__h{margin:0 0 .3rem;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-customs{display:flex;flex-direction:column;gap:.28rem;max-height:5.2rem;overflow-y:auto;margin-bottom:.35rem}',
       '.opbac-customs__empty{margin:0;font-size:.78rem;color:var(--muted,#666)}',
-      '.opbac-custom{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;text-align:left;border:1.5px solid var(--border,#ddd);border-radius:10px;padding:.45rem .55rem;background:var(--bg,#fff);cursor:pointer;font:inherit;color:inherit}',
+      '.opbac-custom{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;text-align:left;border:1.5px solid var(--border,#ddd);border-radius:10px;padding:.38rem .5rem;background:var(--bg,#fff);cursor:pointer;font:inherit;color:inherit}',
       '.opbac-custom--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff))}',
       '.opbac-custom__name{font-size:.82rem;font-weight:800;color:var(--ink,#111)}',
       '.opbac-custom__hint{font-size:.68rem;font-weight:700;color:var(--muted,#666);white-space:nowrap}',
-      '.opbac-create{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;margin:.35rem 0 .5rem}',
+      '.opbac-create{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;margin:.2rem 0 .4rem}',
       '.opbac-create label{display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#666)}',
       '.opbac-create input{border:1px solid var(--border,#ccc);border-radius:8px;padding:.4rem .45rem;font-size:.88rem;font-weight:700;min-height:38px;background:var(--bg,#fff);color:var(--ink,#111)}',
-      '.opbac-create__btn{grid-column:1/-1;border:1px dashed color-mix(in srgb,#6366f1 45%,var(--border,#ccc));border-radius:10px;padding:.55rem .65rem;font-size:.8rem;font-weight:800;cursor:pointer;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));color:#4338ca}',
-      '.opbac-play-note{margin:.35rem 0 0;font-size:.72rem;color:var(--muted,#666);line-height:1.35}',
+      '.opbac-create__btn{grid-column:1/-1;border:0;border-radius:12px;padding:.72rem 1rem;font-size:.88rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;min-height:46px;box-shadow:0 8px 20px -10px rgba(79,70,229,.6)}',
+      '.opbac-create__btn:hover{filter:brightness(1.06)}',
+      '.opbac-play-note{margin:.2rem 0 0;font-size:.7rem;color:var(--muted,#666);line-height:1.3}',
+      '@media(min-width:880px){.opbac-idle{padding:.4rem .8rem .5rem}.opbac-idle__art{width:min(108px,20vw);margin:0 auto .25rem}.opbac-idle__txt{margin:0 0 .3rem;font-size:.8rem}.opbac-idle__launch{margin:.1rem 0 .4rem}.opbac-hist{max-height:6.2rem}.opbac-idle__stats .opbac-rank{max-height:5.4rem}.opbac-customs{max-height:4.6rem}}',
       'body.opbac-active .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
       'body.opbac-active .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
       'body.opbac-active .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
@@ -2002,9 +2086,15 @@
       { id: 'countdown', label: pick({ fr: 'Décompte avant le départ', en: 'Countdown before start' }) },
       { id: 'go', label: pick({ fr: 'Lancement de la manche', en: 'Launching the round' }) },
     ];
-    var order = { rules: 0, starting: 1, countdown: 2, go: 3, playing: 4 };
-    var cur = order[phase] != null ? order[phase] : 1;
-    if (phase === 'go' && remaining <= 0) cur = 3;
+    if (skipRulesPref() && phase !== 'rules') {
+      steps = steps.filter(function (step) { return step.id !== 'rules'; });
+    }
+    var cur = 0;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].id === phase) { cur = i; break; }
+      if (phase === 'go') cur = i;
+    }
+    if (phase === 'go' && remaining <= 0) cur = steps.length - 1;
     return '<ul class="opbac-prep__steps" data-opbac-prep-steps>' + steps.map(function (step, i) {
       var cls = 'opbac-prep__step';
       var ic = '○';
@@ -2061,6 +2151,9 @@
     }
     if (game.categories && game.categories.length) {
       body += '<p class="opbac-prep__cats">' + escHtml(game.categories.join(' · ')) + '</p>';
+    }
+    if (phase === 'rules' || phase === 'starting') {
+      body += buildSkipRulesCheckHtml();
     }
     return '<div class="opbac-prep" data-opbac-prep>' +
       imgHtml('logo.svg', 'Petit Bac', 'opbac-prep__logo') +
@@ -2544,6 +2637,7 @@
       rulesEscHandler = escHandler;
     }
     document.body.appendChild(overlay);
+    bindSkipRulesUi(overlay, pluginOrbit);
     return escHandler;
   }
 
@@ -2651,10 +2745,13 @@
           return '<article class="opbac-rules-card"><span class="opbac-rules-card__ico" aria-hidden="true">' +
             c.ico + '</span><p><b>' + escHtml(c.title) + '</b>' + escHtml(c.text) + '</p></article>';
         }).join('') +
-      '</div></div>';
+      '</div>' +
+      buildSkipRulesCheckHtml() +
+      '</div>';
   }
 
   function maybeOpenRulesModal(orbit, channel) {
+    if (skipRulesPref(orbit)) return;
     var key = normChan(channel);
     if (rulesShownFor[key]) return;
     rulesShownFor[key] = true;
@@ -2902,23 +2999,11 @@
         ? game.finalRanking
         : rankingForDisplay(game, true));
     var html = '<div class="opbac-idle__stats" data-opbac-idle-stats>';
-    if (game.lobbySummary) {
-      html += '<div class="opbac-idle__stats-card"><p class="opbac-idle__stats-sum">' +
-        escHtml(game.lobbySummary) + '</p></div>';
-    }
-    html += '<p class="opbac-idle__stats-h">' +
-      escHtml(pick({ fr: 'Classement / scores', en: 'Ranking / scores' })) + '</p>';
+    if (game.lobbySummary) html += buildSummaryChipsHtml(game.lobbySummary);
     if (ranking && ranking.length) {
-      html += '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(ranking.slice(0, 8), myNick) + '</div>';
-    } else {
-      html += '<p class="opbac-idle__stats-empty">' + escHtml(pick({
-        fr: lobbyWaiting
-          ? 'Chargement des scores…'
-          : 'Aucun score pour le moment — lancez une partie !',
-        en: lobbyWaiting
-          ? 'Loading scores…'
-          : 'No scores yet — start a game!',
-      })) + '</p>';
+      html += '<p class="opbac-idle__stats-h">' +
+        escHtml(pick({ fr: 'Classement / scores', en: 'Ranking / scores' })) + '</p>' +
+        '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(ranking.slice(0, 5), myNick) + '</div>';
     }
     if (game.topGlobal && game.topGlobal.length) {
       html += '<p class="opbac-idle__stats-h">' +
@@ -2928,14 +3013,21 @@
     if (game.lobbyHistory && game.lobbyHistory.length) {
       html += '<p class="opbac-idle__stats-h">' +
         escHtml(pick({ fr: 'Dernières parties', en: 'Recent games' })) + '</p>' +
-        '<ul class="opbac-idle__hist">' +
-        game.lobbyHistory.slice(0, 10).map(function (line) {
-          return '<li>' + escHtml(line) + '</li>';
-        }).join('') +
-        '</ul>';
+        buildHistoryHtml(game.lobbyHistory.slice(0, 8), myNick);
     }
     html += '</div>';
     return html;
+  }
+
+  function buildLaunchHtml(label, withRules) {
+    return '<div class="opbac-idle__launch">' +
+      '<button type="button" class="opbac-idle__cta" data-act="replay">' + escHtml(label) + '</button>' +
+      buildSkipRulesCheckHtml() +
+      (withRules
+        ? ('<button type="button" class="opbac-idle__help" data-act="rules">' +
+            escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '</button>')
+        : '') +
+      '</div>';
   }
 
   function buildIdleHtml(game, replayMode, myNick) {
@@ -2948,18 +3040,16 @@
     return '<div class="opbac-idle">' +
       imgHtml('idle-hero.svg', pick({ fr: 'Petit Bac', en: 'Petit Bac' }), 'opbac-idle__art') +
       stopBanner +
-      buildIdleStatsHtml(game, myNick) +
       '<p class="opbac-idle__txt">' + escHtml(pick({
         fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
         en: 'Pick a level, a custom game, or create your own.',
       })) + '</p>' +
-      buildPlayPickerHtml(replayMode) +
-      '<button type="button" class="opbac-idle__cta" data-act="replay">' +
-        escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
-      '</button>' +
-      '<button type="button" class="opbac-idle__help" data-act="rules">' +
-        escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
-      '</button></div>';
+      buildPlayPickerHtml(replayMode, buildLaunchHtml(pick({
+        fr: '▶ Lancer une partie',
+        en: '▶ Start a game',
+      }), true)) +
+      buildIdleStatsHtml(game, myNick) +
+      '</div>';
   }
 
   function parseListeLine(body) {
@@ -3233,7 +3323,7 @@
       '<label>' + escHtml(pick({ fr: 'Manches', en: 'Rounds' })) +
         '<input type="number" min="1" max="50" value="12" data-create-rounds></label>' +
       '<button type="button" class="opbac-create__btn" data-act="create-mode">' +
-        escHtml(pick({ fr: 'Créer mon jeu (il portera votre pseudo)', en: 'Create my game (named after your nick)' })) +
+        escHtml(pick({ fr: '✨ Créer mon jeu', en: '✨ Create my game' })) +
       '</button></div>' +
       '<p class="opbac-play-note">' + escHtml(pick({
         fr: 'Le bot enregistre le mode sous votre pseudo. Vous pourrez ensuite le relancer depuis la liste.',
@@ -3241,7 +3331,7 @@
       })) + '</p>';
   }
 
-  function buildPlayPickerHtml(selectedMode) {
+  function buildPlayPickerHtml(selectedMode, launchHtml) {
     selectedMode = sanitizeModeId(selectedMode);
     var cards = gameModeOptions().map(function (m) {
       var on = m.id === selectedMode;
@@ -3256,6 +3346,7 @@
         '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Niveaux officiels', en: 'Official levels' })) + '</p>' +
         '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
           cards + '</div></div>' +
+      (launchHtml || '') +
       '<div class="opbac-playpick__sec">' +
         '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Jeux personnalisés', en: 'Custom games' })) + '</p>' +
         '<div class="opbac-customs" data-opbac-customs>' + buildCustomModesHtml(selectedMode) + '</div></div>' +
@@ -3332,10 +3423,10 @@
             fr: 'Choisissez un niveau officiel, un jeu personnalisé, ou créez le vôtre.',
             en: 'Pick an official level, a custom game, or create your own.',
           })) + '</p>' +
-          buildPlayPickerHtml(selected) +
-          '<button type="button" class="opbac-replay__cta" data-act="replay">' +
-            escHtml(pick({ fr: '▶ Lancer la partie', en: '▶ Start the game' })) +
-          '</button>' +
+          buildPlayPickerHtml(selected, buildLaunchHtml(pick({
+            fr: '▶ Lancer la partie',
+            en: '▶ Start the game',
+          }), false)) +
         '</div></div>';
     bindPlayOverlay(orbit, overlay);
     playEscHandler = function (ev) {
@@ -3343,6 +3434,7 @@
     };
     document.addEventListener('keydown', playEscHandler);
     document.body.appendChild(overlay);
+    bindSkipRulesUi(overlay, orbit);
   }
 
   function sendCreateMode(orbit, buffer, host) {
@@ -3370,10 +3462,10 @@
         fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
         en: 'Choose a level, a custom game, or create your own.',
       })) + '</p>' +
-      buildPlayPickerHtml(selectedMode) +
-      '<button type="button" class="opbac-replay__cta" data-act="replay">' +
-        escHtml(pick({ fr: '▶ Oui, lancer une partie', en: '▶ Yes, start a game' })) +
-      '</button>' +
+      buildPlayPickerHtml(selectedMode, buildLaunchHtml(pick({
+        fr: '▶ Oui, lancer une partie',
+        en: '▶ Yes, start a game',
+      }), false)) +
       '<button type="button" class="opbac-replay__help" data-act="rules">' +
         escHtml(pick({ fr: 'Règles et commandes', en: 'Rules and commands' })) +
       '</button></div>';
@@ -3385,7 +3477,7 @@
     if (root) setViewMode(orbit, root, VIEW_FULL);
     sendPbCmd(orbit, buffer, 'jeu', mode);
     window.setTimeout(function () {
-      sendPbCmd(orbit, buffer, 'jouer');
+      sendJouerCmd(orbit, buffer);
     }, 350);
     try {
       orbit.notify('Petit Bac', pick({
@@ -3571,7 +3663,7 @@
     }
 
     function playAgain() {
-      sendPbCmd(orbit, buffer, 'jouer');
+      sendJouerCmd(orbit, buffer);
     }
 
     var panelClass = 'opbac-panel' + (collapsed ? ' opbac-panel--collapsed' : '');
@@ -3738,6 +3830,91 @@
     return false;
   }
 
+  function parseHistoryLine(line) {
+    var s = String(line || '').trim();
+    var when = '';
+    var rest = s;
+    var split = s.split(/\s+[—–]\s+/);
+    if (split.length < 2) split = s.split(/\s+-\s+/);
+    if (split.length >= 2 && /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(split[0])) {
+      when = split[0].trim();
+      rest = split.slice(1).join(' - ');
+    }
+    var players = [];
+    String(rest || '').split(/\s*[·•,]\s*|\s+-\s+/).forEach(function (chunk) {
+      var m = String(chunk || '').trim().match(/^(.+?)[:\s]+(\d+(?:[.,]\d+)?)\s*$/);
+      if (!m) return;
+      players.push({ nick: m[1].trim(), pts: parsePts(m[2]) });
+    });
+    players.sort(function (a, b) { return b.pts - a.pts; });
+    return { when: when, players: players, raw: s };
+  }
+
+  function parseLobbySummary(text) {
+    var s = String(text || '').trim();
+    var games = s.match(/(\d+)\s*partie/i);
+    var players = s.match(/(\d+)\s*joueur/i);
+    return {
+      games: games ? games[1] : '',
+      players: players ? players[1] : '',
+      raw: s,
+    };
+  }
+
+  function buildSummaryChipsHtml(text) {
+    var info = parseLobbySummary(text);
+    if (info.games || info.players) {
+      var html = '<div class="opbac-sum">';
+      if (info.games) {
+        html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(info.games) + '</span>' +
+          '<span class="opbac-sum__l">' + escHtml(pick({ fr: 'parties', en: 'games' })) + '</span></div>';
+      }
+      if (info.players) {
+        html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(info.players) + '</span>' +
+          '<span class="opbac-sum__l">' + escHtml(pick({ fr: 'joueurs', en: 'players' })) + '</span></div>';
+      }
+      return html + '</div>';
+    }
+    if (!info.raw) return '';
+    return '<div class="opbac-idle__stats-card"><p class="opbac-idle__stats-sum">' + escHtml(info.raw) + '</p></div>';
+  }
+
+  function buildHistoryHtml(lines, myNick) {
+    if (!lines || !lines.length) return '';
+    return '<div class="opbac-hist">' + lines.map(function (line) {
+      var g = parseHistoryLine(line);
+      if (!g.players.length) {
+        return '<article class="opbac-hist__card"><p class="opbac-hist__raw">' + escHtml(g.raw) + '</p></article>';
+      }
+      var players = g.players.map(function (p, i) {
+        var isMe = myNick && String(p.nick).toLowerCase() === String(myNick).toLowerCase();
+        return '<span class="opbac-hist__p' + (i === 0 ? ' opbac-hist__p--win' : '') + '">' +
+          (i === 0 ? '🏆 ' : '') +
+          '<span class="opbac-hist__p-nick">' + escHtml(p.nick) + (isMe ? ' ★' : '') + '</span>' +
+          '<span class="opbac-hist__p-pts">' + escHtml(String(p.pts)) + '</span></span>';
+      }).join('');
+      return '<article class="opbac-hist__card">' +
+        (g.when ? '<time class="opbac-hist__when">' + escHtml(g.when) + '</time>' : '') +
+        '<div class="opbac-hist__players">' + players + '</div></article>';
+    }).join('') + '</div>';
+  }
+
+  function buildPodiumHtml(rows, myNick) {
+    if (!rows || rows.length < 2) return '';
+    var count = Math.min(3, rows.length);
+    var html = '<div class="opbac-podium' + (count === 2 ? ' opbac-podium--2' : '') + '">';
+    for (var i = 0; i < count; i++) {
+      var row = rows[i];
+      var isMe = myNick && String(row.nick).toLowerCase() === String(myNick).toLowerCase();
+      html += '<div class="opbac-podium__slot opbac-podium__slot--' + (i + 1) + '">' +
+        '<span class="opbac-podium__medal">' + rankMedal(i) + '</span>' +
+        '<span class="opbac-podium__nick">' + escHtml(row.nick) +
+          (isMe ? ' ' + escHtml(pick({ fr: '(vous)', en: '(you)' })) : '') + '</span>' +
+        '<span class="opbac-podium__pts">' + escHtml(formatPtsDisplay(row.pts)) + '</span></div>';
+    }
+    return html + '</div>';
+  }
+
   function buildRankingTableHtml(rows, myNick) {
     if (!rows || !rows.length) {
       return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
@@ -3746,16 +3923,20 @@
       })) + '</p>';
     }
     var body = rows.map(function (row, i) {
-      var isMe = myNick && String(row.nick).toLowerCase() === myNick.toLowerCase();
-      return '<tr class="' + (isMe ? 'opbac-end__me' : '') + '">' +
-        '<td class="opbac-end__rank">' + rankMedal(i) + '</td>' +
-        '<td>' + escHtml(row.nick) + (isMe ? ' ' + escHtml(pick({ fr: '(vous)', en: '(you)' })) : '') + '</td>' +
-        '<td class="opbac-end__pts">' + escHtml(formatPtsDisplay(row.pts)) + '</td></tr>';
+      var isMe = myNick && String(row.nick).toLowerCase() === String(myNick).toLowerCase();
+      var place = i < 3 ? ' opbac-rank__row--' + (i + 1) : '';
+      var medal = i < 3
+        ? '<span class="opbac-rank__medal">' + rankMedal(i) + '</span>'
+        : '<span class="opbac-rank__n">' + escHtml(String(i + 1)) + '</span>';
+      return '<div class="opbac-rank__row' + place + (isMe ? ' opbac-rank__row--me' : '') + '">' +
+        medal +
+        '<span class="opbac-rank__nick">' + escHtml(row.nick) +
+          (isMe ? '<span class="opbac-rank__you">' + escHtml(pick({ fr: '(vous)', en: '(you)' })) + '</span>' : '') +
+        '</span>' +
+        '<span class="opbac-rank__pts">' + escHtml(String(formatPtsDisplay(row.pts)).replace(/\s*pt$/i, '')) +
+          '<small>' + escHtml(pick({ fr: 'pts', en: 'pts' })) + '</small></span></div>';
     }).join('');
-    return '<table class="opbac-end__table"><thead><tr>' +
-      '<th></th><th>' + escHtml(pick({ fr: 'Joueur', en: 'Player' })) + '</th>' +
-      '<th>' + escHtml(pick({ fr: 'Points', en: 'Points' })) + '</th></tr></thead><tbody>' +
-      body + '</tbody></table>';
+    return '<div class="opbac-rank">' + body + '</div>';
   }
 
   function endScreenSignature(game) {
@@ -3802,6 +3983,7 @@
 
       html += '<div class="opbac-end__block">' +
         '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Classement final', en: 'Final ranking' })) + '</h3>' +
+        buildPodiumHtml(rankingForDisplay(game, true), myNick) +
         buildRankingTableHtml(rankingForDisplay(game, true), myNick) +
         '</div>';
 
@@ -4076,6 +4258,7 @@
   function bindDomPanel(root, orbit) {
     if (root.__opbacBound) return;
     root.__opbacBound = true;
+    bindSkipRulesUi(root, orbit);
     root.addEventListener('click', function (ev) {
       var buffer = orbit.state.active();
       if (!buffer || !isBacChannel(orbit, buffer)) return;
@@ -4265,7 +4448,8 @@
     bindDomPanel(root, orbit);
     var game = getChannelState(buffer) || defaultState();
     var phase = game.phase || 'idle';
-    var sig = panelSignature(game) + '|' + (isLiveBoardOpen(orbit) ? '1' : '0');
+    var sig = panelSignature(game) + '|' + (isLiveBoardOpen(orbit) ? '1' : '0') +
+      '|' + (skipRulesPref(orbit) ? '1' : '0');
     var rebuild = root.__opbacSig !== sig;
     var gameRunning = isGameRunning(game);
     var hasGrid = hasPlayableGrid(game);
@@ -4303,6 +4487,7 @@
       try { orbit.storage.set(STORAGE_VIEW_MODE, VIEW_FULL); } catch (e) { /* ignore */ }
     }
     if (isIdle) root.__opbacDidAutoFull = false;
+    if (phase === 'rules') maybeOpenRulesModal(orbit, buffer);
 
     var headBadge = game.round && game.totalRounds
       ? ('Manche ' + game.round + '/' + game.totalRounds)
@@ -4325,7 +4510,7 @@
       (viewMode === VIEW_CHAT ? ' opbac-panel--chat opbac-panel--collapsed' : '') +
       (viewMode === VIEW_FULL ? ' opbac-panel--full' : '') +
       (viewMode === VIEW_SPLIT ? ' opbac-panel--split' : '') +
-      ((isLive || isPrep) ? ' opbac-panel--playing' : '') +
+      ((isLive || isPrep || isRoundEnd) ? ' opbac-panel--playing' : '') +
       (isGameEnd ? ' opbac-panel--game-end' : '') +
       (isRoundEnd ? ' opbac-panel--round-end' : '') +
       ((isLive && game.fullComboNick && game.fullComboRound === roundKey(game)) ? ' opbac-panel--complete' : '');
@@ -4344,6 +4529,7 @@
         root.__opbacEndPhase = phase;
         root.__opbacEndSig = endSig;
         bodyHtml = buildEndScreenHtml(game, myNick, replayMode, endAnimate);
+        if (isRoundEnd) bodyHtml += buildLiveBoardHtml(orbit, game, myNick);
         root.__opbacReplayMode = replayMode;
         if (isGameEnd && isBacBotPresent(orbit, buffer)) requestModeList(orbit, buffer);
       } else {
@@ -4406,7 +4592,9 @@
             endWrap.outerHTML = endHtml;
           } else {
             var bodyEl = root.querySelector('.opbac-body');
-            if (bodyEl) bodyEl.innerHTML = endHtml;
+            if (bodyEl) {
+              bodyEl.innerHTML = endHtml + (isRoundEnd ? buildLiveBoardHtml(orbit, game, myNick) : '');
+            }
           }
         }
         updateReplayModeUi(root, defaultReplayMode(game, root, orbit));

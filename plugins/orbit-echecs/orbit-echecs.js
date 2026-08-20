@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 2;
+  var OEC_VER = 3;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -102,20 +102,20 @@
     });
   }
 
-  function sendTarget(orbit, buffer) {
-    var name = resolveChannelName(orbit, buffer) || buffer;
-    return isChannelName(name) ? name : buffer;
-  }
-
   function sendEcCmd(orbit, buffer, name, arg) {
-    if (!orbit || !buffer || !name) return;
-    var target = sendTarget(orbit, buffer);
-    if (!isChannelName(target)) return;
+    if (!orbit || !buffer || !name) return false;
+    var target = resolveChannelName(orbit, buffer) || buffer;
     var tags = '+ec=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
     try {
-      if (orbit.irc && orbit.irc.send) orbit.irc.send('@' + tags + ' TAGMSG ' + target);
-    } catch (e) { /* ignore */ }
+      if (orbit.irc && orbit.irc.send) {
+        orbit.irc.send('@' + tags + ' TAGMSG ' + target);
+        return true;
+      }
+    } catch (e) {
+      console.error('[orbit-echecs] TAGMSG send failed', e);
+    }
+    return false;
   }
 
   function maybeRequestSync(orbit, buffer, game) {
@@ -526,25 +526,32 @@
   }
 
   function onClick(orbit, buffer, ev) {
-    var t = ev.target.closest('[data-act],[data-sq],[data-promo]');
-    if (!t) return;
-    var act = t.getAttribute('data-act');
-    var sq = t.getAttribute('data-sq');
-    var promo = t.getAttribute('data-promo');
+    var el = ev.target && ev.target.closest ? ev.target.closest('[data-act],[data-sq],[data-promo]') : null;
+    if (!el) return;
+    ev.preventDefault();
+    var act = el.getAttribute('data-act');
+    var sq = el.getAttribute('data-sq');
+    var promo = el.getAttribute('data-promo');
     var game = getState(buffer);
 
-    if (act === 'sync') { sendEcCmd(orbit, buffer, 'sync'); return; }
-    if (act === 'start') { sendEcCmd(orbit, buffer, 'commencer'); return; }
-    if (act === 'start-w') { sendEcCmd(orbit, buffer, 'commencer', 'blancs'); return; }
-    if (act === 'start-b') { sendEcCmd(orbit, buffer, 'commencer', 'noirs'); return; }
-    if (act === 'duo') { sendEcCmd(orbit, buffer, 'commencer', 'duo'); return; }
-    if (act === 'join') { sendEcCmd(orbit, buffer, 'rejoindre'); return; }
-    if (act === 'draw') { sendEcCmd(orbit, buffer, 'nul'); return; }
-    if (act === 'abort') { sendEcCmd(orbit, buffer, 'annuler'); return; }
-    if (act === 'resign') { sendEcCmd(orbit, buffer, 'abandonner'); return; }
+    function sent(name, arg) {
+      var ok = sendEcCmd(orbit, buffer, name, arg);
+      if (!ok) patchState(buffer, { flash: pick({ fr: 'Envoi TAGMSG impossible', en: 'TAGMSG send failed' }) });
+      return ok;
+    }
+
+    if (act === 'sync') { sent('sync'); return; }
+    if (act === 'start') { sent('commencer'); return; }
+    if (act === 'start-w') { sent('commencer', 'blancs'); return; }
+    if (act === 'start-b') { sent('commencer', 'noirs'); return; }
+    if (act === 'duo') { sent('commencer', 'duo'); return; }
+    if (act === 'join') { sent('rejoindre'); return; }
+    if (act === 'draw') { sent('nul'); return; }
+    if (act === 'abort') { sent('annuler'); return; }
+    if (act === 'resign') { sent('abandonner'); return; }
 
     if (promo && ui.promo) {
-      sendEcCmd(orbit, buffer, 'jouer', ui.promo.from + ui.promo.to + promo);
+      sent('jouer', ui.promo.from + ui.promo.to + promo);
       ui.promo = null;
       ui.sel = '';
       bump();
@@ -578,7 +585,7 @@
         bump();
         return;
       }
-      sendEcCmd(orbit, buffer, 'jouer', ui.sel + sq);
+      sent('jouer', ui.sel + sq);
       ui.sel = '';
       bump();
     }
@@ -600,6 +607,9 @@
       root.className = 'oec-panel';
       root.setAttribute('role', 'region');
       root.setAttribute('aria-label', 'Échecs');
+    }
+    if (!root.__oecBound) {
+      root.__oecBound = true;
       root.addEventListener('click', function (ev) {
         var b = orbit.state.active();
         if (isChessChannel(orbit, b)) onClick(orbit, b, ev);
