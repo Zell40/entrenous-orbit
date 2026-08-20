@@ -20,7 +20,7 @@
     "intents": {
       "chat": ["#EntreNous.chat"],
       "love": ["#EDFGDF.chat"],
-      "play": ["#Baccalaureat.chat"]
+      "play": ["#Baccalaureat.chat", "#Echecs.chat"]
     }
   },
   "branding": {
@@ -98,6 +98,10 @@
     "defaultCollapsed": false,
     "maxPlayers": 14
   },
+  "echecs": {
+    "channels": ["#Echecs.chat"],
+    "showWhenIdle": true
+  },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js", "sandbox": true, "permissions": ["storage"] },
@@ -108,7 +112,8 @@
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=35",
-    "/app/plugins/third/orbit-bac-live/orbit-bac-live.js?v=4"
+    "/app/plugins/third/orbit-bac-live/orbit-bac-live.js?v=4",
+    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=1"
   ],
   "builtins": [],
   "analytics": {

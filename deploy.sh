@@ -115,6 +115,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-helpserv-welcome/" \
   --exclude="/plugins/third/orbit-petitbac/" \
   --exclude="/plugins/third/orbit-bac-live/" \
+  --exclude="/plugins/third/orbit-echecs/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -187,6 +188,12 @@ BAC_LIVE_DIR="plugins/third/orbit-bac-live"
 mkdir -p "$WEBROOT/$BAC_LIVE_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-bac-live/orbit-bac-live.js" \
       "$WEBROOT/$BAC_LIVE_DIR/"
+
+# Échecs (CapEchecs TAGMSG UI)
+ECHECS_DIR="plugins/third/orbit-echecs"
+mkdir -p "$WEBROOT/$ECHECS_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-echecs/orbit-echecs.js" \
+      "$WEBROOT/$ECHECS_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
@@ -328,5 +335,15 @@ if ! grep -q 'orbit-bac-live' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-bac-live (plugin file + config.json entry)"
+
+if [ ! -f "$WEBROOT/$ECHECS_DIR/orbit-echecs.js" ]; then
+  log "ERROR: missing $WEBROOT/$ECHECS_DIR/orbit-echecs.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-echecs' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-echecs plugin entry"
+  exit 1
+fi
+log "verified orbit-echecs (plugin file + config.json entry)"
 
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
