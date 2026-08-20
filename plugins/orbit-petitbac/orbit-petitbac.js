@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 35;
+  var PBAC_VER = 36;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -260,6 +260,19 @@
         return;
       }
     } catch (e) { /* ignore */ }
+  }
+
+  function sendPbPlay(orbit, buffer, word, cat) {
+    if (!orbit || !buffer || !word) return;
+    var tags = '+pb=v1;+ev=play;+word=' + escapeIrcTag(word);
+    if (cat) tags += ';+cat=' + escapeIrcTag(cat);
+    try {
+      if (orbit.irc && orbit.irc.send) {
+        orbit.irc.send('@' + tags + ' TAGMSG ' + buffer);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    try { orbit.irc.msg(buffer, word); } catch (e2) { /* ignore */ }
   }
 
   function maybeRequestGameSync(orbit, buffer, game) {
@@ -3557,7 +3570,7 @@
     draft.drafts[catKey] = word;
     draft.pending[catKey] = word;
     if (draft.rejected && draft.rejected[catKey]) delete draft.rejected[catKey];
-    orbit.irc.msg(buffer, word);
+    sendPbPlay(orbit, buffer, word, resolveCatName(game, catKey) || catKey);
     bumpStore();
   }
 
