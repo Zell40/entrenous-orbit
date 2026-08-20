@@ -5,7 +5,8 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 20;
+  var PBAC_VER = 23;
+  var syncRequestAt = Object.create(null);
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -146,6 +147,33 @@
     };
     return '<svg class="opbac-col__ico" viewBox="0 0 18 18" aria-hidden="true" focusable="false">' +
       (paths[kind] || paths.default) + '</svg>';
+  }
+
+  function isPrepPhase(phase) {
+    return phase === 'starting' || phase === 'rules' || phase === 'countdown' || phase === 'go';
+  }
+
+  function isGameRunning(game) {
+    if (!game) return false;
+    var phase = game.phase || 'idle';
+    if (phase === 'game_end') return false;
+    if (phase === 'round_end') return false;
+    if (phase === 'idle' && !game.totalRounds && !game.round && !game.letter) return false;
+    return phase !== 'idle' || game.totalRounds > 0 || game.round > 0 || !!game.letter;
+  }
+
+  function hasPlayableGrid(game) {
+    return !!(game && game.letter && game.categories && game.categories.length);
+  }
+
+  function maybeRequestGameSync(orbit, buffer, game) {
+    if (!orbit || !buffer || !isBacChannel(orbit, buffer)) return;
+    if (hasPlayableGrid(game) && game.phase === 'playing') return;
+    var key = normChan(buffer);
+    var now = Date.now();
+    if (syncRequestAt[key] && now - syncRequestAt[key] < 12000) return;
+    syncRequestAt[key] = now;
+    try { orbit.irc.msg(buffer, '!manche'); } catch (e) { /* ignore */ }
   }
 
   function pinChatIfFollowing() {
@@ -378,6 +406,15 @@
       return;
     }
 
+    var noticeManche = plain.match(/🧮\s*Manche\s*:\s*(\d+)/i);
+    if (noticeManche) {
+      patchChannel(channel, {
+        round: Number(noticeManche[1]) || 1,
+        phase: 'playing',
+        duration: (getChannelState(channel) || {}).duration || 60,
+      });
+    }
+
     var m = plain.match(/^([^:]{1,32}):\s*(.+)$/);
     if (!m || m[1].toLowerCase() !== myNick.toLowerCase()) return;
     var msg = m[2];
@@ -450,23 +487,56 @@
     var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     var fromBac = n === 'bac' || n === 'maitredujeu';
 
-    if (fromBac && /petit bac est actuellement en cours|la partie d[eé]marre|c'est parti|une partie est d[eé]j[aà] en cours/i.test(body)) {
-      patchChannel(channel, { phase: 'starting' });
+    if (fromBac && /nouvelle partie/i.test(body)) {
+      var modeStart = body.match(/mode\s+([a-zàâéèêëïîôùûüç0-9_-]+)/i);
+      patchChannel(channel, {
+        phase: 'starting',
+        letter: '',
+        categories: [],
+        mode: modeStart ? modeStart[1].toLowerCase() : ((getChannelState(channel) || {}).mode || ''),
+      });
     }
-    var manche = body.match(/manche\s+(\d+)\s*\/\s*(\d+)/i);
+    if (fromBac && /petit bac est actuellement en cours|la partie d[eé]marre|c'est parti|une partie est d[eé]j[aà] en cours/i.test(body)) {
+      if (!/partie d[eé]marre\s*:/i.test(body)) {
+        patchChannel(channel, { phase: 'starting' });
+      }
+    }
+    var startInfo = body.match(/partie d[eé]marre\s*:\s*(\d+)\s+manches\s+de\s+(\d+)\s+secondes/i);
+    if (startInfo) {
+      var stStart = getChannelState(channel) || defaultState();
+      patchChannel(channel, {
+        phase: 'rules',
+        totalRounds: Number(startInfo[1]) || stStart.totalRounds || 0,
+        duration: Number(startInfo[2]) || stStart.duration || 60,
+        round: stStart.round || 1,
+      });
+    }
+    var cdStart = body.match(/jeu commence dans\s+(\d+)/i);
+    if (cdStart) {
+      patchChannel(channel, {
+        phase: 'countdown',
+        countdown: Number(cdStart[1]) || 0,
+        countdownAt: Date.now(),
+      });
+    }
+    if (/c'est parti/i.test(body)) {
+      patchChannel(channel, { phase: 'go', countdown: 0 });
+    }
+    var manche = body.match(/manche\s+(\d+)\s*\/\s*(\d+)/i)
+      || body.match(/manche\s*:\s*(\d+)(?:\s*\/\s*(\d+))?/i);
     if (manche) {
       var durM = (getChannelState(channel) || {}).duration || 60;
       patchChannel(channel, {
         phase: 'playing',
         round: Number(manche[1]) || 0,
-        totalRounds: Number(manche[2]) || 0,
+        totalRounds: Number(manche[2]) || (getChannelState(channel) || {}).totalRounds || 0,
         roundStartAt: Date.now(),
         countdownAt: Date.now(),
         countdown: durM,
         duration: durM,
       });
     }
-    var lc = body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*cat[ée]gories\s*:\s*(.+)$/i);
+    var lc = body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*cat[ée]gories(?:\s+actuelles)?\s*:\s*(.+)$/i);
     if (lc) {
       var durLc = (getChannelState(channel) || {}).duration || 60;
       patchChannel(channel, {
@@ -490,7 +560,7 @@
         duration: (getChannelState(channel) || {}).duration || 60,
       });
     }
-    var catsOnly = body.match(/(?:📚\s*)?cat[ée]gories\s*:\s*(.+)$/i);
+    var catsOnly = body.match(/(?:📚\s*)?cat[ée]gories(?:\s+actuelles)?\s*:\s*(.+)$/i);
     if (catsOnly && !/par manche|actuelles/i.test(body)) {
       patchChannel(channel, {
         phase: 'playing',
@@ -550,6 +620,26 @@
         gameSt = getChannelState(channel) || defaultState();
       }
 
+      if (/Partie termin[eé]e|FIN DE LA PARTIE/i.test(body) && /classement/i.test(body)) {
+        var ranked = [];
+        var rankRe = /(\d+)\.\s*([^\s·|,]+)\s+(\d+)\s*pts/gi;
+        var rm;
+        while ((rm = rankRe.exec(body))) {
+          ranked.push({ nick: rm[2], pts: Number(rm[3]) || 0 });
+        }
+        if (ranked.length) {
+          patchChannel(channel, {
+            phase: 'game_end',
+            finalRanking: ranked,
+            scores: scoresFromRanking(ranked),
+            letter: '',
+            categories: [],
+            roundStartAt: 0,
+          });
+          gameSt = getChannelState(channel) || defaultState();
+        }
+      }
+
       if (/fin de la partie|partie termin[eé]e/i.test(body)) {
         patchChannel(channel, {
           phase: 'game_end',
@@ -561,7 +651,24 @@
       }
 
       var scoreLine = parseScoreLine(body);
-      if (scoreLine) {
+      var scorePairs = extractScorePairs(body);
+      if (scorePairs.length > 1 || (scoreLine && /classement|scores cumul/i.test(body))) {
+        var list = scorePairs.length ? scorePairs : [scoreLine];
+        var mergedScores = Object.assign({}, gameSt.scores || {});
+        list.forEach(function (row) { mergedScores[row.nick] = row.pts; });
+        if (gameSt.phase === 'game_end' || /classement final|Voici le classement|Fin de partie/i.test(body)) {
+          patchChannel(channel, {
+            phase: 'game_end',
+            finalRanking: Object.keys(mergedScores).map(function (nick) {
+              return { nick: nick, pts: mergedScores[nick] };
+            }).sort(function (a, b) { return b.pts - a.pts; }),
+            scores: mergedScores,
+          });
+        } else {
+          patchChannel(channel, { scores: mergedScores });
+          gameSt = getChannelState(channel) || defaultState();
+        }
+      } else if (scoreLine) {
         if (gameSt.phase === 'game_end' || /classement final|Voici le classement/i.test(body)) {
           var finalList = upsertRankingRow(gameSt.finalRanking || [], scoreLine.nick, scoreLine.pts);
           patchChannel(channel, {
@@ -573,6 +680,11 @@
           var cum = Object.assign({}, gameSt.scores || {});
           cum[scoreLine.nick] = scoreLine.pts;
           patchChannel(channel, { scores: cum });
+          gameSt = getChannelState(channel) || defaultState();
+        } else if (gameSt.phase === 'playing' || gameSt.phase === 'paused') {
+          var liveScores = Object.assign({}, gameSt.scores || {});
+          liveScores[scoreLine.nick] = scoreLine.pts;
+          patchChannel(channel, { scores: liveScores });
           gameSt = getChannelState(channel) || defaultState();
         }
       }
@@ -682,6 +794,20 @@
   }
 
   function rankingFromPairs(pairs) {
+    if (typeof pairs === 'string') {
+      var parsed = safeJson(pairs, null);
+      if (parsed) pairs = parsed;
+      else {
+        return String(pairs).split(',').map(function (chunk) {
+          var parts = String(chunk || '').split(':');
+          if (parts.length < 2) return null;
+          var pts = Number(parts.pop());
+          var nick = parts.join(':').trim();
+          if (!nick) return null;
+          return { nick: nick, pts: pts || 0 };
+        }).filter(Boolean);
+      }
+    }
     if (!Array.isArray(pairs)) return [];
     return pairs.map(function (row) {
       if (Array.isArray(row)) return { nick: String(row[0] || ''), pts: Number(row[1]) || 0 };
@@ -779,6 +905,7 @@
         categories: catsS ? catsS.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [],
         duration: durS,
         totalRounds: Number(tagVal(tags, '+max_rounds')) || ((getChannelState(channel) || {}).totalRounds) || 0,
+        mode: tagVal(tags, '+mode') || ((getChannelState(channel) || {}).mode) || '',
         countdown: leftS,
         countdownAt: Date.now(),
         roundStartAt: Date.now() - Math.max(0, (durS - leftS) * 1000),
@@ -800,7 +927,17 @@
           tagVal(tags, '+word'),
           Number(tagVal(tags, '+points')) || 1
         );
-        bumpStore();
+        var nickOk = tagVal(tags, '+nick');
+        var ptsOk = Number(tagVal(tags, '+points')) || 0;
+        if (nickOk && ptsOk) {
+          var scoresOk = Object.assign({}, gameOk.scores || {});
+          var rsOk = Object.assign({}, gameOk.roundScores || {});
+          scoresOk[nickOk] = (Number(scoresOk[nickOk]) || 0) + ptsOk;
+          rsOk[nickOk] = (Number(rsOk[nickOk]) || 0) + ptsOk;
+          patchChannel(channel, { scores: scoresOk, roundScores: rsOk });
+        } else {
+          bumpStore();
+        }
       }
       return;
     }
@@ -821,11 +958,14 @@
     }
 
     if (ev === 'round_end') {
-      var rs = safeJson(tagVal(tags, '+round_scores'), {});
-      var merged = Object.assign({}, (getChannelState(channel) || {}).scores || {});
-      Object.keys(rs).forEach(function (nick) {
-        merged[nick] = (merged[nick] || 0) + (Number(rs[nick]) || 0);
-      });
+      var rs = parseScoreMap(tagVal(tags, '+round_scores'));
+      var prevS = (getChannelState(channel) || {}).scores || {};
+      var merged = Object.assign({}, prevS);
+      if (!Object.keys(prevS).length) {
+        Object.keys(rs).forEach(function (nick) {
+          merged[nick] = Number(rs[nick]) || 0;
+        });
+      }
       patchChannel(channel, {
         phase: 'round_end',
         round: Number(tagVal(tags, '+round')) || 0,
@@ -837,16 +977,17 @@
     }
 
     if (ev === 'game_end') {
-      var ranking = safeJson(tagVal(tags, '+final_ranking'), []);
+      var rankingRaw = tagVal(tags, '+final_ranking') || tagVal(tags, '+ranking');
+      var ranking = rankingFromPairs(rankingRaw);
       var topGlobal = safeJson(tagVal(tags, '+top_global'), []);
       patchChannel(channel, {
         phase: 'game_end',
-        finalRanking: rankingFromPairs(ranking),
+        finalRanking: ranking,
         topGlobal: rankingFromPairs(topGlobal),
         roundStartAt: 0,
         letter: '',
         categories: [],
-        scores: scoresFromRanking(rankingFromPairs(ranking)),
+        scores: scoresFromRanking(ranking),
       });
       return;
     }
@@ -860,18 +1001,33 @@
     el.textContent = [
       '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
       '.opbac-panel .opbac-body{max-height:min(42vh,400px);overflow-y:auto;-webkit-overflow-scrolling:touch}',
+      '.opbac-panel--game-end{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
+      '.opbac-panel--game-end .opbac-body{max-height:none;flex:1 1 auto;min-height:0}',
+      '.opbac-panel--round-end .opbac-body{max-height:min(52vh,520px)}',
+      'body.opbac-end-overlay .main .messages{display:none}',
+      'body.opbac-end-overlay .opbac-panel--collapsed{flex:0 0 auto}',
+      'body.opbac-end-overlay .opbac-panel--collapsed + .messages,body.opbac-end-overlay .opbac-panel--collapsed ~ .messages{display:block}',
       '.opbac-panel--collapsed .opbac-body{display:none}',
       '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff}',
-      '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;gap:.5rem}',
+      '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .5rem}',
       '.opbac-head__logo{width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,.15)}',
       '.opbac-head__title{font-weight:800;font-size:.88rem;letter-spacing:.01em}',
-      '.opbac-head__badge{font-size:.68rem;font-weight:800;padding:.15rem .5rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap}',
+      '.opbac-head__badge{font-size:.68rem;font-weight:800;padding:.15rem .5rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap;flex-shrink:0;overflow:visible}',
+      '.opbac-head__badge--mode{background:rgba(255,255,255,.28)}',
       '.opbac-head__actions{display:flex;align-items:center;gap:.3rem}',
       '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1}',
       '.opbac-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.opbac-body{padding:0}',
-      '.opbac-arena{position:relative;display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover}',
+      '.opbac-arena{position:relative;display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,3vw,1.5rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover}',
+      '.opbac-arena__play{display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);flex:0 0 auto}',
       '.opbac-arena__block{display:flex;flex-direction:column;align-items:center;gap:.2rem}',
+      '.opbac-arena__scores{flex:1 1 11rem;min-width:8.5rem;max-width:16rem;align-self:stretch;margin-left:auto;padding:.4rem .55rem;border-radius:12px;background:color-mix(in srgb,var(--bg,#fff) 88%,#6366f1);border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));max-height:7.2rem;overflow-y:auto}',
+      '.opbac-arena__scores-h{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#888);margin:0 0 .3rem}',
+      '.opbac-arena__scores-row{display:flex;justify-content:space-between;gap:.4rem;font-size:.78rem;line-height:1.35;font-weight:700}',
+      '.opbac-arena__scores-nick{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0}',
+      '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
+      '@media(max-width:720px){.opbac-arena{flex-wrap:wrap;justify-content:center}.opbac-arena__scores{flex:1 1 100%;max-width:none;margin-left:0;max-height:5.5rem}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
       '.opbac-clock{position:relative;width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px)}',
@@ -888,6 +1044,15 @@
       '.opbac-idle__txt{font-size:.9rem;color:var(--muted,#666);margin:0 0 .75rem;line-height:1.45}',
       '.opbac-idle__cta{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-radius:999px;padding:.75rem 1.35rem;font-size:.95rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:48px}',
       '.opbac-idle__help{margin-top:.55rem;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
+      '.opbac-prep{padding:1rem .85rem 1.15rem;text-align:center}',
+      '.opbac-prep__logo{width:56px;height:56px;margin:0 auto .55rem;display:block;border-radius:14px;box-shadow:0 6px 18px -8px rgba(99,102,241,.4)}',
+      '.opbac-prep__title{margin:0;font-size:1rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-prep__detail{margin:.35rem 0 .65rem;font-size:.78rem;font-weight:700;color:var(--muted,#666)}',
+      '.opbac-prep__msg{margin:.45rem 0 0;font-size:.86rem;color:var(--muted,#666)}',
+      '.opbac-prep__spin{display:block;margin:.35rem auto 0}',
+      '.opbac-prep__cd{margin:.35rem auto 0;width:4.5rem;height:4.5rem;border-radius:50%;display:grid;place-items:center;font-size:2.4rem;font-weight:900;color:#fff;background:linear-gradient(145deg,#6366f1,#8b5cf6);box-shadow:0 8px 24px -8px rgba(99,102,241,.45)}',
+      '.opbac-prep__letter{margin:.65rem auto 0;width:3.5rem;height:3.5rem;border-radius:50%;display:grid;place-items:center;font-size:2rem;font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c)}',
+      '.opbac-prep__cats{margin:.45rem 0 0;font-size:.78rem;font-weight:700;color:var(--muted,#666);text-transform:capitalize}',
       '.opbac-sheet{display:grid;grid-template-columns:repeat(var(--opbac-cols,3),minmax(0,1fr));gap:.55rem;width:100%;align-items:stretch}',
       '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
@@ -958,12 +1123,12 @@
       '@keyframes opbacSpin{to{transform:rotate(360deg)}}',
       '.opbac-refresh{display:inline-block;width:1.35rem;height:1.35rem;border:2px solid color-mix(in srgb,var(--accent,#6366f1) 35%,var(--border,#ccc));border-top-color:var(--accent,#6366f1);border-radius:50%;animation:opbacSpin .75s linear infinite;vertical-align:middle}',
       '.opbac-end__refresh{width:1.75rem;height:1.75rem;margin:0 auto .45rem;display:block}',
-      '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff}',
+      '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff;overflow:visible}',
       '.opbac-end__hero--game{background:linear-gradient(135deg,#6d28d9,#4f46e5)}',
       '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5)}',
       '.opbac-end__illus{width:3.25rem;height:3.25rem;margin:0 auto .45rem;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.12))}',
       '.opbac-end__trophy{font-size:2.2rem;line-height:1;margin-bottom:.35rem}',
-      '.opbac-end__title{font-size:1.25rem;font-weight:900;letter-spacing:.01em;margin:0 0 .25rem}',
+      '.opbac-end__title{font-size:clamp(1.05rem,3.6vw,1.3rem);font-weight:900;letter-spacing:0;margin:0 0 .25rem;line-height:1.25;overflow:visible;white-space:normal}',
       '.opbac-end__sub{font-size:.82rem;font-weight:700;opacity:.92;margin:0}',
       '.opbac-end__block{margin-bottom:.85rem}',
       '.opbac-end__block:last-child{margin-bottom:0}',
@@ -981,7 +1146,8 @@
       '.opbac-end__btn--primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}',
       '.opbac-end__btn--ghost{background:var(--bg-soft,rgba(127,127,127,.1));color:var(--ink,#111);border:1px solid var(--border,#ddd)}',
       '.opbac-end__empty{font-size:.82rem;color:var(--muted,#666);text-align:center;padding:.65rem;display:flex;align-items:center;justify-content:center;gap:.45rem}',
-      '.opbac-replay{margin-top:.25rem;padding:1rem .85rem 1.05rem;border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 8%,var(--bg,#fff)),var(--bg-soft,rgba(127,127,127,.05)));border:2px solid color-mix(in srgb,#6366f1 28%,var(--border,#ddd));text-align:center}',
+      '.opbac-end__chat-hint{margin:.85rem 0 0;text-align:center}',
+      '.opbac-end__chat-btn{border:0;background:none;color:var(--accent,#6366f1);font-size:.8rem;font-weight:800;cursor:pointer;text-decoration:underline}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-replay__sub{margin:0 0 .75rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
       '.opbac-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;margin-bottom:.75rem}',
@@ -1016,8 +1182,25 @@
   }
 
   function computeRemaining(game) {
-    if (!game || game.phase !== 'playing') return { remaining: 0, progress: 0, total: 0 };
+    if (!game) return { remaining: 0, progress: 0, total: 0 };
+    var phase = game.phase || 'idle';
     var now = Date.now();
+    if (phase === 'countdown' || phase === 'go') {
+      if (game.countdown > 0 && game.countdownAt) {
+        var elapsedCd = (now - game.countdownAt) / 1000;
+        var remCd = Math.max(0, Math.ceil(game.countdown - elapsedCd));
+        var totalCd = game.countdown;
+        return {
+          remaining: remCd,
+          progress: totalCd > 0 ? Math.min(1, 1 - remCd / totalCd) : 0,
+          total: totalCd,
+        };
+      }
+      if (game.countdown > 0) {
+        return { remaining: game.countdown, progress: 0, total: game.countdown };
+      }
+    }
+    if (phase !== 'playing' && phase !== 'paused') return { remaining: 0, progress: 0, total: 0 };
     if (game.roundStartAt && game.duration > 0) {
       var elapsed = (now - game.roundStartAt) / 1000;
       var rem = Math.max(0, Math.ceil(game.duration - elapsed));
@@ -1052,30 +1235,115 @@
       '<span class="opbac-clock__unit">sec</span></div>';
   }
 
+  function buildSideScoresHtml(game) {
+    var rows = rankingForDisplay(game, false);
+    var html = '<aside class="opbac-arena__scores" data-opbac-scores>' +
+      '<p class="opbac-arena__scores-h">' + escHtml(pick({ fr: 'Scores', en: 'Scores' })) + '</p>';
+    if (!rows.length) {
+      html += '<p class="opbac-arena__scores-empty">' + escHtml(pick({
+        fr: 'Les points s’affichent ici',
+        en: 'Points appear here',
+      })) + '</p></aside>';
+      return html;
+    }
+    html += rows.slice(0, 8).map(function (row) {
+      return '<div class="opbac-arena__scores-row">' +
+        '<span class="opbac-arena__scores-nick">' + escHtml(row.nick) + '</span>' +
+        '<span class="opbac-arena__scores-pts">' + escHtml(String(row.pts)) + '</span></div>';
+    }).join('') + '</aside>';
+    return html;
+  }
+
   function buildStageHtml(game, remaining, progress) {
     if (!game.letter) return '';
     return '<div class="opbac-arena">' +
-      '<div class="opbac-arena__block">' +
-        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
-        '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter) + '</div>' +
+      '<div class="opbac-arena__play">' +
+        '<div class="opbac-arena__block">' +
+          '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Lettre', en: 'Letter' })) + '</span>' +
+          '<div class="opbac-letter-xl" data-opbac-letter>' + escHtml(game.letter) + '</div>' +
+        '</div>' +
+        '<div class="opbac-arena__block">' +
+          '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Temps', en: 'Time' })) + '</span>' +
+          buildClockHtml(remaining, progress, 0) +
+        '</div>' +
       '</div>' +
-      '<div class="opbac-arena__block">' +
-        '<span class="opbac-arena__lbl">' + escHtml(pick({ fr: 'Temps', en: 'Time' })) + '</span>' +
-        buildClockHtml(remaining, progress, 0) +
-      '</div></div>';
+      buildSideScoresHtml(game) +
+    '</div>';
   }
 
-  function buildHeadHtml(headBadge, wasCollapsed, isLive) {
+  function buildPrepScreenHtml(game, remaining) {
+    var phase = game.phase || 'starting';
+    var title = phaseLabel(phase, game.countdown || remaining);
+    var detail = '';
+    if (game.totalRounds && game.duration) {
+      detail = pick({
+        fr: game.totalRounds + ' manches · ' + game.duration + ' s par manche',
+        en: game.totalRounds + ' rounds · ' + game.duration + ' s each',
+      });
+    } else if (game.totalRounds) {
+      detail = pick({ fr: game.totalRounds + ' manches', en: game.totalRounds + ' rounds' });
+    }
+    var showCountdown = (phase === 'countdown' || phase === 'go') && (remaining > 0 || game.countdown > 0);
+    var cd = showCountdown ? (remaining > 0 ? remaining : game.countdown) : 0;
+    var body = '';
+    if (showCountdown && cd > 0) {
+      body = '<div class="opbac-prep__cd" data-opbac-prep-cd>' + escHtml(String(cd)) + '</div>' +
+        '<p class="opbac-prep__msg">' + escHtml(pick({ fr: 'C\'est parti dans…', en: 'Starting in…' })) + '</p>';
+    } else {
+      body = refreshSpinnerHtml('opbac-prep__spin') +
+        '<p class="opbac-prep__msg">' + escHtml(
+          phase === 'rules'
+            ? pick({ fr: 'Lecture des règles…', en: 'Reading rules…' })
+            : (phase === 'starting'
+              ? pick({ fr: 'Préparation de la partie…', en: 'Setting up the game…' })
+              : pick({ fr: 'La manche va commencer…', en: 'Round starting soon…' }))
+        ) + '</p>';
+    }
+    if (game.letter) {
+      body += '<div class="opbac-prep__letter" data-opbac-letter>' + escHtml(game.letter) + '</div>';
+    }
+    if (game.categories && game.categories.length) {
+      body += '<p class="opbac-prep__cats">' + escHtml(game.categories.join(' · ')) + '</p>';
+    }
+    return '<div class="opbac-prep" data-opbac-prep>' +
+      imgHtml('logo.svg', 'Petit Bac', 'opbac-prep__logo') +
+      '<p class="opbac-prep__title">' + escHtml(title) + '</p>' +
+      (detail ? '<p class="opbac-prep__detail">' + escHtml(detail) + '</p>' : '') +
+      body + '</div>';
+  }
+
+  function buildPlayingBodyHtml(buffer, game, remaining, progress) {
+    if (hasPlayableGrid(game)) {
+      return buildStageHtml(game, remaining, progress) +
+        '<div class="opbac-scroll"><div data-opbac-form>' + buildFormHtml(buffer, game) + '</div></div>';
+    }
+    if (isGameRunning(game)) return buildPrepScreenHtml(game, remaining);
+    return '';
+  }
+
+  function modeBadgeLabel(mode) {
+    var id = String(mode || '').trim().toLowerCase();
+    if (!id) return '';
+    var opts = gameModeOptions();
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].id === id) return opts[i].emoji + ' ' + opts[i].label;
+    }
+    return id.charAt(0).toUpperCase() + id.slice(1);
+  }
+
+  function buildHeadHtml(headBadge, modeBadge, wasCollapsed, gameActive) {
     return '<div class="opbac-head">' +
       '<div class="opbac-head__brand">' +
         imgHtml('logo.svg', 'Petit Bac', 'opbac-head__logo') +
         '<span class="opbac-head__title">Petit Bac</span>' +
-        '<span class="opbac-head__badge" data-opbac-head-badge">' + escHtml(headBadge) + '</span>' +
+        '<span class="opbac-head__badge" data-opbac-head-badge>' + escHtml(headBadge) + '</span>' +
+        '<span class="opbac-head__badge opbac-head__badge--mode" data-opbac-head-mode' +
+          (modeBadge ? '' : ' hidden') + '>' + escHtml(modeBadge || '') + '</span>' +
       '</div>' +
       '<div class="opbac-head__actions">' +
         '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
           escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
-        (!isLive
+        (!gameActive
           ? ('<button type="button" class="opbac-head__btn" data-act="jouer" title="' +
               escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '">▶</button>')
           : '') +
@@ -1213,7 +1481,30 @@
     return notes.slice(-8);
   }
 
+  function parseScoreMap(raw) {
+    var json = safeJson(raw, null);
+    if (json && typeof json === 'object' && !Array.isArray(json)) return json;
+    var o = Object.create(null);
+    rankingFromPairs(raw).forEach(function (row) { o[row.nick] = row.pts; });
+    return o;
+  }
+
+  function extractScorePairs(body) {
+    var out = [];
+    var re = /(?:^|[•·|,]\s*|(?:pour)\s+)([^\s:]{1,32})\s*:\s*(\d+)\s+point/gi;
+    var m;
+    var skip = /^(scores|cumul[eé]s?|manche|lettre|r[eé]sultat|classement|point|pts|cat[ée]gorie)$/i;
+    while ((m = re.exec(String(body || '')))) {
+      var nick = String(m[1] || '').replace(/^[@+%~&]/, '');
+      if (!nick || skip.test(nick)) continue;
+      out.push({ nick: nick, pts: Number(m[2]) || 0 });
+    }
+    return out;
+  }
+
   function parseScoreLine(body) {
+    var all = extractScorePairs(body);
+    if (all.length === 1) return all[0];
     var m = String(body || '').match(/^[•\s]*([^\s:]{1,32})\s*:\s*(\d+)\s+point/i);
     if (!m) return null;
     return { nick: m[1].replace(/^[@+%~&]/, ''), pts: Number(m[2]) || 0 };
@@ -1599,8 +1890,6 @@
 
   function triggerCompleteCelebration(root) {
     root.classList.add('opbac-panel--complete');
-    var badge = root.querySelector('[data-opbac-head-badge]');
-    if (badge) badge.classList.add('opbac-head__badge--complete');
   }
 
   function syncCompleteCelebration(root, buffer, game) {
@@ -1616,15 +1905,11 @@
         triggerCompleteCelebration(root);
       } else {
         root.classList.add('opbac-panel--complete');
-        var badgeDone = root.querySelector('[data-opbac-head-badge]');
-        if (badgeDone) badgeDone.classList.add('opbac-head__badge--complete');
       }
       return true;
     }
     if (root.__opbacCompleteRound === rk) root.__opbacCompleteRound = '';
     root.classList.remove('opbac-panel--complete');
-    var badge = root.querySelector('[data-opbac-head-badge]');
-    if (badge) badge.classList.remove('opbac-head__badge--complete');
     return false;
   }
 
@@ -1745,6 +2030,10 @@
       }
 
       html += buildReplaySectionHtml(selectedMode);
+      html += '<p class="opbac-end__chat-hint">' +
+        '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
+          escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
+        '</button></p>';
     } else if (game.round && game.totalRounds && game.round < game.totalRounds) {
       html += '<p class="opbac-end__note" style="margin-top:.5rem">' +
         escHtml(pick({ fr: '⏳ La manche suivante va démarrer…', en: '⏳ Next round starting soon…' })) +
@@ -1815,7 +2104,7 @@
       var k = cat.toLowerCase();
       return (draft.drafts[k] || '').trim() && !(draft.validated[k]);
     });
-    var completeBanner = allDisabled ? buildCompleteBannerHtml() : '';
+    var completeBanner = '';
     var sheetCls = 'opbac-sheet' + (allDisabled ? ' opbac-sheet--complete' : '');
     return completeBanner +
       '<div class="' + sheetCls + '" style="--opbac-cols:' + cols + '">' + rows +
@@ -1824,6 +2113,11 @@
             escHtml(pick({ fr: 'Tout envoyer', en: 'Send all' })) + '</button>')
         : '') +
       '</div>';
+  }
+
+  function updatePrepDom(root, remaining) {
+    var cdEl = root.querySelector('[data-opbac-prep-cd]');
+    if (cdEl && remaining > 0) cdEl.textContent = String(remaining);
   }
 
   function updateClockDom(root, remaining, progress) {
@@ -1855,6 +2149,8 @@
       game.letter,
       (game.categories || []).join('|'),
       game.totalRounds,
+      game.mode || '',
+      JSON.stringify(game.scores || {}),
     ].join(';');
     if (game.phase === 'game_end' || game.phase === 'round_end') {
       base += '|' + JSON.stringify(game.finalRanking || []) +
@@ -1974,6 +2270,11 @@
         if (collapseBtn) {
           collapseBtn.textContent = root.classList.contains('opbac-panel--collapsed') ? '▾' : '▴';
         }
+        var g = getChannelState(buffer);
+        document.body.classList.toggle(
+          'opbac-end-overlay',
+          !!(g && g.phase === 'game_end' && !root.classList.contains('opbac-panel--collapsed'))
+        );
         return;
       }
       if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
@@ -2042,6 +2343,7 @@
     var onBac = isBacChannel(orbit, buffer);
     document.body.classList.toggle('opbac-active', !!onBac);
     if (!onBac) {
+      document.body.classList.remove('opbac-end-overlay');
       root.style.display = 'none';
       return;
     }
@@ -2051,13 +2353,18 @@
     var phase = game.phase || 'idle';
     var sig = panelSignature(game);
     var rebuild = root.__opbacSig !== sig;
-    var isLive = phase === 'playing' && game.letter && game.categories.length > 0;
-    var isIdle = phase === 'idle' && !game.letter;
+    var gameRunning = isGameRunning(game);
+    var hasGrid = hasPlayableGrid(game);
+    var isLive = hasGrid && (phase === 'playing' || phase === 'paused');
+    var isIdle = !gameRunning && phase === 'idle' && !game.letter;
     var isGameEnd = phase === 'game_end';
     var isRoundEnd = phase === 'round_end';
     var isEnd = isGameEnd || isRoundEnd;
+    var isPrep = gameRunning && !hasGrid && !isEnd;
     var myNick = orbit.state.nick() || '';
     var replayMode = defaultReplayMode(game, root, orbit);
+
+    if (gameRunning && !isEnd) maybeRequestGameSync(orbit, buffer, game);
 
     if (rebuild) {
       saveDraftFromDom(root, buffer);
@@ -2068,7 +2375,14 @@
     var remaining = timing.remaining;
     var progress = timing.progress;
     var wasCollapsed = root.classList.contains('opbac-panel--collapsed');
-    if (isEnd) wasCollapsed = false;
+    if (isRoundEnd) wasCollapsed = false;
+    if (isGameEnd && !root.__opbacDidOpenEnd) {
+      wasCollapsed = false;
+      root.__opbacDidOpenEnd = true;
+    }
+    if (!isGameEnd) root.__opbacDidOpenEnd = false;
+    if (gameRunning && !isEnd) wasCollapsed = false;
+    document.body.classList.toggle('opbac-end-overlay', !!(isGameEnd && !wasCollapsed));
     var headBadge = game.round && game.totalRounds
       ? ('Manche ' + game.round + '/' + game.totalRounds)
       : phaseLabel(phase, game.countdown);
@@ -2076,19 +2390,18 @@
       headBadge = pick({ fr: 'Partie terminée', en: 'Game over' });
     } else if (isRoundEnd) {
       headBadge = pick({ fr: 'Fin de manche', en: 'Round over' });
-    } else if (isLive && allCategoriesValidated(buffer, game)) {
-      headBadge = pick({ fr: 'Grille complète ✓', en: 'Grid complete ✓' });
     }
+    var modeBadge = (gameRunning || isEnd) ? modeBadgeLabel(game.mode) : '';
 
     root.className = 'opbac-panel' +
       (wasCollapsed ? ' opbac-panel--collapsed' : '') +
-      (isLive ? ' opbac-panel--playing' : '') +
+      ((isLive || isPrep) ? ' opbac-panel--playing' : '') +
       (isGameEnd ? ' opbac-panel--game-end' : '') +
       (isRoundEnd ? ' opbac-panel--round-end' : '');
 
     if (rebuild) {
       var bodyHtml = '';
-      if (isIdle && !game.letter) {
+      if (isIdle) {
         bodyHtml = '<div class="opbac-idle">' +
           imgHtml('idle-hero.svg', pick({ fr: 'Petit Bac', en: 'Petit Bac' }), 'opbac-idle__art') +
           '<p class="opbac-idle__txt">' + escHtml(pick({
@@ -2109,12 +2422,11 @@
         bodyHtml = buildEndScreenHtml(game, myNick, replayMode, endAnimate);
         root.__opbacReplayMode = replayMode;
       } else {
-        bodyHtml = buildStageHtml(game, remaining, progress) +
-          '<div class="opbac-scroll"><div data-opbac-form>' + buildFormHtml(buffer, game) + '</div></div>';
+        bodyHtml = buildPlayingBodyHtml(buffer, game, remaining, progress);
       }
 
       root.innerHTML =
-        buildHeadHtml(headBadge, wasCollapsed, isLive && !isEnd) +
+        buildHeadHtml(headBadge, modeBadge, wasCollapsed, gameRunning && !isEnd) +
         '<div class="opbac-body">' + bodyHtml + '</div>';
 
       root.__opbacDraftSig = draftSignature(buffer, game);
@@ -2129,7 +2441,21 @@
     } else {
       var headBadgeEl = root.querySelector('[data-opbac-head-badge]');
       if (headBadgeEl) headBadgeEl.textContent = headBadge;
-      if (!isEnd) updateClockDom(root, remaining, progress);
+      var modeEl = root.querySelector('[data-opbac-head-mode]');
+      if (modeEl) {
+        if (modeBadge) {
+          modeEl.hidden = false;
+          modeEl.textContent = modeBadge;
+        } else {
+          modeEl.hidden = true;
+        }
+      }
+      var scoresWrap = root.querySelector('[data-opbac-scores]');
+      if (scoresWrap && (isLive || hasGrid) && !isEnd) {
+        scoresWrap.outerHTML = buildSideScoresHtml(game);
+      }
+      if (isLive && !isEnd) updateClockDom(root, remaining, progress);
+      else if (isPrep) updatePrepDom(root, remaining);
 
       if (isEnd) {
         var endSig2 = endScreenSignature(game);
@@ -2145,7 +2471,7 @@
           }
         }
         updateReplayModeUi(root, defaultReplayMode(game, root, orbit));
-      } else {
+      } else if (hasGrid) {
         var formWrap = root.querySelector('[data-opbac-form]');
         var dSig = draftSignature(buffer, game);
         if (formWrap && root.__opbacDraftSig !== dSig) {
@@ -2154,10 +2480,13 @@
           formWrap.innerHTML = buildFormHtml(buffer, game);
         }
         syncCompleteCelebration(root, buffer, game);
+      } else if (isPrep) {
+        updatePrepDom(root, remaining);
       }
     }
 
     if (!rebuild && isLive && !isEnd) updateClockDom(root, remaining, progress);
+    if (!rebuild && isPrep && !isEnd) updatePrepDom(root, remaining);
     if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
     requestAnimationFrame(function () { pinChatIfFollowing(); });
   }
@@ -2213,7 +2542,14 @@
       }
     });
 
-    orbit.on('buffer.active', syncDom);
+    orbit.on('buffer.active', function () {
+      var buf = orbit.state.active();
+      if (isBacChannel(orbit, buf)) {
+        var g = getChannelState(buf) || defaultState();
+        if (isGameRunning(g) && !hasPlayableGrid(g)) maybeRequestGameSync(orbit, buf, g);
+      }
+      syncDom();
+    });
     orbit.on('connected', syncDom);
     orbit.on('status', syncDom);
     setInterval(syncDom, 250);
