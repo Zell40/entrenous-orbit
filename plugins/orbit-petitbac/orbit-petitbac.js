@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 24;
+  var PBAC_VER = 26;
   var syncRequestAt = Object.create(null);
 
   function boot(retry) {
@@ -32,6 +32,11 @@
   var PANEL_HEIGHT_DEFAULT = 380;
   /** Instance API du plugin (Orbit global n'expose pas i18n). */
   var pluginOrbit = null;
+  var extraModes = [];
+  var extraModesTick = 0;
+  var listeAt = 0;
+  var waitingListe = false;
+  var pendingCreate = false;
 
   function pick(table) {
     if (pluginOrbit && pluginOrbit.i18n && pluginOrbit.i18n.pick) {
@@ -326,11 +331,34 @@
     bumpStore();
   }
 
+  function showScoreBurst(pts) {
+    pts = Number(pts) || 1;
+    var host = document.getElementById('opbac-dom-panel');
+    if (!host || host.classList.contains('opbac-panel--collapsed')) host = document.body;
+    var burst = document.createElement('div');
+    burst.className = 'opbac-score-burst' + (pts >= 2 ? ' opbac-score-burst--hard' : '');
+    burst.setAttribute('aria-hidden', 'true');
+    var sparks = '';
+    var dirs = [[-42, -28], [38, -34], [-28, 22], [44, 18], [0, -48], [-52, 4], [54, -8]];
+    for (var i = 0; i < dirs.length; i++) {
+      sparks += '<span class="opbac-score-burst__spark" style="--dx:' + dirs[i][0] + 'px;--dy:' +
+        dirs[i][1] + 'px;animation-delay:' + (i * 0.04) + 's"></span>';
+    }
+    burst.innerHTML =
+      sparks +
+      '<span class="opbac-score-burst__n">+' + pts + '</span>' +
+      '<span class="opbac-score-burst__lbl">' + escHtml(pick({ fr: 'pt', en: 'pt' })) + '</span>';
+    host.appendChild(burst);
+    window.setTimeout(function () { if (burst.parentNode) burst.remove(); }, 1450);
+  }
+
   function showWordValidatedPopup(orbit, catLabel, word, pts) {
     orbit = orbit || pluginOrbit;
     catLabel = String(catLabel || '').trim();
     word = String(word || '').trim();
+    pts = Number(pts) || 1;
     if (!word && !catLabel) return;
+    showScoreBurst(pts);
     var prev = document.getElementById('opbac-word-toast');
     if (prev) prev.remove();
     var el = document.createElement('div');
@@ -347,7 +375,7 @@
         '</strong>' +
         (word ? ('<span class="opbac-word-toast__word">« ' + escHtml(word) + ' »</span>') : '') +
         (catLabel ? ('<span class="opbac-word-toast__cat">' + escHtml(catLabel) + '</span>') : '') +
-        '<span class="opbac-word-toast__pts">+' + (Number(pts) || 1) + ' ' +
+        '<span class="opbac-word-toast__pts">+' + pts + ' ' +
           escHtml(pick({ fr: 'pt', en: 'pt' })) + '</span></div>';
     document.body.appendChild(el);
     requestAnimationFrame(function () { el.classList.add('opbac-word-toast--show'); });
@@ -358,8 +386,8 @@
     if (orbit && orbit.notify) {
       try {
         orbit.notify('Petit Bac', pick({
-          fr: '✓ ' + (word || catLabel) + ' (+' + (Number(pts) || 1) + ' pt)',
-          en: '✓ ' + (word || catLabel) + ' (+' + (Number(pts) || 1) + ' pt)',
+          fr: '✓ ' + (word || catLabel) + ' (+' + pts + ' pt)',
+          en: '✓ ' + (word || catLabel) + ' (+' + pts + ' pt)',
         }));
       } catch (e) { /* ignore */ }
     }
@@ -484,6 +512,8 @@
     var body = stripReplyPrefix(plain);
     var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     var fromBac = n === 'bac' || n === 'maitredujeu';
+
+    if (fromBac && handleModeListLine(body)) return;
 
     if (fromBac && /R[eè]gles du Petit Bac/i.test(body)) {
       maybeOpenRulesModal(pluginOrbit, channel);
@@ -927,12 +957,18 @@
         draftOk.validated[catOk] = true;
         delete draftOk.pending[catOk];
         if (draftOk.rejected) delete draftOk.rejected[catOk];
-        showWordValidatedPopup(
-          pluginOrbit,
-          resolveCatName(gameOk, catOk),
-          tagVal(tags, '+word'),
-          Number(tagVal(tags, '+points')) || 1
-        );
+        var nickOkPopup = tagVal(tags, '+nick') || tagVal(tags, '+player');
+        var meOk = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
+          ? String(pluginOrbit.state.nick() || '')
+          : '';
+        if (!nickOkPopup || !meOk || String(nickOkPopup).toLowerCase() === meOk.toLowerCase()) {
+          showWordValidatedPopup(
+            pluginOrbit,
+            resolveCatName(gameOk, catOk),
+            tagVal(tags, '+word'),
+            Number(tagVal(tags, '+points')) || 1
+          );
+        }
         var nickOk = tagVal(tags, '+nick');
         var ptsOk = Number(tagVal(tags, '+points')) || 0;
         if (nickOk && ptsOk) {
@@ -1006,18 +1042,18 @@
     el.id = 'orbit-petitbac-css';
     el.textContent = [
       '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
-      '.opbac-panel .opbac-body{max-height:380px;overflow-y:auto;-webkit-overflow-scrolling:touch}',
+      '.opbac-panel .opbac-body{max-height:380px;height:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}',
       '.opbac-panel--round-end .opbac-body{max-height:min(52vh,520px)}',
-      '.opbac-panel--collapsed .opbac-body{display:none}',
+      '.opbac-panel--collapsed .opbac-body{display:none;height:auto!important;max-height:none!important}',
       '.opbac-panel--collapsed .opbac-resize{display:none}',
-      '.opbac-resize{height:10px;cursor:ns-resize;touch-action:none;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--accent,#6366f1) 12%,var(--border,#ddd)));border-top:1px solid color-mix(in srgb,var(--accent,#6366f1) 15%,var(--border,#ddd))}',
-      '.opbac-resize::after{content:"";display:block;width:2.4rem;height:4px;margin:.22rem auto 0;border-radius:999px;background:color-mix(in srgb,var(--muted,#888) 35%,transparent)}',
+      '.opbac-resize{height:12px;flex:none;cursor:ns-resize;touch-action:none;user-select:none;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--accent,#6366f1) 12%,var(--border,#ddd)));border-top:1px solid color-mix(in srgb,var(--accent,#6366f1) 15%,var(--border,#ddd))}',
+      '.opbac-resize::after{content:"";display:block;width:2.6rem;height:4px;margin:.28rem auto 0;border-radius:999px;background:color-mix(in srgb,var(--muted,#888) 45%,transparent)}',
       '.opbac-resize:hover,.opbac-resize:active{background:color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd))}',
-      '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff}',
-      '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .5rem}',
+      '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff;overflow:visible}',
+      '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .5rem;overflow:visible}',
       '.opbac-head__logo{width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,.15)}',
       '.opbac-head__title{font-weight:800;font-size:.88rem;letter-spacing:.01em}',
-      '.opbac-head__badge{font-size:.68rem;font-weight:800;padding:.15rem .5rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap;flex-shrink:0;overflow:visible}',
+      '.opbac-head__badge{display:inline-flex;align-items:center;font-size:.68rem;font-weight:800;padding:.18rem .65rem;border-radius:999px;background:rgba(255,255,255,.18);white-space:nowrap;flex:0 0 auto;width:auto;max-width:none;overflow:visible;line-height:1.2}',
       '.opbac-head__badge--mode{background:rgba(255,255,255,.28)}',
       '.opbac-head__actions{display:flex;align-items:center;gap:.3rem}',
       '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1}',
@@ -1137,12 +1173,12 @@
       '@keyframes opbacSpin{to{transform:rotate(360deg)}}',
       '.opbac-refresh{display:inline-block;width:1.35rem;height:1.35rem;border:2px solid color-mix(in srgb,var(--accent,#6366f1) 35%,var(--border,#ccc));border-top-color:var(--accent,#6366f1);border-radius:50%;animation:opbacSpin .75s linear infinite;vertical-align:middle}',
       '.opbac-end__refresh{width:1.75rem;height:1.75rem;margin:0 auto .45rem;display:block}',
-      '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff;overflow:visible}',
+      '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff;overflow:visible;width:100%;box-sizing:border-box}',
       '.opbac-end__hero--game{background:linear-gradient(135deg,#6d28d9,#4f46e5)}',
       '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5)}',
       '.opbac-end__illus{width:3.25rem;height:3.25rem;margin:0 auto .45rem;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.12))}',
       '.opbac-end__trophy{font-size:2.2rem;line-height:1;margin-bottom:.35rem}',
-      '.opbac-end__title{font-size:clamp(1.05rem,3.6vw,1.3rem);font-weight:900;letter-spacing:0;margin:0 0 .25rem;line-height:1.25;overflow:visible;white-space:normal}',
+      '.opbac-end__title{display:block;width:100%;max-width:100%;box-sizing:border-box;font-size:1.22rem;font-weight:900;letter-spacing:0;margin:0 0 .25rem;line-height:1.35;overflow:visible;white-space:normal;word-break:normal;overflow-wrap:normal;hyphens:none;text-align:center}',
       '.opbac-end__sub{font-size:.82rem;font-weight:700;opacity:.92;margin:0}',
       '.opbac-end__block{margin-bottom:.85rem}',
       '.opbac-end__block:last-child{margin-bottom:0}',
@@ -1175,6 +1211,19 @@
       '.opbac-replay__cta{display:block;width:100%;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 10px 24px -10px rgba(99,102,241,.55);margin-bottom:.45rem}',
       '.opbac-replay__cta:hover{filter:brightness(1.05)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
+      '.opbac-playpick__sec{margin:.15rem 0 .7rem}',
+      '.opbac-playpick__h{margin:0 0 .4rem;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-customs{display:flex;flex-direction:column;gap:.35rem;max-height:9rem;overflow-y:auto;margin-bottom:.55rem}',
+      '.opbac-customs__empty{margin:0;font-size:.78rem;color:var(--muted,#666)}',
+      '.opbac-custom{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;text-align:left;border:1.5px solid var(--border,#ddd);border-radius:10px;padding:.45rem .55rem;background:var(--bg,#fff);cursor:pointer;font:inherit;color:inherit}',
+      '.opbac-custom--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff))}',
+      '.opbac-custom__name{font-size:.82rem;font-weight:800;color:var(--ink,#111)}',
+      '.opbac-custom__hint{font-size:.68rem;font-weight:700;color:var(--muted,#666);white-space:nowrap}',
+      '.opbac-create{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;margin:.35rem 0 .5rem}',
+      '.opbac-create label{display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#666)}',
+      '.opbac-create input{border:1px solid var(--border,#ccc);border-radius:8px;padding:.4rem .45rem;font-size:.88rem;font-weight:700;min-height:38px;background:var(--bg,#fff);color:var(--ink,#111)}',
+      '.opbac-create__btn{grid-column:1/-1;border:1px dashed color-mix(in srgb,#6366f1 45%,var(--border,#ccc));border-radius:10px;padding:.55rem .65rem;font-size:.8rem;font-weight:800;cursor:pointer;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));color:#4338ca}',
+      '.opbac-play-note{margin:.35rem 0 0;font-size:.72rem;color:var(--muted,#666);line-height:1.35}',
       'body.opbac-active .chan-hero{grid-template-columns:40px 1fr;padding:.22rem .7rem;gap:.45rem;min-height:0}',
       'body.opbac-active .chan-hero__media{width:40px;height:40px;min-height:40px;border-radius:9px}',
       'body.opbac-active .chan-hero__topic{-webkit-line-clamp:1;font-size:.72rem;line-height:1.25}',
@@ -1191,6 +1240,16 @@
       '.opbac-word-toast__word{font-size:.82rem;font-weight:700;color:var(--ink,#222)}',
       '.opbac-word-toast__cat{font-size:.72rem;font-weight:700;color:var(--muted,#666);text-transform:capitalize}',
       '.opbac-word-toast__pts{font-size:.72rem;font-weight:800;color:#16a34a}',
+      '.opbac-score-burst{position:absolute;left:50%;top:38%;z-index:60;pointer-events:none;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);filter:drop-shadow(0 10px 22px rgba(15,23,42,.18))}',
+      '.opbac-score-burst__n{font-size:clamp(2.6rem,9vw,4.4rem);font-weight:900;line-height:1;letter-spacing:-.03em;color:#16a34a;animation:opbacScorePop 1.35s cubic-bezier(.16,1.2,.3,1) both}',
+      '.opbac-score-burst__lbl{margin-top:.15rem;font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#15803d;opacity:.9;animation:opbacScoreLbl 1.35s ease both}',
+      '.opbac-score-burst--hard .opbac-score-burst__n{color:#d97706;background:linear-gradient(180deg,#fbbf24,#d97706);-webkit-background-clip:text;background-clip:text;color:transparent}',
+      '.opbac-score-burst--hard .opbac-score-burst__lbl{color:#b45309}',
+      '.opbac-score-burst__spark{position:absolute;width:.45rem;height:.45rem;border-radius:50%;background:#4ade80;animation:opbacSpark 1.1s ease-out both}',
+      '.opbac-score-burst--hard .opbac-score-burst__spark{background:#fbbf24}',
+      '@keyframes opbacScorePop{0%{opacity:0;transform:scale(.35) translateY(18px)}16%{opacity:1;transform:scale(1.22) translateY(0)}55%{opacity:1;transform:scale(1) translateY(-10px)}100%{opacity:0;transform:scale(.86) translateY(-52px)}}',
+      '@keyframes opbacScoreLbl{0%,12%{opacity:0}22%{opacity:.95}70%{opacity:.9}100%{opacity:0}}',
+      '@keyframes opbacSpark{0%{opacity:0;transform:translate(0,0) scale(.4)}18%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -1360,8 +1419,8 @@
         '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
           escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
         (!gameActive
-          ? ('<button type="button" class="opbac-head__btn" data-act="jouer" title="' +
-              escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '">▶</button>')
+          ? (        '<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
+          escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">▶</button>')
           : '') +
         '<button type="button" class="opbac-head__btn" data-act="collapse" title="' +
           escHtml(pick({ fr: 'Réduire', en: 'Collapse' })) + '">' + (wasCollapsed ? '▾' : '▴') + '</button>' +
@@ -1430,6 +1489,7 @@
   var infoEscHandler = null;
   var rulesModalClose = null;
   var rulesEscHandler = null;
+  var playEscHandler = null;
   var infoLookup = { word: '', waiting: false, buffer: '' };
   var rulesShownFor = Object.create(null);
 
@@ -1453,17 +1513,20 @@
     h = Math.max(PANEL_HEIGHT_MIN, Math.min(PANEL_HEIGHT_MAX, Number(h) || PANEL_HEIGHT_DEFAULT));
     root.__opbacPanelHeight = h;
     var body = root.querySelector('.opbac-body');
-    if (body) body.style.maxHeight = h + 'px';
+    if (body) {
+      body.style.maxHeight = h + 'px';
+      body.style.height = h + 'px';
+    }
   }
 
   function bindPanelResize(root, orbit) {
     if (root.__opbacResizeBound) return;
     root.__opbacResizeBound = true;
-    var handle = root.querySelector('[data-opbac-resize]');
-    if (!handle) return;
-    handle.addEventListener('mousedown', function (ev) {
-      if (root.classList.contains('opbac-panel--collapsed')) return;
+    root.addEventListener('pointerdown', function (ev) {
+      var handle = ev.target && ev.target.closest ? ev.target.closest('[data-opbac-resize]') : null;
+      if (!handle || root.classList.contains('opbac-panel--collapsed')) return;
       ev.preventDefault();
+      ev.stopPropagation();
       var startY = ev.clientY;
       var body = root.querySelector('.opbac-body');
       var startH = body ? body.offsetHeight : getPanelHeight(orbit);
@@ -1471,14 +1534,16 @@
         applyPanelHeight(root, startH + (e.clientY - startY));
       }
       function onUp() {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
         if (root.__opbacPanelHeight) {
           try { orbit.storage.set(STORAGE_PANEL_HEIGHT, root.__opbacPanelHeight); } catch (err) { /* ignore */ }
         }
       }
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
     });
   }
 
@@ -1495,6 +1560,12 @@
       if (rulesEscHandler) { document.removeEventListener('keydown', rulesEscHandler); rulesEscHandler = null; }
       var rulesDom = document.getElementById('opbac-rules-overlay');
       if (rulesDom) rulesDom.remove();
+      return;
+    }
+    if (kind === 'play') {
+      if (playEscHandler) { document.removeEventListener('keydown', playEscHandler); playEscHandler = null; }
+      var playDom = document.getElementById('opbac-play-overlay');
+      if (playDom) playDom.remove();
     }
   }
 
@@ -1723,23 +1794,150 @@
     ];
   }
 
-  function normalizeModeId(mode) {
+  function isBuiltinMode(mode) {
+    return /^(facile|moyen|difficile)$/.test(String(mode || '').trim().toLowerCase());
+  }
+
+  function sanitizeModeId(mode) {
     var m = String(mode || '').trim().toLowerCase();
-    if (m === 'facile' || m === 'moyen' || m === 'difficile') return m;
-    return 'facile';
+    if (!m) return 'facile';
+    return m.replace(/[^a-z0-9_-]/g, '') || 'facile';
+  }
+
+  function normalizeModeId(mode) {
+    return sanitizeModeId(mode);
   }
 
   function defaultReplayMode(game, root, orbit) {
-    if (root && root.__opbacReplayMode) return normalizeModeId(root.__opbacReplayMode);
-    if (game && game.mode) return normalizeModeId(game.mode);
+    if (root && root.__opbacReplayMode) return sanitizeModeId(root.__opbacReplayMode);
+    if (game && game.mode) return sanitizeModeId(game.mode);
     try {
-      if (orbit && orbit.storage) return normalizeModeId(orbit.storage.get('petitbacMode', 'facile'));
+      if (orbit && orbit.storage) return sanitizeModeId(orbit.storage.get('petitbacMode', 'facile'));
     } catch (e) { /* ignore */ }
     return 'facile';
   }
 
-  function buildReplaySectionHtml(selectedMode) {
-    selectedMode = normalizeModeId(selectedMode);
+  function modeHint(cfg) {
+    return (cfg.cats || cfg.categories) + ' cat. · ' + (cfg.duration || cfg.dur) + ' s · ' +
+      (cfg.rounds || cfg.maxrounds) + ' ' + pick({ fr: 'manches', en: 'rounds' });
+  }
+
+  function requestModeList(orbit, buffer) {
+    if (!orbit || !buffer) return;
+    var now = Date.now();
+    if (now - listeAt < 8000) return;
+    listeAt = now;
+    waitingListe = true;
+    extraModes = [];
+    try { orbit.irc.msg(buffer, '!jeu liste'); } catch (e) { /* ignore */ }
+  }
+
+  function parseListeLine(body) {
+    var m = String(body || '').match(
+      /^•\s+([^\s→]+?)(?:\s*🔒)?(?:\s*\(actif\))?\s*→\s*(\d+)\s+cat[ée]gories?,\s*(\d+)\s+secondes?,\s*(\d+)\s+manches/i
+    );
+    if (!m) return null;
+    var id = sanitizeModeId(m[1]);
+    return {
+      id: id,
+      label: m[1].replace(/🔒/g, '').trim(),
+      cats: Number(m[2]) || 0,
+      duration: Number(m[3]) || 0,
+      rounds: Number(m[4]) || 0,
+      custom: !isBuiltinMode(id),
+    };
+  }
+
+  function handleBacNotice(nick, text) {
+    var plain = stripIrc(text).trim();
+    if (!plain) return;
+    var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
+    if (n !== 'bac' && n !== 'maitredujeu') return;
+    handleModeListLine(plain);
+  }
+
+  function handleModeListLine(body) {
+    if (/Modes disponibles/i.test(body)) {
+      waitingListe = true;
+      extraModes = [];
+      return true;
+    }
+    if (waitingListe) {
+      var row = parseListeLine(body);
+      if (row) {
+        if (row.custom && !extraModes.some(function (x) { return x.id === row.id; })) {
+          extraModes.push(row);
+          bumpStore();
+          refreshPlayMenuCustom();
+        }
+        return true;
+      }
+      if (/Tapez !jeu|sélectionner un mode/i.test(body)) {
+        waitingListe = false;
+        bumpStore();
+        refreshPlayMenuCustom();
+        return true;
+      }
+      if (/^•/.test(body)) return true;
+    }
+    if (/Mode personnalisé créé/i.test(body)) {
+      pendingCreate = false;
+      listeAt = 0;
+      var me = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
+        ? String(pluginOrbit.state.nick() || '').toLowerCase()
+        : '';
+      if (me) {
+        try { pluginOrbit.storage.set('petitbacMode', me); } catch (e) { /* ignore */ }
+        bumpStore();
+        refreshPlayMenuCustom(me);
+        var buf = pluginOrbit.state.active && pluginOrbit.state.active();
+        if (buf) requestModeList(pluginOrbit, buf);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function buildCustomModesHtml(selectedMode) {
+    selectedMode = sanitizeModeId(selectedMode);
+    if (!extraModes.length) {
+      return '<p class="opbac-customs__empty">' + escHtml(pick({
+        fr: waitingListe
+          ? 'Chargement des jeux personnalisés…'
+          : 'Aucun jeu personnalisé pour le moment.',
+        en: waitingListe
+          ? 'Loading custom games…'
+          : 'No custom games yet.',
+      })) + '</p>';
+    }
+    return extraModes.map(function (m) {
+      var on = m.id === selectedMode;
+      return '<button type="button" class="opbac-custom' + (on ? ' opbac-custom--on' : '') +
+        '" data-act="pick-mode" data-mode="' + escHtml(m.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="opbac-custom__name">✨ ' + escHtml(m.label || m.id) + '</span>' +
+        '<span class="opbac-custom__hint">' + escHtml(modeHint(m)) + '</span></button>';
+    }).join('');
+  }
+
+  function buildCreateModeHtml() {
+    return '<div class="opbac-create">' +
+      '<label>' + escHtml(pick({ fr: 'Catégories', en: 'Categories' })) +
+        '<input type="number" min="3" max="30" value="5" data-create-cats></label>' +
+      '<label>' + escHtml(pick({ fr: 'Secondes', en: 'Seconds' })) +
+        '<input type="number" min="10" max="300" value="40" data-create-dur></label>' +
+      '<label>' + escHtml(pick({ fr: 'Manches', en: 'Rounds' })) +
+        '<input type="number" min="1" max="50" value="12" data-create-rounds></label>' +
+      '<button type="button" class="opbac-create__btn" data-act="create-mode">' +
+        escHtml(pick({ fr: 'Créer mon jeu (il portera votre pseudo)', en: 'Create my game (named after your nick)' })) +
+      '</button></div>' +
+      '<p class="opbac-play-note">' + escHtml(pick({
+        fr: 'Le bot enregistre le mode sous votre pseudo. Vous pourrez ensuite le relancer depuis la liste.',
+        en: 'The bot saves the mode under your nick. You can start it again from the list.',
+      })) + '</p>';
+  }
+
+  function buildPlayPickerHtml(selectedMode) {
+    selectedMode = sanitizeModeId(selectedMode);
     var cards = gameModeOptions().map(function (m) {
       var on = m.id === selectedMode;
       return '<button type="button" class="opbac-mode' + (on ? ' opbac-mode--on' : '') + '" data-act="pick-mode" data-mode="' +
@@ -1748,14 +1946,126 @@
         '<span class="opbac-mode__label">' + escHtml(m.label) + '</span>' +
         '<span class="opbac-mode__hint">' + escHtml(m.hint) + '</span></button>';
     }).join('');
+    return '<div class="opbac-playpick" data-opbac-playpick>' +
+      '<div class="opbac-playpick__sec">' +
+        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Niveaux officiels', en: 'Official levels' })) + '</p>' +
+        '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
+          cards + '</div></div>' +
+      '<div class="opbac-playpick__sec">' +
+        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Jeux personnalisés', en: 'Custom games' })) + '</p>' +
+        '<div class="opbac-customs" data-opbac-customs>' + buildCustomModesHtml(selectedMode) + '</div></div>' +
+      '<div class="opbac-playpick__sec">' +
+        '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Créer mon jeu', en: 'Create my game' })) + '</p>' +
+        buildCreateModeHtml() +
+      '</div></div>';
+  }
+
+  function refreshPlayMenuCustom(selectId) {
+    var overlay = document.getElementById('opbac-play-overlay');
+    var hosts = [];
+    if (overlay) hosts.push(overlay);
+    var panel = document.getElementById('opbac-dom-panel');
+    if (panel) hosts.push(panel);
+    var selected = selectId || (panel && panel.__opbacReplayMode) || '';
+    hosts.forEach(function (host) {
+      var wrap = host.querySelector('[data-opbac-customs]');
+      if (wrap) wrap.innerHTML = buildCustomModesHtml(selected);
+      if (selectId) updateReplayModeUi(host, selectId);
+    });
+  }
+
+  function bindPlayOverlay(orbit, overlay) {
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) { closeOverlayModal('play'); return; }
+      if (ev.target.closest && ev.target.closest('[data-act="close-overlay"]')) {
+        closeOverlayModal('play');
+        return;
+      }
+      var buffer = orbit.state.active();
+      if (!buffer) return;
+      var pickBtn = ev.target.closest ? ev.target.closest('[data-act="pick-mode"]') : null;
+      if (pickBtn) {
+        var picked = sanitizeModeId(pickBtn.getAttribute('data-mode'));
+        updateReplayModeUi(overlay, picked);
+        var panel = document.getElementById('opbac-dom-panel');
+        if (panel) updateReplayModeUi(panel, picked);
+        try { orbit.storage.set('petitbacMode', picked); } catch (e) { /* ignore */ }
+        return;
+      }
+      var createBtn = ev.target.closest ? ev.target.closest('[data-act="create-mode"]') : null;
+      if (createBtn) {
+        sendCreateMode(orbit, buffer, overlay);
+        return;
+      }
+      var launchBtn = ev.target.closest ? ev.target.closest('[data-act="replay"]') : null;
+      if (launchBtn) {
+        var panelRoot = document.getElementById('opbac-dom-panel') || overlay;
+        startReplayGame(orbit, buffer, panelRoot);
+        closeOverlayModal('play');
+      }
+    });
+  }
+
+  function openPlayMenu(orbit) {
+    closeOverlayModal('play');
+    var buffer = orbit.state.active();
+    requestModeList(orbit, buffer);
+    var selected = defaultReplayMode(getChannelState(buffer), document.getElementById('opbac-dom-panel'), orbit);
+    var title = pick({ fr: 'Choisir un niveau', en: 'Choose a level' });
+    var overlay = document.createElement('div');
+    overlay.id = 'opbac-play-overlay';
+    overlay.className = 'opbac-help-overlay';
+    overlay.innerHTML =
+      '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
+        '<div class="opbac-help-dialog__head">' +
+          '<h3>' + imgHtml('logo.svg', '', 'opbac-help-dialog__logo') + escHtml(title) + '</h3>' +
+          '<button type="button" class="opbac-help-dialog__x" data-act="close-overlay" aria-label="' +
+            escHtml(pick({ fr: 'Fermer', en: 'Close' })) + '">✕</button>' +
+        '</div>' +
+        '<div class="opbac-help-dialog__body">' +
+          '<p class="opbac-replay__sub">' + escHtml(pick({
+            fr: 'Choisissez un niveau officiel, un jeu personnalisé, ou créez le vôtre.',
+            en: 'Pick an official level, a custom game, or create your own.',
+          })) + '</p>' +
+          buildPlayPickerHtml(selected) +
+          '<button type="button" class="opbac-replay__cta" data-act="replay">' +
+            escHtml(pick({ fr: '▶ Lancer la partie', en: '▶ Start the game' })) +
+          '</button>' +
+        '</div></div>';
+    bindPlayOverlay(orbit, overlay);
+    playEscHandler = function (ev) {
+      if (ev.key === 'Escape') closeOverlayModal('play');
+    };
+    document.addEventListener('keydown', playEscHandler);
+    document.body.appendChild(overlay);
+  }
+
+  function sendCreateMode(orbit, buffer, host) {
+    var catsEl = host.querySelector('[data-create-cats]');
+    var durEl = host.querySelector('[data-create-dur]');
+    var roundsEl = host.querySelector('[data-create-rounds]');
+    var cats = Math.max(3, Math.min(30, Number(catsEl && catsEl.value) || 5));
+    var dur = Math.max(10, Math.min(300, Number(durEl && durEl.value) || 40));
+    var rounds = Math.max(1, Math.min(50, Number(roundsEl && roundsEl.value) || 12));
+    pendingCreate = true;
+    orbit.irc.msg(buffer, '!jeu creer ' + cats + ' ' + dur + ' ' + rounds);
+    try {
+      orbit.notify('Petit Bac', pick({
+        fr: 'Création du jeu ' + cats + ' cat. / ' + dur + ' s / ' + rounds + ' manches…',
+        en: 'Creating game ' + cats + ' cat. / ' + dur + ' s / ' + rounds + ' rounds…',
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function buildReplaySectionHtml(selectedMode) {
+    selectedMode = sanitizeModeId(selectedMode);
     return '<div class="opbac-replay" data-opbac-replay>' +
       '<h3 class="opbac-replay__q">' + escHtml(pick({ fr: 'Une nouvelle partie ?', en: 'Play again?' })) + '</h3>' +
       '<p class="opbac-replay__sub">' + escHtml(pick({
-        fr: 'Choisissez un niveau, puis confirmez pour relancer.',
-        en: 'Choose a level, then confirm to start again.',
+        fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
+        en: 'Choose a level, a custom game, or create your own.',
       })) + '</p>' +
-      '<div class="opbac-modes" role="group" aria-label="' + escHtml(pick({ fr: 'Niveau du jeu', en: 'Game level' })) + '">' +
-        cards + '</div>' +
+      buildPlayPickerHtml(selectedMode) +
       '<button type="button" class="opbac-replay__cta" data-act="replay">' +
         escHtml(pick({ fr: '▶ Oui, lancer une partie', en: '▶ Yes, start a game' })) +
       '</button>' +
@@ -1780,12 +2090,14 @@
   }
 
   function updateReplayModeUi(root, mode) {
-    mode = normalizeModeId(mode);
+    if (!root) return;
+    mode = sanitizeModeId(mode);
     root.__opbacReplayMode = mode;
     var buttons = root.querySelectorAll('[data-act="pick-mode"]');
     buttons.forEach(function (btn) {
-      var on = btn.getAttribute('data-mode') === mode;
-      btn.classList.toggle('opbac-mode--on', on);
+      var on = String(btn.getAttribute('data-mode') || '').toLowerCase() === mode;
+      btn.classList.toggle('opbac-mode--on', on && btn.classList.contains('opbac-mode'));
+      btn.classList.toggle('opbac-custom--on', on && btn.classList.contains('opbac-custom'));
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
@@ -2155,7 +2467,7 @@
     if (isGameEnd) {
       html += '<div class="opbac-end__hero opbac-end__hero--game">' +
         endHeroVisualHtml(game, true) +
-        '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Partie terminée !', en: 'Game over!' })) + '</h2>' +
+        '<p class="opbac-end__title">' + escHtml(pick({ fr: 'Partie terminée !', en: 'Game over!' })) + '</p>' +
         '<p class="opbac-end__sub">' +
           escHtml(game.totalRounds
             ? pick({
@@ -2179,7 +2491,7 @@
     } else {
       html += '<div class="opbac-end__hero opbac-end__hero--round">' +
         endHeroVisualHtml(game, false) +
-        '<h2 class="opbac-end__title">' + escHtml(pick({ fr: 'Fin de manche', en: 'Round over' })) + '</h2>' +
+        '<p class="opbac-end__title">' + escHtml(pick({ fr: 'Fin de manche', en: 'Round over' })) + '</p>' +
         '<p class="opbac-end__sub">' +
           escHtml(game.round && game.totalRounds
             ? pick({ fr: 'Manche ', en: 'Round ' }) + game.round + ' / ' + game.totalRounds
@@ -2470,11 +2782,18 @@
         }
         return;
       }
-      if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
+      if (act === 'jouer' || act === 'play-menu') {
+        openPlayMenu(orbit);
+        return;
+      }
       if (act === 'pick-mode') {
-        var picked = normalizeModeId(btn.getAttribute('data-mode'));
+        var picked = sanitizeModeId(btn.getAttribute('data-mode'));
         updateReplayModeUi(root, picked);
         try { orbit.storage.set('petitbacMode', picked); } catch (e) { /* ignore */ }
+        return;
+      }
+      if (act === 'create-mode') {
+        sendCreateMode(orbit, buffer, root);
         return;
       }
       if (act === 'replay') {
@@ -2566,15 +2885,17 @@
         bodyHtml = '<div class="opbac-idle">' +
           imgHtml('idle-hero.svg', pick({ fr: 'Petit Bac', en: 'Petit Bac' }), 'opbac-idle__art') +
           '<p class="opbac-idle__txt">' + escHtml(pick({
-            fr: 'Trouvez un mot par catégorie — le tchat reste visible en dessous.',
-            en: 'Find one word per category — chat stays visible below.',
+            fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
+            en: 'Pick a level, a custom game, or create your own.',
           })) + '</p>' +
-          '<button type="button" class="opbac-idle__cta" data-act="jouer">' +
+          buildPlayPickerHtml(replayMode) +
+          '<button type="button" class="opbac-idle__cta" data-act="replay">' +
             escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
           '</button>' +
           '<button type="button" class="opbac-idle__help" data-act="rules">' +
             escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
           '</button></div>';
+        requestModeList(orbit, buffer);
       } else if (isEnd) {
         var endSig = endScreenSignature(game);
         var endAnimate = root.__opbacEndPhase !== phase;
@@ -2582,6 +2903,7 @@
         root.__opbacEndSig = endSig;
         bodyHtml = buildEndScreenHtml(game, myNick, replayMode, endAnimate);
         root.__opbacReplayMode = replayMode;
+        requestModeList(orbit, buffer);
       } else {
         bodyHtml = buildPlayingBodyHtml(buffer, game, remaining, progress);
       }
@@ -2618,6 +2940,10 @@
         } else {
           modeEl.hidden = true;
         }
+      }
+      var customsEl = root.querySelector('[data-opbac-customs]');
+      if (customsEl && (isIdle || isEnd)) {
+        customsEl.innerHTML = buildCustomModesHtml(defaultReplayMode(game, root, orbit));
       }
       var scoresWrap = root.querySelector('[data-opbac-scores]');
       if (scoresWrap && (isLive || hasGrid) && !isEnd) {
@@ -2706,10 +3032,15 @@
       }
       if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
         var chan = (msg.params && msg.params[0]) || '';
-        if (!isChannelName(chan)) return;
-        if (!channelEnabled(orbit, chan)) return;
+        var text = (msg.params && msg.params[1]) || '';
         var myNick = orbit.state.nick() || '';
-        handleIrcLine(chan, msg.nick, (msg.params && msg.params[1]) || '', myNick);
+        if (!isChannelName(chan)) {
+          handleBacNotice(msg.nick, text);
+          syncDom();
+          return;
+        }
+        if (!channelEnabled(orbit, chan)) return;
+        handleIrcLine(chan, msg.nick, text, myNick);
         syncDom();
       }
     });
@@ -2732,14 +3063,14 @@
     });
 
     orbit.addCommand('jouer', {
-      help: pick({ fr: 'Lancer une partie de Petit Bac', en: 'Start a Petit Bac game' }),
+      help: pick({ fr: 'Choisir un niveau et lancer une partie', en: 'Choose a level and start a game' }),
       run: function () {
         var buf = orbit.state.active();
-        if (!buf || !isChannelName(buf)) {
+        if (!buf || !isBacChannel(orbit, buf)) {
           orbit.notify('Petit Bac', pick({ fr: 'Ouvrez le salon #Baccalaureat.chat d\'abord.', en: 'Open #Baccalaureat.chat first.' }));
           return;
         }
-        orbit.irc.msg(buf, '!jouer');
+        openPlayMenu(orbit);
       },
     });
 
