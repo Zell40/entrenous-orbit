@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 47;
+  var PBAC_VER = 49;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -370,6 +370,44 @@
     return d;
   }
 
+  function isMyNick(nick) {
+    if (!nick) return true;
+    var me = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
+      ? String(pluginOrbit.state.nick() || '')
+      : '';
+    if (!me) return true;
+    return String(nick).replace(/^[@+%~&]/, '').toLowerCase() ===
+      me.replace(/^[@+%~&]/, '').toLowerCase();
+  }
+
+  function isIaAward(pts) {
+    var n = Number(pts);
+    return n > 0 && n < 1;
+  }
+
+  function formatPtsShort(pts) {
+    var n = Number(pts);
+    if (!(n >= 0)) n = 0;
+    if (Math.abs(n % 1) < 0.001) return String(Math.round(n));
+    return String(Math.round(n * 10) / 10).replace('.', ',');
+  }
+
+  function catAward(draft, catKey, cat) {
+    var v = draft && (draft.validated[catKey] || (cat && draft.validated[cat]));
+    if (!v) return null;
+    if (v === true) return { pts: 1, ia: false };
+    return { pts: v.pts || 1, ia: !!v.ia || isIaAward(v.pts) };
+  }
+
+  function markCatValidated(draft, catKey, pts, ia) {
+    if (!draft || !catKey) return;
+    var n = parsePts(pts);
+    if (!(n > 0)) n = 1;
+    draft.validated[catKey] = { pts: n, ia: !!ia || isIaAward(n) };
+    delete draft.pending[catKey];
+    if (draft.rejected) delete draft.rejected[catKey];
+  }
+
   function clearDraft(channel) {
     delete draftStore.byChannel[normChan(channel)];
   }
@@ -517,12 +555,14 @@
     bumpStore();
   }
 
-  function showScoreBurst(pts) {
-    pts = Number(pts) || 1;
+  function showScoreBurst(pts, kind) {
+    pts = Number(pts);
+    if (!(pts > 0)) pts = 1;
+    var ia = kind === 'ia' || isIaAward(pts);
     var host = document.getElementById('opbac-dom-panel');
     if (!host || host.classList.contains('opbac-panel--chat') || host.classList.contains('opbac-panel--collapsed')) host = document.body;
     var burst = document.createElement('div');
-    burst.className = 'opbac-score-burst' + (pts >= 2 ? ' opbac-score-burst--hard' : '');
+    burst.className = 'opbac-score-burst' + (pts >= 2 ? ' opbac-score-burst--hard' : (ia ? ' opbac-score-burst--ia' : ''));
     burst.setAttribute('aria-hidden', 'true');
     var sparks = '';
     var dirs = [[-42, -28], [38, -34], [-28, 22], [44, 18], [0, -48], [-52, 4], [54, -8]];
@@ -532,8 +572,12 @@
     }
     burst.innerHTML =
       sparks +
-      '<span class="opbac-score-burst__n">+' + pts + '</span>' +
-      '<span class="opbac-score-burst__lbl">' + escHtml(pick({ fr: 'pt', en: 'pt' })) + '</span>';
+      '<span class="opbac-score-burst__n">+' + formatPtsShort(pts) + '</span>' +
+      '<span class="opbac-score-burst__lbl">' +
+        escHtml(ia
+          ? pick({ fr: 'IA', en: 'AI' })
+          : pick({ fr: 'pt', en: 'pt' })) +
+      '</span>';
     host.appendChild(burst);
     window.setTimeout(function () { if (burst.parentNode) burst.remove(); }, 1450);
   }
@@ -593,15 +637,17 @@
     var accepted = msg.match(/(?:✔️|💎).*?Cat[ée]gorie\s+(\S+)/i);
     if (accepted) {
       var cat = accepted[1].replace(/[.,;:!?]+$/, '').toLowerCase();
-      draft.validated[cat] = true;
-      delete draft.pending[cat];
+      if (draft.validated[cat]) return;
+      var ptsM = msg.match(/\(\+?\s*(\d+(?:[.,]\d+)?)\s*point/i);
+      var ia = /🤖|l['’]IA/i.test(msg);
+      var pts = ptsM ? parsePts(ptsM[1]) : (ia ? 0.5 : (/💎/.test(msg) ? 2 : 1));
+      markCatValidated(draft, cat, pts, ia);
       if (draft.rejected) {
-        delete draft.rejected[cat];
         Object.keys(draft.rejected).forEach(function (k) {
           if (draft.rejected[k] && draft.rejected[k].catKey === cat) delete draft.rejected[k];
         });
       }
-      showScoreBurst(/💎/.test(msg) ? 2 : 1);
+      showScoreBurst(pts, ia ? 'ia' : '');
       bumpStore();
       return;
     }
@@ -1062,11 +1108,16 @@
     var prev = players[key] || { nick: nick, answers: {}, roundPts: 0 };
     var answers = Object.assign({}, prev.answers);
     var already = answers[catKey];
-    answers[catKey] = { word: word || (already && already.word) || '', pts: pts || 1 };
+    var nPts = pts > 0 ? pts : 1;
+    answers[catKey] = {
+      word: word || (already && already.word) || '',
+      pts: nPts,
+      ia: isIaAward(nPts),
+    };
     players[key] = {
       nick: nick || prev.nick,
       answers: answers,
-      roundPts: (prev.roundPts || 0) + (already ? 0 : (pts || 1)),
+      roundPts: (prev.roundPts || 0) + (already ? 0 : nPts),
     };
     patchChannel(channel, { livePlayers: players });
   }
@@ -1082,24 +1133,22 @@
   }
 
   function parseValidationLine(plain) {
-    var m = String(plain || '').match(/^([^:]{1,32}):\s*(?:✔️|💎)\s*Mot(?:\s+difficile)?\s*[«"]([^»"]+)[»"].*?\(\+(\d+)\s+point/i);
-    if (!m) {
-      m = String(plain || '').match(/^([^:]{1,32}):\s*(?:✔️|💎).*?Cat[ée]gorie\s+(\S+)/i);
-      if (!m) return null;
-      var wordM = String(plain || '').match(/[«"]([^»"]+)[»"]/);
-      return {
-        nick: m[1].trim(),
-        word: wordM ? wordM[1] : '',
-        cat: m[2].replace(/[.,;:!?]+$/, ''),
-        pts: /💎/.test(plain) ? 2 : 1,
-      };
-    }
-    var catM = String(plain || '').match(/Cat[ée]gorie\s+(\S+)/i);
+    var s = String(plain || '');
+    if (!/(?:✔️|💎)/.test(s)) return null;
+    var nickM = s.match(/^([^:]{1,32}):\s*/);
+    if (!nickM) return null;
+    var wordM = s.match(/[«"]([^»"]+)[»"]/);
+    var catM = s.match(/Cat[ée]gorie\s+(\S+)/i);
+    if (!wordM && !catM) return null;
+    var ia = /🤖|l['’]IA/i.test(s);
+    var ptsM = s.match(/\(\+?\s*(\d+(?:[.,]\d+)?)\s*point/i);
+    var pts = ptsM ? parsePts(ptsM[1]) : (ia ? 0.5 : (/💎/.test(s) ? 2 : 1));
     return {
-      nick: m[1].trim(),
-      word: m[2],
+      nick: nickM[1].trim(),
+      word: wordM ? wordM[1] : '',
       cat: catM ? catM[1].replace(/[.,;:!?]+$/, '') : '',
-      pts: Number(m[3]) || 1,
+      pts: pts,
+      ia: ia,
     };
   }
 
@@ -1165,9 +1214,13 @@
       var cells = cats.map(function (cat) {
         var a = p.answers[String(cat).toLowerCase()];
         if (!a) return '<td class="opbac-live__empty">—</td>';
-        var cls = a.pts > 1 ? 'opbac-live__cell opbac-live__cell--bonus' : 'opbac-live__cell';
-        return '<td class="' + cls + '" title="+' + a.pts + ' pt">' +
-          escHtml(a.word) + '<small class="opbac-live__cell-pts">+' + a.pts + '</small></td>';
+        var cls = a.pts > 1
+          ? 'opbac-live__cell opbac-live__cell--bonus'
+          : (a.ia || isIaAward(a.pts) ? 'opbac-live__cell opbac-live__cell--ia' : 'opbac-live__cell');
+        var ptsLbl = '+' + formatPtsShort(a.pts);
+        return '<td class="' + cls + '" title="' + escHtml(ptsLbl + (a.ia || isIaAward(a.pts) ? ' IA' : '')) + '">' +
+          (a.ia || isIaAward(a.pts) ? '🤖 ' : '') +
+          escHtml(a.word) + '<small class="opbac-live__cell-pts">' + ptsLbl + '</small></td>';
       }).join('');
       var total = playerTotalPts(game, p.nick);
       return '<tr class="' + (isMe ? 'opbac-live__me' : '') + (combo ? ' opbac-live__combo' : '') + '">' +
@@ -1449,29 +1502,32 @@
       var gameOk = getChannelState(channel) || defaultState();
       var catOk = matchCatKey(gameOk, tagVal(tags, '+category'));
       var nickOk = tagVal(tags, '+nick') || tagVal(tags, '+player');
+      var wordOk = tagVal(tags, '+word');
       var ptsOk = parsePts(tagVal(tags, '+points'));
-      applyLiveAnswer(channel, nickOk, catOk || tagVal(tags, '+category'), tagVal(tags, '+word'), ptsOk);
+      applyLiveAnswer(channel, nickOk, catOk || tagVal(tags, '+category'), wordOk, ptsOk);
       gameOk = getChannelState(channel) || gameOk;
-      if (catOk) {
+      var mineOk = isMyNick(nickOk);
+      if (catOk && mineOk) {
         var draftOk = getDraft(channel, gameOk);
-        draftOk.validated[catOk] = true;
-        delete draftOk.pending[catOk];
-        if (draftOk.rejected) delete draftOk.rejected[catOk];
-        var meOk = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
-          ? String(pluginOrbit.state.nick() || '')
-          : '';
-        if (!nickOk || !meOk || String(nickOk).toLowerCase() === meOk.toLowerCase()) {
-          showScoreBurst(ptsOk || 1);
+        markCatValidated(draftOk, catOk, ptsOk, isIaAward(ptsOk));
+        showScoreBurst(ptsOk || 1, isIaAward(ptsOk) ? 'ia' : '');
+        if (isIaAward(ptsOk) && pluginOrbit) {
+          try {
+            pluginOrbit.notify('Petit Bac', pick({
+              fr: '« ' + (wordOk || '') + ' » reconnu par l’IA — +0,5 pt',
+              en: '« ' + (wordOk || '') + ' » recognized by AI — +0.5 pt',
+            }));
+          } catch (eOk) { /* ignore */ }
         }
-        if (nickOk && ptsOk > 0) {
-          var scoresOk = Object.assign({}, gameOk.scores || {});
-          var rsOk = Object.assign({}, gameOk.roundScores || {});
-          addScore(scoresOk, nickOk, ptsOk);
-          addScore(rsOk, nickOk, ptsOk);
-          patchChannel(channel, { scores: scoresOk, roundScores: rsOk });
-        } else {
-          bumpStore();
-        }
+      }
+      if (nickOk && ptsOk > 0) {
+        var scoresOk = Object.assign({}, gameOk.scores || {});
+        var rsOk = Object.assign({}, gameOk.roundScores || {});
+        addScore(scoresOk, nickOk, ptsOk);
+        addScore(rsOk, nickOk, ptsOk);
+        patchChannel(channel, { scores: scoresOk, roundScores: rsOk });
+      } else {
+        bumpStore();
       }
       return;
     }
@@ -1481,6 +1537,8 @@
       var koReason = tagVal(tags, '+reason') || 'invalid';
       var koWord = tagVal(tags, '+word');
       var koCat = matchCatKey(gameKo, tagVal(tags, '+category'));
+      var nickKo = tagVal(tags, '+nick') || tagVal(tags, '+player');
+      if (nickKo && !isMyNick(nickKo)) return;
       markRejected(
         channel,
         koCat,
@@ -1651,6 +1709,7 @@
       '.opbac-live__nick{text-align:left!important;min-width:5rem;max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.opbac-live__cell{background:color-mix(in srgb,#22c55e 16%,transparent);font-weight:700}',
       '.opbac-live__cell--bonus{background:color-mix(in srgb,#f59e0b 22%,transparent);font-weight:800}',
+      '.opbac-live__cell--ia{background:color-mix(in srgb,#06b6d4 20%,transparent);font-weight:800}',
       '.opbac-live__empty{color:var(--muted,#999)}',
       '.opbac-live__cell-pts{display:block;font-size:.62rem;font-weight:800;opacity:.8}',
       '.opbac-live__pts{font-weight:800;color:#4f46e5;font-variant-numeric:tabular-nums}',
@@ -1797,6 +1856,9 @@
       '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
       '.opbac-col--ok{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff))}',
+      '.opbac-col--ia{border-color:#67e8f9;background:color-mix(in srgb,#06b6d4 8%,var(--bg,#fff))}',
+      '.opbac-col__award{display:inline-flex;align-items:center;margin-left:.25rem;font-size:.68rem;font-weight:800;color:#15803d;white-space:nowrap}',
+      '.opbac-col--ia .opbac-col__award{color:#0e7490}',
       '.opbac-col--pending{border-color:#fcd34d;background:color-mix(in srgb,#fbbf24 6%,var(--bg,#fff))}',
       '.opbac-col__pending{display:inline-block;width:.85rem;height:.85rem;border-width:1.5px;vertical-align:middle;margin-left:.15rem}',
       '.opbac-col--reject{border-color:#fca5a5;background:color-mix(in srgb,#ef4444 5%,var(--bg,#fff))}',
@@ -1956,6 +2018,9 @@
       '.opbac-score-burst--hard .opbac-score-burst__lbl{color:#b45309}',
       '.opbac-score-burst__spark{position:absolute;width:.45rem;height:.45rem;border-radius:50%;background:#4ade80;animation:opbacSpark 1.1s ease-out both}',
       '.opbac-score-burst--hard .opbac-score-burst__spark{background:#fbbf24}',
+      '.opbac-score-burst--ia .opbac-score-burst__n{color:#0891b2}',
+      '.opbac-score-burst--ia .opbac-score-burst__lbl{color:#0e7490}',
+      '.opbac-score-burst--ia .opbac-score-burst__spark{background:#22d3ee}',
       '@keyframes opbacScorePop{0%{opacity:0;transform:scale(.35) translateY(18px)}16%{opacity:1;transform:scale(1.22) translateY(0)}55%{opacity:1;transform:scale(1) translateY(-10px)}100%{opacity:0;transform:scale(.86) translateY(-52px)}}',
       '@keyframes opbacScoreLbl{0%,12%{opacity:0}22%{opacity:.95}70%{opacity:.9}100%{opacity:0}}',
       '@keyframes opbacSpark{0%{opacity:0;transform:translate(0,0) scale(.4)}18%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}',
@@ -2706,7 +2771,6 @@
   }
 
   function openDockModal(kind, title) {
-    dockKind = kind;
     var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
       ? pluginOrbit.state.active()
       : '';
@@ -2715,12 +2779,17 @@
       ? (pluginOrbit.state.nick() || '')
       : '';
     openOverlayDialog('opbac-dock-overlay', title, buildDockBodyHtml(kind, game, myNick), 'dock');
+    dockKind = kind;
+    var overlay = document.getElementById('opbac-dock-overlay');
+    if (overlay) overlay.setAttribute('data-dock-kind', kind);
   }
 
   function refreshDockOverlay() {
-    if (!dockKind) return;
     var overlay = document.getElementById('opbac-dock-overlay');
     if (!overlay) return;
+    var kind = overlay.getAttribute('data-dock-kind') || dockKind;
+    if (!kind) return;
+    dockKind = kind;
     var body = overlay.querySelector('.opbac-help-dialog__body');
     if (!body) return;
     var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
@@ -2730,7 +2799,7 @@
     var myNick = pluginOrbit && pluginOrbit.state && pluginOrbit.state.nick
       ? (pluginOrbit.state.nick() || '')
       : '';
-    body.innerHTML = buildDockBodyHtml(dockKind, game, myNick);
+    body.innerHTML = buildDockBodyHtml(kind, game, myNick);
   }
 
   function buildRulesModalHtml() {
@@ -4207,10 +4276,11 @@
       var catKey = cat.toLowerCase();
       var val = draft.drafts[catKey] || draft.drafts[cat] || '';
       var ok = draft.validated[catKey] || draft.validated[cat];
+      var award = catAward(draft, catKey, cat);
       var pending = draft.pending[catKey] || draft.pending[cat];
       var rej = (draft.rejected && (draft.rejected[catKey] || draft.rejected[cat])) || null;
       var colClass = 'opbac-col' +
-        (ok ? ' opbac-col--ok' : (rej ? ' opbac-col--reject' : (pending ? ' opbac-col--pending' : '')));
+        (ok ? ' opbac-col--ok' + (award && award.ia ? ' opbac-col--ia' : '') : (rej ? ' opbac-col--reject' : (pending ? ' opbac-col--pending' : '')));
       var ph = letter
         ? pick({ fr: 'Mot en ' + letter + '…', en: 'Word with ' + letter + '…' })
         : pick({ fr: 'Votre mot…', en: 'Your word…' });
@@ -4235,7 +4305,10 @@
       return '<div class="' + colClass + '" data-cat="' + escHtml(catKey) + '">' +
         '<span class="opbac-col__cat">' + categoryIconHtml(cat) + escHtml(cat) +
           (pending && !ok ? refreshSpinnerHtml('opbac-col__pending') : '') +
-          (ok ? ' ✓' : '') + '</span>' +
+          (ok && award && award.ia
+            ? '<span class="opbac-col__award">🤖 +' + escHtml(formatPtsShort(award.pts)) + '</span>'
+            : (ok ? '<span class="opbac-col__award">✓ +' + escHtml(formatPtsShort((award && award.pts) || 1)) + '</span>' : '')) +
+        '</span>' +
         errHtml +
         infoHtml +
         '<input type="text" class="opbac-col__input" data-cat-input="' + escHtml(catKey) + '" ' +
