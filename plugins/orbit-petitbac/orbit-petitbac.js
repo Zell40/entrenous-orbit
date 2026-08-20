@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 23;
+  var PBAC_VER = 24;
   var syncRequestAt = Object.create(null);
 
   function boot(retry) {
@@ -26,6 +26,10 @@
   var PB = '+pb';
   var EV = '+ev';
   var STORAGE_COLLAPSED = 'panelCollapsed';
+  var STORAGE_PANEL_HEIGHT = 'opbacPanelHeight';
+  var PANEL_HEIGHT_MIN = 200;
+  var PANEL_HEIGHT_MAX = 680;
+  var PANEL_HEIGHT_DEFAULT = 380;
   /** Instance API du plugin (Orbit global n'expose pas i18n). */
   var pluginOrbit = null;
 
@@ -294,15 +298,9 @@
   function sendInfo(orbit, buffer, word) {
     word = String(word || '').trim();
     if (!word || !buffer) return;
+    infoLookup = { word: word, waiting: true, buffer: normChan(buffer) };
+    openInfoModal(word, '', true);
     orbit.irc.msg(buffer, '!info ' + word);
-    if (orbit.notify) {
-      try {
-        orbit.notify('Petit Bac', pick({
-          fr: 'Commande envoyée : !info ' + word,
-          en: 'Command sent: !info ' + word,
-        }));
-      } catch (e) { /* ignore */ }
-    }
   }
 
   function markRejected(channel, catKey, word, reason, meta) {
@@ -487,7 +485,14 @@
     var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     var fromBac = n === 'bac' || n === 'maitredujeu';
 
+    if (fromBac && /R[eè]gles du Petit Bac/i.test(body)) {
+      maybeOpenRulesModal(pluginOrbit, channel);
+    }
+
+    if (fromBac && handleBacInfoResponse(channel, body)) return;
+
     if (fromBac && /nouvelle partie/i.test(body)) {
+      delete rulesShownFor[normChan(channel)];
       var modeStart = body.match(/mode\s+([a-zàâéèêëïîôùûüç0-9_-]+)/i);
       patchChannel(channel, {
         phase: 'starting',
@@ -841,6 +846,7 @@
 
     if (ev === 'rules_start') {
       patchChannel(channel, { phase: 'rules', starter: tagVal(tags, '+player') || tagVal(tags, '+starter') });
+      maybeOpenRulesModal(pluginOrbit, channel);
       return;
     }
 
@@ -1000,14 +1006,13 @@
     el.id = 'orbit-petitbac-css';
     el.textContent = [
       '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
-      '.opbac-panel .opbac-body{max-height:min(42vh,400px);overflow-y:auto;-webkit-overflow-scrolling:touch}',
-      '.opbac-panel--game-end{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
-      '.opbac-panel--game-end .opbac-body{max-height:none;flex:1 1 auto;min-height:0}',
+      '.opbac-panel .opbac-body{max-height:380px;overflow-y:auto;-webkit-overflow-scrolling:touch}',
       '.opbac-panel--round-end .opbac-body{max-height:min(52vh,520px)}',
-      'body.opbac-end-overlay .main .messages{display:none}',
-      'body.opbac-end-overlay .opbac-panel--collapsed{flex:0 0 auto}',
-      'body.opbac-end-overlay .opbac-panel--collapsed + .messages,body.opbac-end-overlay .opbac-panel--collapsed ~ .messages{display:block}',
       '.opbac-panel--collapsed .opbac-body{display:none}',
+      '.opbac-panel--collapsed .opbac-resize{display:none}',
+      '.opbac-resize{height:10px;cursor:ns-resize;touch-action:none;background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--accent,#6366f1) 12%,var(--border,#ddd)));border-top:1px solid color-mix(in srgb,var(--accent,#6366f1) 15%,var(--border,#ddd))}',
+      '.opbac-resize::after{content:"";display:block;width:2.4rem;height:4px;margin:.22rem auto 0;border-radius:999px;background:color-mix(in srgb,var(--muted,#888) 35%,transparent)}',
+      '.opbac-resize:hover,.opbac-resize:active{background:color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd))}',
       '.opbac-head{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;background:linear-gradient(135deg,#4338ca,#6d28d9);color:#fff}',
       '.opbac-head__brand{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .5rem}',
       '.opbac-head__logo{width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,.15)}',
@@ -1018,16 +1023,18 @@
       '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1}',
       '.opbac-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.opbac-body{padding:0}',
-      '.opbac-arena{position:relative;display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,3vw,1.5rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover}',
-      '.opbac-arena__play{display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem);flex:0 0 auto}',
+      '.opbac-arena{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(8.5rem,16rem);align-items:center;gap:clamp(.5rem,2vw,1rem);padding:.75rem .85rem .55rem;background:linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-image:url(/app/plugins/third/orbit-petitbac/assets/arena-pattern.svg),linear-gradient(180deg,color-mix(in srgb,#6366f1 5%,var(--bg,#fff)),var(--bg,#fff));background-repeat:no-repeat;background-position:center;background-size:cover}',
+      '.opbac-arena__play{grid-column:2;display:flex;align-items:center;justify-content:center;gap:clamp(.75rem,4vw,1.75rem)}',
       '.opbac-arena__block{display:flex;flex-direction:column;align-items:center;gap:.2rem}',
-      '.opbac-arena__scores{flex:1 1 11rem;min-width:8.5rem;max-width:16rem;align-self:stretch;margin-left:auto;padding:.4rem .55rem;border-radius:12px;background:color-mix(in srgb,var(--bg,#fff) 88%,#6366f1);border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));max-height:7.2rem;overflow-y:auto}',
-      '.opbac-arena__scores-h{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#888);margin:0 0 .3rem}',
-      '.opbac-arena__scores-row{display:flex;justify-content:space-between;gap:.4rem;font-size:.78rem;line-height:1.35;font-weight:700}',
-      '.opbac-arena__scores-nick{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0}',
+      '.opbac-arena__scores{grid-column:3;justify-self:stretch;min-width:8.5rem;max-width:16rem;align-self:stretch;padding:.4rem .55rem;border-radius:12px;background:color-mix(in srgb,var(--bg,#fff) 88%,#6366f1);border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));max-height:7.2rem;overflow-y:auto}',
+      '.opbac-arena__scores-h{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#888);margin:0 0 .3rem;display:flex;align-items:center;gap:.3rem}',
+      '.opbac-arena__scores-h::before{content:"";display:inline-block;width:1rem;height:1rem;background:url(/app/plugins/third/orbit-petitbac/assets/trophy.svg) center/contain no-repeat;opacity:.85}',
+      '.opbac-arena__scores-row{display:flex;justify-content:space-between;align-items:center;gap:.4rem;font-size:.78rem;line-height:1.35;font-weight:700}',
+      '.opbac-arena__scores-nick{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:.25rem}',
+      '.opbac-arena__scores-rank{flex-shrink:0;font-size:.85rem;line-height:1}',
+      '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0;font-weight:800;white-space:nowrap}',
       '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
-      '@media(max-width:720px){.opbac-arena{flex-wrap:wrap;justify-content:center}.opbac-arena__scores{flex:1 1 100%;max-width:none;margin-left:0;max-height:5.5rem}}',
+      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr;justify-items:center}.opbac-arena__play{grid-column:1}.opbac-arena__scores{grid-column:1;width:100%;max-width:none;max-height:5.5rem}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
       '.opbac-clock{position:relative;width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px)}',
@@ -1109,6 +1116,13 @@
       '.opbac-help-cmd__k{display:inline-block;padding:.15rem .45rem;border-radius:7px;background:color-mix(in srgb,#6366f1 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 25%,var(--border,#ddd));font-family:ui-monospace,Consolas,monospace;font-size:.76rem;font-weight:800;color:#4338ca;word-break:break-word}',
       '.opbac-help-cmd__d{font-size:.82rem;color:var(--ink,#222);line-height:1.35}',
       '.opbac-help-foot{margin:1rem 0 0;padding-top:.85rem;border-top:1px solid var(--border,#ddd);font-size:.78rem;color:var(--muted,#666);line-height:1.45}',
+      '.opbac-rules-modal__lead{margin:0 0 .85rem;font-size:.88rem;line-height:1.45;color:var(--ink,#222)}',
+      '.opbac-rules-modal__list{margin:0 0 .85rem;padding-left:1.15rem;line-height:1.45}',
+      '.opbac-rules-modal__list li{margin-bottom:.45rem;font-size:.86rem}',
+      '.opbac-rules-modal__cmds{display:flex;flex-direction:column;gap:0;border:1px solid var(--border,#e5e5e5);border-radius:12px;overflow:hidden}',
+      '.opbac-info-modal__wait{display:flex;align-items:center;gap:.55rem;margin:0;font-size:.88rem;color:var(--muted,#666)}',
+      '.opbac-info-modal__word{margin:0 0 .65rem;font-size:1rem;font-weight:900;color:var(--ink,#111)}',
+      '.opbac-info-modal__txt{font-size:.88rem;line-height:1.5;color:var(--ink,#222);white-space:pre-wrap}',
       '.opbac-complete{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:.35rem;padding:.85rem 1rem;margin-bottom:.2rem;border-radius:14px;background:linear-gradient(135deg,#ecfdf5,#dcfce7);border:1px solid #86efac;color:#166534;text-align:center}',
       '.opbac-complete__img{width:3rem;height:3rem;display:block;margin:0 auto .15rem}',
       '.opbac-complete__title{font-size:1rem;font-weight:900;letter-spacing:.01em}',
@@ -1246,10 +1260,12 @@
       })) + '</p></aside>';
       return html;
     }
-    html += rows.slice(0, 8).map(function (row) {
+    html += rows.slice(0, 8).map(function (row, i) {
       return '<div class="opbac-arena__scores-row">' +
-        '<span class="opbac-arena__scores-nick">' + escHtml(row.nick) + '</span>' +
-        '<span class="opbac-arena__scores-pts">' + escHtml(String(row.pts)) + '</span></div>';
+        '<span class="opbac-arena__scores-nick">' +
+          '<span class="opbac-arena__scores-rank" aria-hidden="true">' + rankMedal(i) + '</span>' +
+          escHtml(row.nick) + '</span>' +
+        '<span class="opbac-arena__scores-pts">' + escHtml(formatPtsDisplay(row.pts)) + '</span></div>';
     }).join('') + '</aside>';
     return html;
   }
@@ -1347,8 +1363,6 @@
           ? ('<button type="button" class="opbac-head__btn" data-act="jouer" title="' +
               escHtml(pick({ fr: 'Jouer', en: 'Play' })) + '">▶</button>')
           : '') +
-        '<button type="button" class="opbac-head__btn" data-act="scores" title="' +
-          escHtml(pick({ fr: 'Tableau live', en: 'Live board' })) + '">📊</button>' +
         '<button type="button" class="opbac-head__btn" data-act="collapse" title="' +
           escHtml(pick({ fr: 'Réduire', en: 'Collapse' })) + '">' + (wasCollapsed ? '▾' : '▴') + '</button>' +
       '</div></div>';
@@ -1393,7 +1407,7 @@
       { cmd: '!stat [pseudo]', desc: pick({ fr: 'Statistiques globales (ou d\'un joueur)', en: 'Global stats (or a player\'s)' }) },
       { cmd: '!top [<n>]', desc: pick({ fr: 'Classement global', en: 'Global ranking' }) },
       { cmd: '!manche', desc: pick({ fr: 'Lettre et catégories de la manche en cours', en: 'Current round letter and categories' }) },
-      { cmd: '!verifier <cat> <mot>', desc: pick({ fr: 'Proposer un mot refusé à validation', en: 'Submit a rejected word for review' }) },
+      { cmd: '!verifier <cat> <mot>', desc: pick({ fr: 'Proposer un mot refusé — un opérateur valide manuellement', en: 'Submit a rejected word — an operator validates manually' }) },
       { cmd: '!info <mot>', desc: pick({ fr: 'Informations Wikipédia sur un mot', en: 'Wikipedia info about a word' }) },
       { cmd: '!bug / !suggestion', desc: pick({ fr: 'Signaler un bug ou proposer une amélioration', en: 'Report a bug or suggest an improvement' }) },
     ];
@@ -1406,12 +1420,188 @@
       pick({ fr: 'Répondez dans la grille du panneau ou directement dans le tchat.', en: 'Answer in the panel grid or directly in chat.' }),
       pick({ fr: 'Le bot valide automatiquement les mots (+1 pt, +2 pt pour un mot difficile).', en: 'The bot validates words automatically (+1 pt, +2 pt for a hard word).' }),
       pick({ fr: 'Les points sont cumulés à chaque manche ; le classement s\'affiche en fin de manche.', en: 'Points add up each round; rankings show at the end of each round.' }),
-      pick({ fr: 'Mot refusé ? Utilisez le bouton « Vérifier » ou !verifier <catégorie> <mot>.', en: 'Word rejected? Use the Verify button or !verifier <category> <word>.' }),
+      pick({ fr: 'Mot refusé ? Bouton « Vérifier » ou !verifier — un opérateur examinera votre proposition.', en: 'Word rejected? Use Verify or !verifier — an operator will review your request.' }),
     ];
   }
 
   var helpModalClose = null;
   var helpEscHandler = null;
+  var infoModalClose = null;
+  var infoEscHandler = null;
+  var rulesModalClose = null;
+  var rulesEscHandler = null;
+  var infoLookup = { word: '', waiting: false, buffer: '' };
+  var rulesShownFor = Object.create(null);
+
+  function formatPtsDisplay(pts) {
+    var n = Number(pts);
+    if (!(n >= 0)) n = 0;
+    var s = Math.abs(n % 1) < 0.001 ? String(Math.round(n)) : String(n);
+    return s + ' ' + pick({ fr: 'pt', en: 'pt' });
+  }
+
+  function getPanelHeight(orbit) {
+    try {
+      var h = Number(orbit.storage.get(STORAGE_PANEL_HEIGHT, PANEL_HEIGHT_DEFAULT));
+      if (h >= PANEL_HEIGHT_MIN && h <= PANEL_HEIGHT_MAX) return h;
+    } catch (e) { /* ignore */ }
+    return PANEL_HEIGHT_DEFAULT;
+  }
+
+  function applyPanelHeight(root, h) {
+    if (!root || root.classList.contains('opbac-panel--collapsed')) return;
+    h = Math.max(PANEL_HEIGHT_MIN, Math.min(PANEL_HEIGHT_MAX, Number(h) || PANEL_HEIGHT_DEFAULT));
+    root.__opbacPanelHeight = h;
+    var body = root.querySelector('.opbac-body');
+    if (body) body.style.maxHeight = h + 'px';
+  }
+
+  function bindPanelResize(root, orbit) {
+    if (root.__opbacResizeBound) return;
+    root.__opbacResizeBound = true;
+    var handle = root.querySelector('[data-opbac-resize]');
+    if (!handle) return;
+    handle.addEventListener('mousedown', function (ev) {
+      if (root.classList.contains('opbac-panel--collapsed')) return;
+      ev.preventDefault();
+      var startY = ev.clientY;
+      var body = root.querySelector('.opbac-body');
+      var startH = body ? body.offsetHeight : getPanelHeight(orbit);
+      function onMove(e) {
+        applyPanelHeight(root, startH + (e.clientY - startY));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (root.__opbacPanelHeight) {
+          try { orbit.storage.set(STORAGE_PANEL_HEIGHT, root.__opbacPanelHeight); } catch (err) { /* ignore */ }
+        }
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function closeOverlayModal(kind) {
+    if (kind === 'info') {
+      if (infoModalClose) { try { infoModalClose(); } catch (e) { /* ignore */ } infoModalClose = null; }
+      if (infoEscHandler) { document.removeEventListener('keydown', infoEscHandler); infoEscHandler = null; }
+      var infoDom = document.getElementById('opbac-info-overlay');
+      if (infoDom) infoDom.remove();
+      return;
+    }
+    if (kind === 'rules') {
+      if (rulesModalClose) { try { rulesModalClose(); } catch (e) { /* ignore */ } rulesModalClose = null; }
+      if (rulesEscHandler) { document.removeEventListener('keydown', rulesEscHandler); rulesEscHandler = null; }
+      var rulesDom = document.getElementById('opbac-rules-overlay');
+      if (rulesDom) rulesDom.remove();
+    }
+  }
+
+  function openOverlayDialog(id, title, bodyHtml, onCloseKind) {
+    closeOverlayModal(onCloseKind);
+    var overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.className = 'opbac-help-overlay';
+    overlay.innerHTML =
+      '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
+        '<div class="opbac-help-dialog__head">' +
+          '<h3>' + imgHtml('logo.svg', '', 'opbac-help-dialog__logo') + escHtml(title) + '</h3>' +
+          '<button type="button" class="opbac-help-dialog__x" data-act="close-overlay" aria-label="' +
+            escHtml(pick({ fr: 'Fermer', en: 'Close' })) + '">✕</button>' +
+        '</div>' +
+        '<div class="opbac-help-dialog__body">' + bodyHtml + '</div>' +
+      '</div>';
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) closeOverlayModal(onCloseKind);
+      var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-overlay"]') : null;
+      if (closeBtn) closeOverlayModal(onCloseKind);
+    });
+    var escHandler = function (ev) {
+      if (ev.key === 'Escape') closeOverlayModal(onCloseKind);
+    };
+    document.addEventListener('keydown', escHandler);
+    if (onCloseKind === 'info') {
+      infoEscHandler = escHandler;
+    } else {
+      rulesEscHandler = escHandler;
+    }
+    document.body.appendChild(overlay);
+    return escHandler;
+  }
+
+  function buildRulesModalHtml() {
+    return '<div class="opbac-rules-modal">' +
+      '<p class="opbac-rules-modal__lead">' + escHtml(pick({
+        fr: 'Voici le déroulé d\'une manche — le tchat reste visible derrière cette fenêtre.',
+        en: 'How a round works — chat stays visible behind this window.',
+      })) + '</p>' +
+      '<ul class="opbac-rules-modal__list">' +
+        helpHowToPlay().map(function (line) {
+          return '<li>' + escHtml(line) + '</li>';
+        }).join('') +
+      '</ul>' +
+      '<div class="opbac-rules-modal__cmds">' +
+        buildHelpCmdRow('!jeu liste', pick({ fr: 'Voir les modes disponibles', en: 'List available modes' })) +
+        buildHelpCmdRow('!jeu <mode>', pick({ fr: 'Changer de mode', en: 'Change mode' })) +
+        buildHelpCmdRow('!oui / !non', pick({ fr: 'Voter', en: 'Vote' })) +
+        buildHelpCmdRow('!aide', pick({ fr: 'Aide complète', en: 'Full help' })) +
+      '</div></div>';
+  }
+
+  function maybeOpenRulesModal(orbit, channel) {
+    var key = normChan(channel);
+    if (rulesShownFor[key]) return;
+    rulesShownFor[key] = true;
+    openRulesModal(orbit);
+  }
+
+  function openRulesModal(orbit) {
+    closeOverlayModal('rules');
+    var title = pick({ fr: 'Règles du Petit Bac', en: 'Petit Bac rules' });
+    var bodyHtml = buildRulesModalHtml();
+    if (typeof orbit.modal === 'function') {
+      rulesModalClose = orbit.modal(function () {
+        return h('div', { className: 'opbac-help-wrap', dangerouslySetInnerHTML: { __html: bodyHtml } });
+      }, { title: title, wide: true });
+      return;
+    }
+    openOverlayDialog('opbac-rules-overlay', title, bodyHtml, 'rules');
+  }
+
+  function openInfoModal(word, content, loading) {
+    closeOverlayModal('info');
+    word = String(word || '').trim();
+    var title = pick({ fr: 'Information : ', en: 'About: ' }) + (word || '…');
+    var bodyHtml = loading
+      ? ('<p class="opbac-info-modal__wait">' + refreshSpinnerHtml('opbac-info-modal__spin') +
+          escHtml(pick({ fr: 'Recherche sur Wikipédia…', en: 'Searching Wikipedia…' })) + '</p>')
+      : ('<p class="opbac-info-modal__word">« ' + escHtml(word) + ' »</p>' +
+          '<div class="opbac-info-modal__txt">' + escHtml(content || pick({
+            fr: 'Aucune information trouvée.',
+            en: 'No information found.',
+          })) + '</div>');
+    if (pluginOrbit && typeof pluginOrbit.modal === 'function') {
+      infoModalClose = pluginOrbit.modal(function () {
+        return h('div', { className: 'opbac-help-wrap', dangerouslySetInnerHTML: { __html: bodyHtml } });
+      }, { title: title, wide: true });
+      return;
+    }
+    openOverlayDialog('opbac-info-overlay', title, bodyHtml, 'info');
+  }
+
+  function handleBacInfoResponse(channel, body) {
+    if (!infoLookup.waiting || normChan(channel) !== infoLookup.buffer) return false;
+    if (!/ℹ️|Aucune information|wikip/i.test(body)) return false;
+    var word = infoLookup.word;
+    var text = body.replace(/^ℹ️\s*/i, '').trim();
+    if (/Aucune information/i.test(body)) {
+      text = pick({ fr: 'Aucune fiche Wikipédia trouvée pour ce mot.', en: 'No Wikipedia article found for this word.' });
+    }
+    infoLookup.waiting = false;
+    openInfoModal(word, text, false);
+    return true;
+  }
 
   function useChannelGame(orbit, buffer) {
     useSyncExternalStore(subscribe, getSnap, getSnap);
@@ -1569,7 +1759,7 @@
       '<button type="button" class="opbac-replay__cta" data-act="replay">' +
         escHtml(pick({ fr: '▶ Oui, lancer une partie', en: '▶ Yes, start a game' })) +
       '</button>' +
-      '<button type="button" class="opbac-replay__help" data-act="aide">' +
+      '<button type="button" class="opbac-replay__help" data-act="rules">' +
         escHtml(pick({ fr: 'Règles et commandes', en: 'Rules and commands' })) +
       '</button></div>';
   }
@@ -1913,7 +2103,7 @@
     return false;
   }
 
-  function buildRankingTableHtml(rows, myNick, ptsLabel) {
+  function buildRankingTableHtml(rows, myNick) {
     if (!rows || !rows.length) {
       return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
         fr: 'Scores en cours de publication…',
@@ -1925,7 +2115,7 @@
       return '<tr class="' + (isMe ? 'opbac-end__me' : '') + '">' +
         '<td class="opbac-end__rank">' + rankMedal(i) + '</td>' +
         '<td>' + escHtml(row.nick) + (isMe ? ' ' + escHtml(pick({ fr: '(vous)', en: '(you)' })) : '') + '</td>' +
-        '<td class="opbac-end__pts">' + row.pts + ' ' + escHtml(ptsLabel) + '</td></tr>';
+        '<td class="opbac-end__pts">' + escHtml(formatPtsDisplay(row.pts)) + '</td></tr>';
     }).join('');
     return '<table class="opbac-end__table"><thead><tr>' +
       '<th></th><th>' + escHtml(pick({ fr: 'Joueur', en: 'Player' })) + '</th>' +
@@ -1960,7 +2150,6 @@
 
   function buildEndScreenHtml(game, myNick, selectedMode, animate) {
     var isGameEnd = game.phase === 'game_end';
-    var ptWord = pick({ fr: 'pt', en: 'pt' });
     var html = '<div class="opbac-end' + (animate ? ' opbac-end--enter' : '') + '" data-opbac-end role="status" aria-live="polite">';
 
     if (isGameEnd) {
@@ -1978,13 +2167,13 @@
 
       html += '<div class="opbac-end__block">' +
         '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Classement final', en: 'Final ranking' })) + '</h3>' +
-        buildRankingTableHtml(rankingForDisplay(game, true), myNick, ptWord) +
+        buildRankingTableHtml(rankingForDisplay(game, true), myNick) +
         '</div>';
 
       if (game.topGlobal && game.topGlobal.length) {
         html += '<div class="opbac-end__block">' +
           '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Top joueurs (global)', en: 'Top players (global)' })) + '</h3>' +
-          buildRankingTableHtml(game.topGlobal, myNick, ptWord) +
+          buildRankingTableHtml(game.topGlobal, myNick) +
           '</div>';
       }
     } else {
@@ -2001,13 +2190,13 @@
       if (roundRows.length) {
         html += '<div class="opbac-end__block">' +
           '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Points de la manche', en: 'Round points' })) + '</h3>' +
-          buildRankingTableHtml(roundRows, myNick, ptWord) +
+          buildRankingTableHtml(roundRows, myNick) +
           '</div>';
       }
 
       html += '<div class="opbac-end__block">' +
         '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Scores cumulés', en: 'Cumulative scores' })) + '</h3>' +
-        buildRankingTableHtml(rankingForDisplay(game, false), myNick, ptWord) +
+        buildRankingTableHtml(rankingForDisplay(game, false), myNick) +
         '</div>';
     }
 
@@ -2072,7 +2261,7 @@
             (rej && rej.verifying ? ' opbac-col__verify--sent' : '') + '" data-verify-cat="' + escHtml(catKey) + '" ' +
             'data-verify-word="' + escHtml(verifyWord) + '">' +
             escHtml(rej && rej.verifying
-              ? pick({ fr: 'Vérification…', en: 'Verifying…' })
+              ? pick({ fr: 'Envoyé — attente opérateur', en: 'Sent — awaiting operator' })
               : pick({ fr: 'Vérifier', en: 'Verify' })) +
           '</button>';
       }
@@ -2173,15 +2362,18 @@
     draft.rejected[catKey] = {
       word: word,
       catKey: catKey,
-      msg: pick({ fr: 'Vérification en cours…', en: 'Verification in progress…' }),
+      msg: pick({
+        fr: 'Proposition envoyée — un opérateur examinera votre mot manuellement.',
+        en: 'Request sent — an operator will review your word manually.',
+      }),
       verifying: true,
     };
     orbit.irc.msg(buffer, '!verifier ' + catName + ' ' + word);
     bumpStore();
     try {
       orbit.notify('Petit Bac', pick({
-        fr: '!verifier ' + catName + ' ' + word,
-        en: '!verifier ' + catName + ' ' + word,
+        fr: 'Proposition envoyée pour « ' + word + ' » — validation manuelle par un opérateur.',
+        en: 'Request sent for « ' + word + ' » — manual review by an operator.',
       }));
     } catch (e) { /* ignore */ }
   }
@@ -2270,11 +2462,12 @@
         if (collapseBtn) {
           collapseBtn.textContent = root.classList.contains('opbac-panel--collapsed') ? '▾' : '▴';
         }
-        var g = getChannelState(buffer);
-        document.body.classList.toggle(
-          'opbac-end-overlay',
-          !!(g && g.phase === 'game_end' && !root.classList.contains('opbac-panel--collapsed'))
-        );
+        if (root.classList.contains('opbac-panel--collapsed')) {
+          var bodyEl = root.querySelector('.opbac-body');
+          if (bodyEl) bodyEl.style.maxHeight = '';
+        } else {
+          applyPanelHeight(root, getPanelHeight(orbit));
+        }
         return;
       }
       if (act === 'jouer') orbit.irc.msg(buffer, '!jouer');
@@ -2289,32 +2482,8 @@
         return;
       }
       if (act === 'aide') openHelpModal(orbit);
+      if (act === 'rules') openRulesModal(orbit);
       if (act === 'sendall') sendAllAnswers(orbit, buffer);
-      if (act === 'scores') {
-        try {
-          orbit.storage.set('bacLiveOpen', true);
-          orbit.storage.set('bacLiveCollapsed', false);
-        } catch (e) { /* ignore */ }
-        try { window.dispatchEvent(new CustomEvent('orbit-bac-live-sync')); } catch (e2) { /* ignore */ }
-        window.setTimeout(function () {
-          var livePanel = document.getElementById('oblive-dom-panel');
-          if (!livePanel) return;
-          livePanel.classList.remove('oblive-panel--flash');
-          void livePanel.offsetWidth;
-          livePanel.classList.add('oblive-panel--flash');
-          window.setTimeout(function () { livePanel.classList.remove('oblive-panel--flash'); }, 950);
-          try { livePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e3) { /* ignore */ }
-        }, 60);
-        try {
-          if (window.matchMedia('(max-width:880px)').matches) {
-            var app = document.querySelector('.app');
-            if (app && !app.classList.contains('members-open')) {
-              var pill = document.querySelector('.topbar__pill');
-              if (pill) pill.click();
-            }
-          }
-        } catch (e4) { /* ignore */ }
-      }
     });
     root.addEventListener('input', function (ev) {
       var inp = ev.target;
@@ -2343,7 +2512,6 @@
     var onBac = isBacChannel(orbit, buffer);
     document.body.classList.toggle('opbac-active', !!onBac);
     if (!onBac) {
-      document.body.classList.remove('opbac-end-overlay');
       root.style.display = 'none';
       return;
     }
@@ -2376,13 +2544,6 @@
     var progress = timing.progress;
     var wasCollapsed = root.classList.contains('opbac-panel--collapsed');
     if (isRoundEnd) wasCollapsed = false;
-    if (isGameEnd && !root.__opbacDidOpenEnd) {
-      wasCollapsed = false;
-      root.__opbacDidOpenEnd = true;
-    }
-    if (!isGameEnd) root.__opbacDidOpenEnd = false;
-    if (gameRunning && !isEnd) wasCollapsed = false;
-    document.body.classList.toggle('opbac-end-overlay', !!(isGameEnd && !wasCollapsed));
     var headBadge = game.round && game.totalRounds
       ? ('Manche ' + game.round + '/' + game.totalRounds)
       : phaseLabel(phase, game.countdown);
@@ -2411,7 +2572,7 @@
           '<button type="button" class="opbac-idle__cta" data-act="jouer">' +
             escHtml(pick({ fr: '▶ Lancer une partie', en: '▶ Start a game' })) +
           '</button>' +
-          '<button type="button" class="opbac-idle__help" data-act="aide">' +
+          '<button type="button" class="opbac-idle__help" data-act="rules">' +
             escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) +
           '</button></div>';
       } else if (isEnd) {
@@ -2427,7 +2588,15 @@
 
       root.innerHTML =
         buildHeadHtml(headBadge, modeBadge, wasCollapsed, gameRunning && !isEnd) +
-        '<div class="opbac-body">' + bodyHtml + '</div>';
+        '<div class="opbac-body">' + bodyHtml + '</div>' +
+        '<div class="opbac-resize" data-opbac-resize role="separator" aria-label="' +
+          escHtml(pick({ fr: 'Redimensionner le panneau', en: 'Resize panel' })) + '"></div>';
+
+      bindPanelResize(root, orbit);
+      if (!wasCollapsed) {
+        var panelH = isGameEnd ? Math.max(getPanelHeight(orbit), 460) : getPanelHeight(orbit);
+        applyPanelHeight(root, panelH);
+      }
 
       root.__opbacDraftSig = draftSignature(buffer, game);
 
@@ -2485,6 +2654,9 @@
       }
     }
 
+    if (!rebuild && !wasCollapsed) {
+      applyPanelHeight(root, root.__opbacPanelHeight || getPanelHeight(orbit));
+    }
     if (!rebuild && isLive && !isEnd) updateClockDom(root, remaining, progress);
     if (!rebuild && isPrep && !isEnd) updatePrepDom(root, remaining);
     if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
