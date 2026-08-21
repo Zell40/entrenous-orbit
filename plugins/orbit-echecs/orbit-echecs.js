@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 19;
+  var OEC_VER = 21;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -36,6 +36,7 @@
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
   };
   var ccBusyTimer = 0;
+  var ccBootTimer = 0;
   var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
 
   function subscribe(cb) { store.listeners.add(cb); return function () { store.listeners.delete(cb); }; }
@@ -156,6 +157,26 @@
     if (syncRequestAt[key] && now - syncRequestAt[key] < 12000) return;
     syncRequestAt[key] = now;
     sendEcCmd(orbit, buffer, 'sync');
+    armCcBoot(buffer);
+  }
+
+  function armCcBoot(channel) {
+    if (ccBootTimer) return;
+    var ch = channel;
+    ccBootTimer = setTimeout(function () {
+      ccBootTimer = 0;
+      var g = getState(ch);
+      if (!g.ccReady) {
+        patchState(ch, { ccReady: true, ccPrompt: g.ccPrompt || 'missing', ccAsk: true });
+      }
+    }, 18000);
+  }
+
+  function finishCcBoot() {
+    if (ccBootTimer) {
+      clearTimeout(ccBootTimer);
+      ccBootTimer = 0;
+    }
   }
 
   function emptyReview() {
@@ -182,7 +203,7 @@
       ccLeague: '', ccTac: '',
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
-      ccPrompt: '', ccOptout: false, ccErr: '',
+      ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false,
       review: emptyReview(),
     };
   }
@@ -348,7 +369,7 @@
       ccRapidRec: prev.ccRapidRec, ccBlitzRec: prev.ccBlitzRec, ccBulletRec: prev.ccBulletRec,
       ccLeague: prev.ccLeague, ccTac: prev.ccTac,
       ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
-      ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr,
+      ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr, ccReady: prev.ccReady,
     };
   }
 
@@ -379,16 +400,52 @@
   function fmtRec(rec) {
     var parts = String(rec || '').split('-');
     if (parts.length < 3) return '';
-    return parts[0] + 'V · ' + parts[1] + 'D · ' + parts[2] + 'N';
+    return parts[0] + ' V · ' + parts[1] + ' D · ' + parts[2] + ' N';
   }
 
-  function ccStatCell(label, last, best, rec) {
+  function ccStatCell(label, last, best, rec, loading) {
+    if (loading) {
+      return '<div class="oec-cc__stat is-empty"><span>' + label + '</span><b>—</b></div>';
+    }
     if (!last && !best) {
-      return '<div class="oec-cc__stat is-empty"><span>' + label + '</span><b>non classé</b></div>';
+      return '<div class="oec-cc__stat is-empty"><span>' + label + '</span><b>—</b><i>non classé</i></div>';
     }
     return '<div class="oec-cc__stat"><span>' + label + '</span><b>' + escHtml(last || '—') + '</b>' +
       (best ? '<i>max ' + escHtml(best) + '</i>' : '') +
       (rec ? '<i>' + escHtml(fmtRec(rec)) + '</i>' : '') + '</div>';
+  }
+
+  function ccHandle(game) {
+    var user = String(game.chesscom || '').trim();
+    var name = String(game.ccName || '').trim();
+    var title = String(game.ccTitle || '').trim();
+    var ident = (title ? escHtml(title) + ' ' : '') + (user ? escHtml(user) : escHtml(name));
+    var same = name && user && name.toLowerCase() === user.toLowerCase();
+    var real = (!same && name) ? '<span class="oec-cc__real">' + escHtml(name) + '</span>' : '';
+    var meta = [game.ccCountry, game.ccLeague].filter(Boolean).join(' · ');
+    return '<div class="oec-cc__id">' +
+      '<p class="oec-cc__user">' + ident + '</p>' + real +
+      (meta ? '<span>' + escHtml(meta) + '</span>' : '') +
+      '</div>';
+  }
+
+  function ccStatsGrid(game, loading) {
+    var inner = '<div class="oec-cc__stats">' +
+      ccStatCell('Rapide', game.ccRapid, game.ccRapidBest, game.ccRapidRec, loading) +
+      ccStatCell('Blitz', game.ccBlitz, game.ccBlitzBest, game.ccBlitzRec, loading) +
+      ccStatCell('Bullet', game.ccBullet, game.ccBulletBest, game.ccBulletRec, loading) +
+      '</div>';
+    if (loading) {
+      return '<div class="oec-cc__box is-loading">' + inner +
+        '<div class="oec-cc__spinner" role="status"><span class="oec-spin"></span> Chargement des stats…</div>' +
+        '</div>';
+    }
+    return inner +
+      (game.ccTac ? '<p class="oec-cc__more">Puzzles <b>' + escHtml(game.ccTac) + '</b></p>' : '') +
+      (game.chesscom
+        ? '<a class="oec-cc__link" href="https://www.chess.com/member/' +
+          encodeURIComponent(game.chesscom) + '" target="_blank" rel="noopener">Profil Chess.com</a>'
+        : '');
   }
 
   function iAm(orbit, game, color) {
@@ -529,22 +586,37 @@
 
     if (ev === 'elo_sync') {
       if (!eventForMe(tags)) return;
-      if (ui.ccBusy) {
-        patchState(channel, {
-          elo: tagVal(tags, '+elo') || prev.elo,
-          eloGames: tagVal(tags, '+games') || prev.eloGames,
-        });
-        return;
-      }
-      var linked = tagVal(tags, '+chesscom') || prev.chesscom;
-      var opted = tagVal(tags, '+optout') === '1';
-      patchState(channel, Object.assign({
+      var eloPatch = {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
-        ccOptout: opted,
-        ccAsk: !opted && !linked,
-        ccPrompt: opted ? 'optout' : (linked ? 'linked' : (prev.ccPrompt === 'optout' ? 'missing' : prev.ccPrompt)),
-      }, ccFieldsFromTags(tags, prev, !opted)));
+      };
+      if (!prev.ccReady || ui.ccBusy || prev.ccPrompt === 'preview' || prev.ccPrompt === 'found') {
+        patchState(channel, eloPatch);
+        return;
+      }
+      var storedCc = tagVal(tags, '+chesscom');
+      var opted = tagVal(tags, '+optout') === '1';
+      if (opted) {
+        finishCcBoot();
+        patchState(channel, Object.assign(eloPatch, ccFieldsFromTags({}, prev, false), {
+          ccOptout: true, ccAsk: false, ccPrompt: 'optout', ccReady: true,
+        }));
+        return;
+      }
+      if (storedCc) {
+        finishCcBoot();
+        patchState(channel, Object.assign(eloPatch, ccFieldsFromTags(tags, prev, true), {
+          ccOptout: false, ccAsk: false, ccPrompt: 'linked', ccReady: true,
+        }));
+        return;
+      }
+      finishCcBoot();
+      patchState(channel, Object.assign(eloPatch, {
+        ccOptout: false,
+        ccAsk: true,
+        ccPrompt: prev.ccPrompt || 'missing',
+        ccReady: true,
+      }));
       return;
     }
 
@@ -559,12 +631,14 @@
       var previewUser = tagVal(tags, '+chesscom');
       var keepPreview = mode === 'preview' || mode === 'found' || mode === 'linked';
       if (ui.ccBusy) setCcBusy(false);
+      if (mode !== 'wait') finishCcBoot();
       patchState(channel, Object.assign({
         ccPrompt: mode === 'wait' ? prev.ccPrompt : mode,
         ccOptout: mode === 'optout',
         ccAsk: mode === 'missing' || mode === 'preview' || mode === 'found',
         ccErr: '',
         flash: '',
+        ccReady: mode === 'wait' ? prev.ccReady : true,
       }, ccFieldsFromTags(tags, Object.assign({}, prev, { chesscom: previewUser || prev.chesscom }), keepPreview)));
       return;
     }
@@ -572,20 +646,24 @@
     if (ev === 'cc_err') {
       if (!eventForMe(tags)) return;
       if (ui.ccBusy) setCcBusy(false);
+      finishCcBoot();
       patchState(channel, {
         ccErr: tagVal(tags, '+text') || 'Compte Chess.com introuvable',
         ccOptout: false,
         ccPrompt: prev.ccPrompt === 'preview' ? 'missing' : (prev.ccPrompt === 'optout' ? 'missing' : (prev.ccPrompt || 'missing')),
         ccAsk: true,
+        ccReady: true,
       });
       return;
     }
 
     if (ev === 'cc_ask') {
       if (!eventForMe(tags)) return;
+      finishCcBoot();
       patchState(channel, {
         ccAsk: true,
         ccPrompt: 'missing',
+        ccReady: true,
         flash: tagVal(tags, '+text') || 'Indique ton pseudo Chess.com',
       });
       return;
@@ -1016,7 +1094,7 @@
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
-      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;height:100%;flex:1 1 auto}',
+      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;height:auto;flex:0 1 auto}',
       '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 1 auto;min-height:clamp(5.5rem,14vh,9.5rem);max-height:min(16vh,9.5rem);background:#e8dcc4}',
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
       '.oec-hero__label{position:absolute;left:.8rem;bottom:.5rem;margin:0;color:#fff;font-size:clamp(1rem,2vh,1.35rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
@@ -1027,20 +1105,30 @@
       '.oec-card--ask{border-color:#ea580c;background:#fff7ed}',
       '.oec-card--ask h3{color:#c2410c}',
       '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
+      '.oec-card--en{background:#f8faf4}',
+      '.oec-en__elo{margin:0;font-size:clamp(1.7rem,3.2vh,2.15rem);font-weight:800;color:#14532d;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}',
+      '.oec-en__meta{margin:.2rem 0 0;font-size:.72rem;font-weight:700;color:#6b7c4a;display:flex;align-items:center;gap:.35rem}',
+      '.oec-card--load{border-color:#d7ccb8;background:#faf8f3}',
+      '.oec-cc__box{position:relative}',
+      '.oec-cc__box.is-loading .oec-cc__stats{opacity:.4}',
+      '.oec-cc__spinner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.76rem;font-weight:800;color:#14532d}',
       '.oec-cc-err{margin:.35rem 0 0;color:#b91c1c;font-size:.78rem;font-weight:800}',
-      '.oec-cc-preview{margin:.25rem 0 0;font-size:.8rem;line-height:1.35}',
-      '.oec-cc__id{display:flex;flex-wrap:wrap;align-items:baseline;gap:.15rem .55rem;margin:.1rem 0 .28rem;font-size:.82rem}',
-      '.oec-cc__id b{color:#14532d}',
-      '.oec-cc__id span{color:#6b7c4a;font-size:.72rem;font-weight:700}',
+      '.oec-cc-preview{margin:0 0 .3rem;font-size:.78rem;line-height:1.35;color:#7c2d12}',
+      '.oec-card--ok .oec-cc-preview{color:#14532d}',
+      '.oec-cc__id{display:flex;flex-direction:column;gap:.08rem;margin:0 0 .32rem}',
+      '.oec-cc__user{margin:0;font-size:1.05rem;font-weight:800;color:#14532d;line-height:1.15}',
+      '.oec-cc__real{font-size:.72rem;font-weight:700;color:#57534e}',
+      '.oec-cc__id span{color:#6b7c4a;font-size:.7rem;font-weight:700}',
       '.oec-cc__stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.28rem}',
-      '.oec-cc__stat{background:#f6f1e7;border-radius:8px;padding:.22rem .3rem;text-align:center}',
-      '.oec-card--ok .oec-cc__stat{background:#ecfdf3}',
-      '.oec-cc__stat span{display:block;font-size:.6rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a;font-weight:800}',
-      '.oec-cc__stat b{display:block;font-size:.95rem;color:#14532d;line-height:1.2}',
-      '.oec-cc__stat i{display:block;font-style:normal;font-size:.62rem;color:#7c7468}',
-      '.oec-cc__stat.is-empty b{color:#a8a29e;font-size:.72rem;font-weight:700}',
-      '.oec-cc__more{margin:.22rem 0 0;font-size:.72rem;color:#5c564c}',
-      '.oec-cc__link{display:inline-block;margin-top:.18rem;font-size:.72rem;font-weight:800;color:#166534}',
+      '.oec-cc__stat{background:#f6f1e7;border-radius:8px;padding:.28rem .25rem .22rem;text-align:center}',
+      '.oec-card--ok .oec-cc__stat,.oec-card--ask .oec-cc__stat{background:rgba(255,255,255,.7)}',
+      '.oec-cc__stat span{display:block;font-size:.6rem;letter-spacing:.05em;text-transform:uppercase;color:#6b7c4a;font-weight:800}',
+      '.oec-cc__stat b{display:block;margin:.06rem 0 .02rem;font-size:1.28rem;color:#14532d;line-height:1.1;font-variant-numeric:tabular-nums}',
+      '.oec-cc__stat i{display:block;font-style:normal;font-size:.62rem;color:#7c7468;line-height:1.25}',
+      '.oec-cc__stat.is-empty b{color:#a8a29e;font-size:1.15rem}',
+      '.oec-cc__more{margin:.28rem 0 0;font-size:.72rem;color:#5c564c}',
+      '.oec-cc__more b{color:#14532d}',
+      '.oec-cc__link{display:inline-block;margin-top:.2rem;font-size:.72rem;font-weight:800;color:#166534}',
       '.oec-card h3{margin:0 0 .32rem;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
       '.oec-pills{display:flex;flex-wrap:wrap;gap:.28rem}',
       '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.2rem .5rem;font-size:.7rem;font-weight:800;cursor:pointer;min-height:26px}',
@@ -1242,9 +1330,8 @@
     var on = !game.ccOptout;
     var busy = !!ui.ccBusy;
     var extra = '';
-    if (on && (game.ccPrompt === 'linked' || game.chesscom)) {
-      extra = '<p>Compte lié : <b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
-        (game.ccBlitz ? ' — blitz ' + escHtml(game.ccBlitz) : '') + '.</p>';
+    if (on && game.ccPrompt === 'linked') {
+      extra = '<p>Compte Chess.com lié : <b>' + escHtml(game.chesscom || game.ccName) + '</b>.</p>';
     } else if (on) {
       extra = '<p>Le bloc Chess.com est affiché sur l’accueil. Tu peux y indiquer ton pseudo.</p>';
     } else {
@@ -1270,62 +1357,58 @@
   function renderHome(orbit, game) {
     var s = ui.setup;
     var busy = !!ui.ccBusy;
-    var eloLine = game.elo
-      ? 'ELO EntreNous <b>' + escHtml(game.elo) + '</b>' +
-        (game.eloGames ? ' · ' + escHtml(game.eloGames) + ' parties' : '')
-      : 'ELO EntreNous <b>1200</b> (provisoire)';
-    var prompt = game.ccPrompt || (game.ccAsk && !game.chesscom ? 'missing' : '');
+    var loading = !game.ccReady && !game.ccOptout;
+    if (loading) armCcBoot(orbit.state && orbit.state.active ? orbit.state.active() : '');
+    var prompt = game.ccPrompt || '';
     var preview = prompt === 'preview' || prompt === 'found';
-    var missing = prompt === 'missing';
-    var linked = prompt === 'linked' || (!!game.chesscom && !preview && !missing && !game.ccOptout);
-    var ccCardCls = 'oec-card oec-card--wide' +
-      (preview || missing ? ' oec-card--ask' : '') +
-      (linked ? ' oec-card--ok' : '');
-    var ccTitle = preview ? 'Confirmer le compte Chess.com'
-      : (busy && missing) ? 'Recherche Chess.com'
-      : missing ? 'Compte Chess.com'
-      : game.ccOptout ? 'Classement'
-      : 'Classement';
-    var ccBody = '';
-    if (game.ccOptout) {
-      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span></p>';
-    } else if (preview || linked) {
-      var handle = (game.ccTitle ? escHtml(game.ccTitle) + ' ' : '') +
-        escHtml(game.ccName || game.chesscom);
-      var meta = [game.ccCountry, game.ccLeague].filter(Boolean).join(' · ');
-      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span></p>' +
-        '<div class="oec-cc__id"><b>' + handle + '</b>' +
-        (meta ? '<span>' + escHtml(meta) + '</span>' : '') + '</div>' +
-        '<div class="oec-cc__stats">' +
-        ccStatCell('Rapide', game.ccRapid, game.ccRapidBest, game.ccRapidRec) +
-        ccStatCell('Blitz', game.ccBlitz, game.ccBlitzBest, game.ccBlitzRec) +
-        ccStatCell('Bullet', game.ccBullet, game.ccBulletBest, game.ccBulletRec) +
-        '</div>' +
-        (game.ccTac ? '<p class="oec-cc__more">Puzzles ' + escHtml(game.ccTac) + '</p>' : '') +
-        (game.chesscom
-          ? '<a class="oec-cc__link" href="https://www.chess.com/member/' +
-            encodeURIComponent(game.chesscom) + '" target="_blank" rel="noopener">Profil Chess.com</a>'
-          : '');
-      if (preview) {
-        ccBody += '<p class="oec-cc-preview">C’est bien ton compte ?</p>' +
-          '<div class="oec-actions" style="margin-top:.3rem">' +
+    var missing = prompt === 'missing' || (game.ccReady && !prompt && !game.ccOptout && !preview && prompt !== 'linked');
+    var linked = prompt === 'linked';
+    var showCc = !game.ccOptout;
+    var elo = game.elo || (loading ? '—' : '1200');
+    var gamesN = Number(game.eloGames || 0);
+    var enMeta = loading && !game.elo
+      ? '<span class="oec-spin"></span> Chargement…'
+      : (gamesN ? gamesN + ' partie' + (gamesN > 1 ? 's' : '') : '0 partie · provisoire');
+    var enCard = '<div class="oec-card oec-card--en' + (showCc ? '' : ' oec-card--wide') + (loading && !game.elo ? ' is-loading' : '') + '">' +
+      '<h3>Classement EntreNous</h3>' +
+      '<p class="oec-en__elo">' + escHtml(String(elo)) + '</p>' +
+      '<p class="oec-en__meta">' + enMeta + '</p></div>';
+    var ccCard = '';
+    if (showCc) {
+      var ccTitle = loading ? 'Classement Chess.com'
+        : preview ? 'Confirmer le compte Chess.com'
+        : (busy && missing) ? 'Recherche Chess.com'
+        : missing ? 'Compte Chess.com'
+        : linked ? 'Classement Chess.com'
+        : 'Chess.com';
+      var ccCls = 'oec-card' + (loading ? ' oec-card--load' : '') +
+        (!loading && (preview || missing) ? ' oec-card--ask' : '') +
+        (linked ? ' oec-card--ok' : '');
+      var ccBody = '';
+      if (loading) {
+        ccBody = '<p class="oec-cc-preview" style="color:#5c564c">Recherche d’un compte Chess.com…</p>' +
+          ccStatsGrid(game, true);
+      } else if (preview) {
+        ccBody = '<p class="oec-cc-preview">Un compte a été trouvé. Confirme s’il s’agit bien du tien avant affichage.</p>' +
+          ccHandle(game) + ccStatsGrid(game) +
+          '<div class="oec-actions" style="margin-top:.35rem">' +
           '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">C’est moi</button>' +
           '<button type="button" class="oec-btn" data-act="lier-non">Ce n’est pas moi</button>' +
           '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button>' +
           '</div>';
+      } else if (linked) {
+        ccBody = ccHandle(game) + ccStatsGrid(game);
+      } else {
+        ccBody = '<p class="oec-cc-preview">Indique ton pseudo Chess.com, ou désactive cette fonction.</p>' +
+          (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
+          '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
+          escHtml(ui.ccUser || '') + '"' + (busy ? ' disabled' : '') + '>' +
+          '<button type="button" class="oec-btn oec-btn--pri" data-act="lier"' + (busy ? ' disabled' : '') + '>' +
+          (busy ? '<span class="oec-spin" aria-hidden="true"></span> Recherche…' : 'Vérifier') + '</button>' +
+          '<button type="button" class="oec-btn" data-act="lier-skip"' + (busy ? ' disabled' : '') + '>Ne pas utiliser</button></div>' +
+          (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Recherche du compte Chess.com…</p>' : '');
       }
-    } else if (missing) {
-      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span>' +
-        '<span>Aucun compte Chess.com n’a été trouvé. Indique ton pseudo pour afficher tes infos, ou désactive cette fonction.</span></p>' +
-        (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
-        '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
-        escHtml(ui.ccUser || '') + '"' + (busy ? ' disabled' : '') + '>' +
-        '<button type="button" class="oec-btn oec-btn--pri" data-act="lier"' + (busy ? ' disabled' : '') + '>' +
-        (busy ? '<span class="oec-spin" aria-hidden="true"></span> Recherche…' : 'Vérifier') + '</button>' +
-        '<button type="button" class="oec-btn" data-act="lier-skip"' + (busy ? ' disabled' : '') + '>Ne pas utiliser</button></div>' +
-        (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Recherche du compte Chess.com…</p>' : '');
-    } else {
-      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span></p>';
+      ccCard = '<div class="' + ccCls + '"><h3>' + ccTitle + '</h3>' + ccBody + '</div>';
     }
     return '<div class="oec-idle">' +
       '<div class="oec-hero"><img src="' + HOME_IMG + '" alt="">' +
@@ -1360,7 +1443,7 @@
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
       pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
       '</div></div>' +
-      '<div class="' + ccCardCls + '"><h3>' + ccTitle + '</h3>' + ccBody + '</div>' +
+      enCard + ccCard +
       '</div>' +
       '<div class="oec-actions oec-home-actions">' +
       '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">Lancer la partie</button>' +
