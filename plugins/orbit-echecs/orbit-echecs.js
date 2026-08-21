@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 22;
+  var OEC_VER = 24;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -32,7 +32,7 @@
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
   var ui = {
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
-    ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '',
+    ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '', enName: '',
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
   };
   var ccBusyTimer = 0;
@@ -179,6 +179,23 @@
     }
   }
 
+  function emptyPlayer() {
+    return { nick: '', elo: '', games: '', cc: '', rapid: '', blitz: '', bullet: '' };
+  }
+
+  function parseRoster(raw) {
+    var p = String(raw || '').split('|');
+    return {
+      nick: p[0] || '',
+      elo: p[1] || '',
+      games: p[2] || '',
+      cc: p[3] || '',
+      rapid: p[4] || '',
+      blitz: p[5] || '',
+      bullet: p[6] || '',
+    };
+  }
+
   function emptyReview() {
     return {
       status: '', n: 0,
@@ -196,7 +213,7 @@
       from: '', to: '', capW: '', capB: '', sans: '', ucis: '', waiting: false,
       result: '', reason: '', winner: '', flash: '', gid: '', updatedAt: 0,
       opening: '', openingVar: '', skill: '', tc: 'casual', clockW: 0, clockB: 0, clockInc: 0,
-      clockAt: 0, rated: false, duration: 0, elo: '', eloGames: '',
+      clockAt: 0, rated: false, duration: 0, elo: '', eloGames: '', enName: '',
       chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
       ccRapidBest: '', ccBlitzBest: '', ccBulletBest: '',
       ccRapidRec: '', ccBlitzRec: '', ccBulletRec: '',
@@ -204,6 +221,7 @@
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
       ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false,
+      pWhite: emptyPlayer(), pBlack: emptyPlayer(),
       review: emptyReview(),
     };
   }
@@ -363,7 +381,7 @@
 
   function keepProfile(prev) {
     return {
-      elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
+      elo: prev.elo, eloGames: prev.eloGames, enName: prev.enName, chesscom: prev.chesscom,
       ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
       ccRapidBest: prev.ccRapidBest, ccBlitzBest: prev.ccBlitzBest, ccBulletBest: prev.ccBulletBest,
       ccRapidRec: prev.ccRapidRec, ccBlitzRec: prev.ccBlitzRec, ccBulletRec: prev.ccBulletRec,
@@ -584,11 +602,20 @@
       return;
     }
 
+    if (ev === 'roster') {
+      patchState(channel, {
+        pWhite: parseRoster(tagVal(tags, '+pw')),
+        pBlack: parseRoster(tagVal(tags, '+pb')),
+      });
+      return;
+    }
+
     if (ev === 'elo_sync') {
       if (!eventForMe(tags)) return;
       var eloPatch = {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
+        enName: tagVal(tags, '+en-name'),
       };
       if (!prev.ccReady || ui.ccBusy || prev.ccPrompt === 'preview' || prev.ccPrompt === 'found') {
         patchState(channel, eloPatch);
@@ -1034,10 +1061,17 @@
       '.oec-meta{flex:0 1 16rem;min-width:12rem;max-width:18rem}',
       '.oec-players{margin:0 0 .5rem;font-size:.86rem;line-height:1.5}',
       '.oec-clock{display:flex;flex-direction:column;gap:.28rem;margin:0 0 .7rem}',
-      '.oec-clock span{display:flex;justify-content:space-between;background:rgba(255,255,255,.06);border-radius:10px;padding:.4rem .55rem;font-weight:700}',
+      '.oec-clock > span{display:flex;flex-direction:column;gap:.12rem;background:rgba(255,255,255,.06);border-radius:10px;padding:.4rem .55rem;font-weight:700}',
+      '.oec-clock__top{display:flex;justify-content:space-between;align-items:center;gap:.4rem;width:100%}',
       '.oec-clock span b{font-weight:800}',
-      '.oec-clock span.is-turn{outline:2px solid #86efac}',
+      '.oec-clock > span.is-turn{outline:2px solid #86efac}',
       '.oec-clock__time{font-variant-numeric:tabular-nums;font-size:1.05rem;letter-spacing:.02em}',
+      '.oec-pl__line{font-style:normal;font-size:.68rem;font-weight:700;color:#bbf7d0;opacity:.92}',
+      '.oec-pl__line b{font-weight:800;color:#ecfdf5}',
+      '.oec-cc-banner{margin:0 0 .55rem;padding:.45rem .5rem;border-radius:10px;background:#fff7ed;color:#3f3a32;border:1px solid #ea580c}',
+      '.oec-cc-banner .oec-cc-preview{color:#7c2d12}',
+      '.oec-cc-banner .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
+      '.oec-cc-banner .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0}',
       '.oec-review{margin:.45rem 0;padding:.65rem .7rem;border-radius:12px;background:#14532d;color:#ecfdf5;font-size:.82rem;line-height:1.45}',
       '.oec-review h3{margin:0 0 .35rem;font-size:.9rem}',
@@ -1106,7 +1140,10 @@
       '.oec-card--ask h3{color:#c2410c}',
       '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
       '.oec-card--en{background:#f8faf4}',
-      '.oec-en__elo{margin:0;font-size:clamp(1.7rem,3.2vh,2.15rem);font-weight:800;color:#14532d;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}',
+      '.oec-en__name{margin:0 0 .12rem;font-size:.82rem;font-weight:800;color:#3f3a32}',
+      '.oec-field{display:flex;flex-direction:column;gap:.28rem;margin:0 0 .65rem;font-size:.72rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
+      '.oec-field__row{display:flex;gap:.35rem}',
+      '.oec-field input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;font-weight:700;text-transform:none;letter-spacing:0;background:#fff;color:#3f3a32}',
       '.oec-en__meta{margin:.2rem 0 0;font-size:.72rem;font-weight:700;color:#6b7c4a;display:flex;align-items:center;gap:.35rem}',
       '.oec-card--load{border-color:#d7ccb8;background:#faf8f3}',
       '.oec-cc__box{position:relative}',
@@ -1329,13 +1366,22 @@
     if (!ui.settings) return '';
     var on = !game.ccOptout;
     var busy = !!ui.ccBusy;
+    var preview = game.ccPrompt === 'preview' || game.ccPrompt === 'found';
     var extra = '';
-    if (on && game.ccPrompt === 'linked') {
-      extra = '<p>Compte Chess.com lié : <b>' + escHtml(game.chesscom || game.ccName) + '</b>.</p>';
-    } else if (on) {
-      extra = '<p>Le bloc Chess.com est affiché sur l’accueil. Tu peux y indiquer ton pseudo.</p>';
-    } else {
+    if (!on) {
       extra = '<p>Le bloc Chess.com est masqué. Coche la case pour le réafficher.</p>';
+    } else if (preview) {
+      extra = renderCcConfirm(game);
+    } else {
+      extra = '<label class="oec-field"><span>Pseudo Chess.com</span>' +
+        '<span class="oec-field__row">' +
+        '<input id="oec-cc" type="text" maxlength="25" placeholder="pseudo Chess.com" value="' +
+        escHtml(ui.ccUser || game.chesscom || '') + '"' + (busy ? ' disabled' : '') + '>' +
+        '<button type="button" class="oec-btn oec-btn--pri" data-act="lier"' + (busy ? ' disabled' : '') + '>' +
+        (busy ? '…' : 'OK') + '</button></span></label>' +
+        (game.chesscom && game.ccPrompt === 'linked'
+          ? '<p>Compte actuel : <b>' + escHtml(game.chesscom) + '</b>. Change-le puis OK pour vérifier.</p>'
+          : '<p>Indique ton pseudo Chess.com pour lier tes classements.</p>');
     }
     return '<div class="oec-settings" role="dialog" aria-label="Paramètres">' +
       '<h3>Paramètres</h3>' + extra +
@@ -1347,6 +1393,33 @@
       '<label class="oec-check" data-act="premove-toggle">' +
       '<input type="checkbox"' + (premoveOn(pluginOrbit) ? ' checked' : '') + '>' +
       '<span>Pré-mouvement</span></label></div>';
+  }
+
+  function playerStatsLine(p, nickFallback) {
+    var nick = (p && p.nick) || nickFallback || '';
+    if (!nick || nick === 'IA') return '<i class="oec-pl__line">IA</i>';
+    var bits = [];
+    if (p && p.elo) bits.push('EN <b>' + escHtml(p.elo) + '</b>');
+    if (p && (p.blitz || p.rapid || p.bullet || p.cc)) {
+      var cc = [];
+      if (p.blitz) cc.push('blz ' + p.blitz);
+      if (p.rapid) cc.push('rap ' + p.rapid);
+      if (p.bullet) cc.push('bul ' + p.bullet);
+      bits.push('CC ' + (cc.length ? cc.join(' · ') : escHtml(p.cc)));
+    }
+    return bits.length
+      ? '<i class="oec-pl__line">' + bits.join(' · ') + '</i>'
+      : '<i class="oec-pl__line">EN —</i>';
+  }
+
+  function renderCcConfirm(game) {
+    return '<p class="oec-cc-preview">Confirme le compte Chess.com <b>' +
+      escHtml(game.chesscom || game.ccName) + '</b>.</p>' +
+      ccHandle(game) + ccStatsGrid(game) +
+      '<div class="oec-actions" style="margin-top:.3rem">' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">C’est moi</button>' +
+      '<button type="button" class="oec-btn" data-act="lier-non">Ce n’est pas moi</button>' +
+      '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button></div>';
   }
 
   function pill(act, val, label, current) {
@@ -1598,10 +1671,15 @@
       var wTurn = game.status === 'playing' && game.turn === 'white' && !view._replay;
       var bTurn = game.status === 'playing' && game.turn === 'black' && !view._replay;
       body += '<div class="oec-clock">' +
-        '<span class="' + (bTurn ? 'is-turn' : '') + '">Noirs <b>' + escHtml(game.black || '—') +
-        '</b> <span class="oec-clock__time">' + liveClock(game, 'black') + '</span></span>' +
-        '<span class="' + (wTurn ? 'is-turn' : '') + '">Blancs <b>' + escHtml(game.white || '—') +
-        '</b> <span class="oec-clock__time">' + liveClock(game, 'white') + '</span></span></div>';
+        '<span class="' + (bTurn ? 'is-turn' : '') + '"><span class="oec-clock__top">Noirs <b>' +
+        escHtml(game.black || '—') + '</b> <span class="oec-clock__time">' + liveClock(game, 'black') +
+        '</span></span>' + playerStatsLine(game.pBlack, game.black) + '</span>' +
+        '<span class="' + (wTurn ? 'is-turn' : '') + '"><span class="oec-clock__top">Blancs <b>' +
+        escHtml(game.white || '—') + '</b> <span class="oec-clock__time">' + liveClock(game, 'white') +
+        '</span></span>' + playerStatsLine(game.pWhite, game.white) + '</span></div>';
+      if (game.ccPrompt === 'preview' || game.ccPrompt === 'found') {
+        body += '<div class="oec-cc-banner">' + renderCcConfirm(game) + '</div>';
+      }
       if (game.opening || game.openingVar) body += '<p class="oec-opening">' + openingHtml(game) + '</p>';
       if (game.status === 'waiting') {
         body += '<p class="oec-turn">' + pick({ fr: 'En attente d’un adversaire…', en: 'Waiting for an opponent…' }) + '</p>';
