@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=7"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=8"]
  */
 (function () {
   'use strict';
@@ -485,22 +485,17 @@
     );
   }
 
-  /** Sidebar row (Status-like): shows state only — open via topbar icon. */
+  /** Sidebar row only while the allow-list pane is open (opened via topbar icon). */
   function WhitelistRoomRow(props) {
     var orbit = props.orbit;
-    useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
-    useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
     useSyncExternalStore(subscribeListView, getListViewSnap, getListViewSnap);
-    if (!gate.callerid && !gate.parental && !listPending().length) return null;
+    useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    if (!listView.open) return null;
     var n = listPending().length;
-    var active = listView.open;
     return h('div', {
-      className: 'room ocid-room' + (active ? ' is-active' : '') + (n ? ' has-unread' : ''),
+      className: 'room ocid-room is-active' + (n ? ' has-unread' : ''),
       role: 'status',
-      title: pick(orbit, {
-        fr: 'Ouvrez la liste blanche avec l’icône bouclier en haut du tchat',
-        en: 'Open the allow list with the shield icon in the top bar',
-      }),
+      title: pick(orbit, { fr: 'Liste blanche ouverte', en: 'Allow list open' }),
     },
       h('span', { className: 'room__av', 'data-ocid': true, 'aria-hidden': true }, h(ShieldIcon, { size: 18 })),
       h('span', { className: 'room__body' },
@@ -508,12 +503,10 @@
           pick(orbit, { fr: 'Liste blanche', en: 'Allow list' })
         ),
         h('span', { className: 'room__sub' },
-          active
-            ? pick(orbit, { fr: 'Ouverte — icône en haut pour fermer', en: 'Open — use top icon to close' })
-            : pick(orbit, {
-              fr: 'Utilisez l’icône bouclier en haut',
-              en: 'Use the shield icon in the top bar',
-            })
+          pick(orbit, {
+            fr: 'Messages privés autorisés',
+            en: 'Allowed private messages',
+          })
         )
       ),
       n ? h('span', { className: 'room__badge' }, n > 99 ? '99+' : String(n)) : null
