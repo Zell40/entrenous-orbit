@@ -11,6 +11,15 @@ UX Orbit pour le **contrôle parental** et le **filtre MP callerid (`+g`)** — 
 
 Un utilisateur qui active seulement `+g` (ou `+i`, etc. un par un) **n’est pas** traité comme « contrôle parental ».
 
+## Accepter / refuser
+
+| Action | Effet |
+| --- | --- |
+| **Accepter** | `ACCEPT +nick`, ouvre le PV, envoie un message d’acceptation (le PRIVMSG d’origine n’a jamais traversé `+g` ; le demandeur Orbit le renvoie si possible) |
+| **Refuser** | Pas d’ouverture de PV ; NOTICE de refus ; **liste locale de refus** + `SILENCE` (si module présent). Les bloqués apparaissent dans la liste blanche → **Débloquer**. |
+
+Côté demandeur : textes neutres (jamais « contrôle parental »).
+
 ## Affichage
 
 1. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
@@ -30,7 +39,7 @@ Un utilisateur qui active seulement `+g` (ou `+i`, etc. un par un) **n’est pas
     "autoMode": true
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=8"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=10"
   ]
 }
 ```
