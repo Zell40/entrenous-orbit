@@ -22,12 +22,13 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 
 ## Affichage
 
-1. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
-2. **Liste blanche** : fermée par défaut ; l’onglet n’apparaît dans la colonne **que** lorsque la vue est ouverte via l’**icône bouclier** (⋮ sur mobile).
-3. **Haut du tchat** : bannière bleue + **popup** sur **718** (filtre MP).
-4. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
-5. Menu **⋮** (mobile) → **Liste blanche MP**.
-6. `/accepter` `/refuser` `/listeaccept`.
+1. **Paramètres → Modes & confidentialité** : interrupteur « Filtrer les messages privés (+g) » (verrouillé sous contrôle parental).
+2. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
+3. **Liste blanche** : fermée par défaut ; l’onglet n’apparaît dans la colonne **que** lorsque la vue est ouverte via l’**icône bouclier** (⋮ sur mobile).
+4. **Haut du tchat** : bannière bleue + **popup** sur **718** (filtre MP).
+5. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
+6. Menu **⋮** (mobile) → **Liste blanche MP**.
+7. `/accepter` `/refuser` `/listeaccept`.
 
 ## Config
 
@@ -39,7 +40,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "autoMode": true
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=15"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=16"
   ]
 }
 ```

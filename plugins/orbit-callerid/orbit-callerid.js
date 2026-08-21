@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=15"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=16"]
  */
 (function () {
   'use strict';
@@ -28,6 +28,7 @@
   var STORAGE_PERSIST = 'persistAccept';
   var STORAGE_DENY = 'savedDeny';
   var STORAGE_BLOCKED_BY = 'blockedBy';
+  var STORAGE_WANT_G = 'wantCallerid';
 
   /** Notice markers (neutral — no « parental ») for cross-client signaling. */
   var MARK_ACCEPT_FR = 'Votre demande de conversation a été acceptée';
@@ -223,6 +224,55 @@
     return isParentalGroup(orbit) || hasParentalModePackage(orbit);
   }
 
+  function wantCallerid(orbit) {
+    try { return orbit.storage.get(STORAGE_WANT_G, false) === true; } catch (e) { return false; }
+  }
+
+  function setWantCallerid(orbit, on) {
+    try { orbit.storage.set(STORAGE_WANT_G, !!on); } catch (e) { /* ignore */ }
+  }
+
+  /** Voluntary +g (Settings → Modes). Never used to remove parental package. */
+  function applyVoluntaryCallerid(orbit, logFn) {
+    if (parentalActive || isParental(orbit)) return;
+    if (!wantCallerid(orbit)) return;
+    var nick = orbit.state.nick();
+    if (!nick) return;
+    if (hasModeG(orbit)) {
+      activateCallerid(orbit, logFn || function () {}, 'pref');
+      return;
+    }
+    try {
+      orbit.irc.send('MODE ' + nick + ' +g');
+      (logFn || function () {})('callerid: +g volontaire (paramètres)');
+    } catch (e) { /* ignore */ }
+  }
+
+  function setVoluntaryCallerid(orbit, enable, logFn) {
+    if (parentalActive || isParental(orbit)) {
+      orbit.notify(
+        pick(orbit, { fr: 'Contrôle parental', en: 'Parental controls' }),
+        pick(orbit, {
+          fr: 'Ce mode est imposé par le contrôle parental et ne peut pas être désactivé.',
+          en: 'This mode is required by parental controls and cannot be turned off.',
+        })
+      );
+      return;
+    }
+    setWantCallerid(orbit, enable);
+    var nick = orbit.state.nick();
+    if (!nick) return;
+    try {
+      orbit.irc.send('MODE ' + nick + ' ' + (enable ? '+g' : '-g'));
+    } catch (e) { /* ignore */ }
+    if (enable) activateCallerid(orbit, logFn || function () {}, 'settings');
+    else {
+      window.setTimeout(function () {
+        if (!hasModeG(orbit) && !listPending().length) setCallerid(false);
+      }, 400);
+    }
+  }
+
   function loadSavedAccept(orbit) {
     try {
       var v = orbit.storage.get(STORAGE_ACCEPT, []);
@@ -336,6 +386,7 @@
     else if (parentalActive) setParental(false);
 
     if (hasModeG(orbit)) activateCallerid(orbit, log, '+g');
+    else if (wantCallerid(orbit) && !isParental(orbit)) applyVoluntaryCallerid(orbit, log);
     if (calleridActive) refreshAcceptList(orbit);
   }
 
@@ -793,6 +844,17 @@
       '.ocid-toolbar__row{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}',
       '.ocid-toolbar input[type=text]{flex:1 1 10rem;min-width:0;padding:.45rem .65rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:8px;background:var(--bg,#fff);color:inherit;font:inherit}',
       '.ocid-check{display:flex;align-items:center;gap:.45rem;font-size:.86rem;cursor:pointer;user-select:none;padding:0 .15rem}',
+      '.ocid-srow{display:flex;align-items:center;gap:.65rem;padding:.55rem 0;border-top:1px solid var(--border,rgba(0,0,0,.08))}',
+      '.ocid-srow:first-of-type{border-top:0}',
+      '.ocid-srow__ic{flex:none;font-size:1.1rem;line-height:1}',
+      '.ocid-srow__txt{flex:1;min-width:0}',
+      '.ocid-srow__label{font-weight:650;font-size:.92rem}',
+      '.ocid-srow__hint{font-size:.78rem;opacity:.7;margin-top:.15rem;line-height:1.35}',
+      '.ocid-srow .switch{appearance:none;border:0;width:2.4rem;height:1.35rem;border-radius:999px;background:var(--border,rgba(0,0,0,.2));position:relative;cursor:pointer;flex:none;padding:0}',
+      '.ocid-srow .switch.is-on{background:#0ea5e9}',
+      '.ocid-srow .switch.is-locked{opacity:.75;cursor:not-allowed}',
+      '.ocid-srow .switch__dot{position:absolute;top:2px;left:2px;width:1.05rem;height:1.05rem;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.2)}',
+      '.ocid-srow .switch.is-on .switch__dot{transform:translateX(1.05rem)}',
       '.ocid-popup{display:flex;flex-direction:column;align-items:stretch;gap:.85rem;padding:.35rem .15rem .15rem;max-width:24rem}',
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
@@ -1253,6 +1315,81 @@
     );
   }
 
+  function CalleridModeRow(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
+    var locked = !!(parentalActive || isParental(orbit));
+    var enabled = locked || hasModeG(orbit) || wantCallerid(orbit);
+    return h('div', { className: 'ocid-srow' },
+      h('span', { className: 'ocid-srow__ic', 'aria-hidden': true }, '🛡️'),
+      h('div', { className: 'ocid-srow__txt' },
+        h('div', { className: 'ocid-srow__label' },
+          pick(orbit, {
+            fr: 'Filtrer les messages privés (+g)',
+            en: 'Filter private messages (+g)',
+          })
+        ),
+        h('div', { className: 'ocid-srow__hint' },
+          locked
+            ? pick(orbit, {
+              fr: 'Imposé par le contrôle parental — non désactivable.',
+              en: 'Required by parental controls — cannot be turned off.',
+            })
+            : pick(orbit, {
+              fr: 'Seules les personnes que vous acceptez pourront vous écrire en privé. Gérez la liste blanche via l’icône bouclier.',
+              en: 'Only people you accept can private-message you. Manage the allow list via the shield icon.',
+            })
+        )
+      ),
+      h('button', {
+        type: 'button',
+        className: 'switch' + (enabled ? ' is-on' : '') + (locked ? ' is-locked' : ''),
+        role: 'switch',
+        'aria-checked': enabled,
+        'aria-disabled': locked,
+        title: locked
+          ? pick(orbit, { fr: 'Verrouillé', en: 'Locked' })
+          : pick(orbit, { fr: 'Activer ou désactiver +g', en: 'Toggle +g' }),
+        onClick: function () {
+          if (locked) {
+            setVoluntaryCallerid(orbit, false);
+            return;
+          }
+          setVoluntaryCallerid(orbit, !enabled);
+        },
+      }, h('span', { className: 'switch__dot', 'aria-hidden': true }))
+    );
+  }
+
+  function registerSettingsMode(orbit) {
+    var render = function () { return h(CalleridModeRow, { orbit: orbit }); };
+    if (typeof orbit.addSettingsMode === 'function') {
+      orbit.addSettingsMode({ render: render });
+      return;
+    }
+    if (typeof orbit.addSettingsSection === 'function') {
+      orbit.addSettingsSection({
+        label: pick(orbit, { fr: 'Messages privés', en: 'Private messages' }),
+        icon: '🛡️',
+        render: function () {
+          return h('div', { className: 'scard' },
+            h('div', { className: 'scard__body' },
+              h('div', { className: 'sfield' },
+                h('div', { className: 'sfield__intro' },
+                  pick(orbit, {
+                    fr: 'Mode callerid (+g) et liste blanche des messages privés.',
+                    en: 'Callerid (+g) mode and private-message allow list.',
+                  })
+                )
+              ),
+              render()
+            )
+          );
+        },
+      });
+    }
+  }
+
   function modesContainG(text) {
     var m = String(text || '');
     var idx = m.search(/modes\s+/i);
@@ -1282,6 +1419,7 @@
       // +g alone → callerid only. Full mode package → parental.
       if (hasParentalModePackage(orbit)) activateParental(orbit, log, 'paquet-modes');
       else if (hasModeG(orbit)) activateCallerid(orbit, log, 'umodes');
+      else window.setTimeout(function () { applyVoluntaryCallerid(orbit, log); }, 600);
     }
 
     boot();
@@ -1362,6 +1500,7 @@
           window.setTimeout(function () {
             if (hasParentalModePackage(orbit)) activateParental(orbit, log, 'MODE-paquet');
             else if (hasModeG(orbit)) activateCallerid(orbit, log, 'MODE+g');
+            else if (wantCallerid(orbit) && !isParental(orbit)) applyVoluntaryCallerid(orbit, log);
             else if (!listPending().length) setCallerid(false);
           }, 0);
           if (parentalActive && cfg(orbit).autoMode && modeStr.indexOf('-') > -1 && /[gixIRcRw]/.test(modeStr)) {
@@ -1495,6 +1634,7 @@
     orbit.addUi('overlay', function () { return h(MainOverlays, { orbit: orbit }); });
     orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
+    registerSettingsMode(orbit);
 
     if (typeof orbit.addCommand === 'function') {
       function nickArg(args, rest) {

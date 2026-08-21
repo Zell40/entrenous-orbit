@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 24;
+  var OEC_VER = 25;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -33,8 +33,9 @@
   var ui = {
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
     ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '', enName: '',
-    setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
+    setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random', duo: 'open', invite: '' },
   };
+  var archiveGame = null;
   var ccBusyTimer = 0;
   var ccBootTimer = 0;
   var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
@@ -201,8 +202,8 @@
       status: '', n: 0,
       cls: [], ev: [], bp: [], bs: [],
       accW: '', accB: '',
-      wBl: 0, wMi: 0, wIn: 0, wGr: 0, wBr: 0, wMs: 0,
-      bBl: 0, bMi: 0, bIn: 0, bGr: 0, bBr: 0, bMs: 0,
+      wBl: 0, wMi: 0, wIn: 0, wEx: 0, wGd: 0, wBs: 0, wGr: 0, wBr: 0, wMs: 0,
+      bBl: 0, bMi: 0, bIn: 0, bEx: 0, bGd: 0, bBs: 0, bGr: 0, bBr: 0, bMs: 0,
     };
   }
 
@@ -223,6 +224,7 @@
       ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false,
       pWhite: emptyPlayer(), pBlack: emptyPlayer(),
       review: emptyReview(),
+      history: [],
     };
   }
 
@@ -338,6 +340,7 @@
 
   function liveClock(game, color) {
     var base = Number(color === 'white' ? game.clockW : game.clockB) || 0;
+    if (game._archive) return '';
     if (!game.tc || game.tc === 'casual') return '∞';
     var extra = 0;
     if (game.status === 'playing' && game.turn === color && Number(game.clockAt)) {
@@ -349,14 +352,28 @@
   function startArg() {
     var s = ui.setup || {};
     var parts = [];
-    if (s.vs === 'duo') parts.push('duo');
-    else {
+    if (s.vs === 'duo') {
+      var invite = String(s.invite || '').trim();
+      if (s.duo === 'friend' && invite) parts.push(invite);
+      else parts.push('duo');
+    } else {
       if (s.skill) parts.push(s.skill);
       if (s.color === 'white') parts.push('blancs');
       if (s.color === 'black') parts.push('noirs');
     }
     if (s.tc && s.tc !== 'casual') parts.push(s.tc);
     return parts.join(' ');
+  }
+
+  function tcLabel(tc) {
+    return ({
+      casual: 'Illimité',
+      bullet: 'Bullet 1+0',
+      blitz: 'Blitz 3+2',
+      rapide: 'Rapide 10+0',
+      rapide15: 'Rapide 15+10',
+      classique: 'Rapide 15+10',
+    })[tc] || tc || '';
   }
 
   function sqName(file, rank) {
@@ -388,6 +405,7 @@
       ccLeague: prev.ccLeague, ccTac: prev.ccTac,
       ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
       ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr, ccReady: prev.ccReady,
+      history: prev.history || [],
     };
   }
 
@@ -578,18 +596,49 @@
     return map[code] || code || '';
   }
 
+  function parseHistoryRows(raw) {
+    return String(raw || '').split(';').filter(Boolean).map(function (row) {
+      var p = row.split('|');
+      return {
+        gid: p[0] || '',
+        white: p[1] || '',
+        black: p[2] || '',
+        result: p[3] || '',
+        tc: p[4] || '',
+        at: Number(p[5] || 0),
+      };
+    }).filter(function (row) { return row.gid; });
+  }
+
+  function reviewSink(gid, prev) {
+    if (archiveGame && (!gid || String(archiveGame.gid) === String(gid))) return 'archive';
+    if (prev && prev.status === 'ended' && (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
+    return '';
+  }
+
+  function putReview(channel, gid, prev, review) {
+    var sink = reviewSink(gid, prev);
+    if (sink === 'archive') {
+      archiveGame = Object.assign({}, archiveGame, { review: review });
+      bump();
+      return;
+    }
+    if (sink === 'state') patchState(channel, { review: review });
+  }
+
   function handleEvent(channel, tags) {
     if (tagVal(tags, EC) !== 'v1') return;
     var ev = tagVal(tags, EV);
     if (!ev || ev === 'cmd') return;
     var gid = tagVal(tags, '+gid');
     var prev = getState(channel);
-    if (gid && prev.gid && gid !== prev.gid && ev !== 'game_end') {
+    if (gid && prev.gid && gid !== prev.gid && ev !== 'game_end' && ev !== 'archive' && ev !== 'archive_moves' && ev !== 'review_start' && ev !== 'review_chunk' && ev !== 'review_done') {
       ui.sel = '';
       ui.promo = null;
     }
 
     if (ev === 'waiting') {
+      archiveGame = null;
       ui.sel = '';
       ui.navPly = -1;
       clearPremoves();
@@ -700,7 +749,7 @@
       var fen = tagVal(tags, '+fen') || (ev === 'game_start' ? START_FEN : prev.fen);
       var parsed = parseFen(fen);
       var status = tagVal(tags, '+status') || (tagVal(tags, '+waiting') === '1' ? 'waiting' : 'playing');
-      if (ev === 'game_start') { status = 'playing'; ui.navPly = -1; clearPremoves(); ui.pendingMove = null; }
+      if (ev === 'game_start') { archiveGame = null; status = 'playing'; ui.navPly = -1; clearPremoves(); ui.pendingMove = null; }
       if (ev === 'move') {
         ui.sel = '';
         ui.promo = null;
@@ -808,18 +857,84 @@
       return;
     }
 
+    if (ev === 'history_list') {
+      if (!eventForMe(tags)) return;
+      var from = Number(tagVal(tags, '+from')) || 0;
+      var added = parseHistoryRows(tagVal(tags, '+rows'));
+      var list = from === 0 ? added : (prev.history || []).concat(added);
+      patchState(channel, { history: list });
+      return;
+    }
+
+    if (ev === 'archive') {
+      if (!eventForMe(tags)) return;
+      archiveGame = Object.assign(defaultState(), {
+        status: 'ended',
+        _archive: true,
+        gid: gid || tagVal(tags, '+gid'),
+        white: tagVal(tags, '+white'),
+        black: tagVal(tags, '+black'),
+        result: tagVal(tags, '+result'),
+        reason: tagVal(tags, '+reason'),
+        tc: tagVal(tags, '+tc') || 'casual',
+        skill: tagVal(tags, '+skill'),
+        opening: tagVal(tags, '+opening'),
+        openingVar: tagVal(tags, '+opening-var'),
+        duration: Number(tagVal(tags, '+duration')) || 0,
+        fen: tagVal(tags, '+fen') || START_FEN,
+        ply: Number(tagVal(tags, '+ply')) || 0,
+        ucis: '',
+        sans: '',
+        review: emptyReview(),
+      });
+      ui.navPly = -1;
+      bump();
+      return;
+    }
+
+    if (ev === 'archive_moves') {
+      if (!eventForMe(tags) || !archiveGame) return;
+      if (gid && archiveGame.gid && String(gid) !== String(archiveGame.gid)) return;
+      var start = Math.max(1, Number(tagVal(tags, '+from')) || 1);
+      var ucis = splitUcis(archiveGame.ucis);
+      var sans = String(archiveGame.sans || '').split(',').filter(Boolean);
+      var addU = splitUcis(tagVal(tags, '+ucis'));
+      var addS = String(tagVal(tags, '+sans') || '').split(',').filter(Boolean);
+      addU.forEach(function (uci, i) {
+        ucis[start - 1 + i] = uci;
+        if (addS[i]) sans[start - 1 + i] = addS[i];
+      });
+      var lastU = ucis[ucis.length - 1] || '';
+      var joined = ucis.filter(Boolean).join(',');
+      archiveGame = Object.assign({}, archiveGame, {
+        ucis: joined,
+        sans: sans.filter(Boolean).join(','),
+        ply: ucis.filter(Boolean).length,
+        lastUci: lastU,
+        lastSan: sans.filter(Boolean)[sans.filter(Boolean).length - 1] || '',
+        from: lastU.slice(0, 2),
+        to: lastU.slice(2, 4),
+        fen: fenAtPly({ ucis: joined }, -1),
+      });
+      bump();
+      return;
+    }
+
     if (ev === 'review_start') {
       var started = Object.assign(emptyReview(), {
         status: 'run',
-        n: Number(tagVal(tags, '+n')) || splitUcis(prev.ucis).length,
+        n: Number(tagVal(tags, '+n')) || splitUcis((archiveGame && archiveGame.ucis) || prev.ucis).length,
       });
-      patchState(channel, { review: started });
+      putReview(channel, gid, prev, started);
       return;
     }
 
     if (ev === 'review_chunk') {
-      var rev = Object.assign(emptyReview(), prev.review || {});
-      var from = Math.max(1, Number(tagVal(tags, '+from')) || 1);
+      var base = (reviewSink(gid, prev) === 'archive' && archiveGame)
+        ? archiveGame.review
+        : prev.review;
+      var rev = Object.assign(emptyReview(), base || {});
+      var fromPly = Math.max(1, Number(tagVal(tags, '+from')) || 1);
       var cls = String(tagVal(tags, '+cls') || '').split(',');
       var evs = String(tagVal(tags, '+ev') || '').split(',');
       var bps = String(tagVal(tags, '+bp') || '').split(',');
@@ -830,40 +945,50 @@
       rev.bs = (rev.bs || []).slice();
       cls.forEach(function (code, i) {
         if (!code) return;
-        var idx = from - 1 + i;
+        var idx = fromPly - 1 + i;
         rev.cls[idx] = code;
         rev.ev[idx] = Number(evs[i] || 0);
         rev.bp[idx] = bps[i] || '';
         rev.bs[idx] = bss[i] || '';
       });
       if (!rev.status) rev.status = 'run';
-      patchState(channel, { review: rev });
+      putReview(channel, gid, prev, rev);
       return;
     }
 
     if (ev === 'review_done') {
-      var done = Object.assign(emptyReview(), prev.review || {});
+      var prevRev = (reviewSink(gid, prev) === 'archive' && archiveGame)
+        ? archiveGame.review
+        : prev.review;
+      var done = Object.assign(emptyReview(), prevRev || {});
       done.status = tagVal(tags, '+ok') === '0' ? 'err' : 'done';
       done.accW = tagVal(tags, '+acc-w');
       done.accB = tagVal(tags, '+acc-b');
       done.wBl = Number(tagVal(tags, '+w-bl')) || 0;
       done.wMi = Number(tagVal(tags, '+w-mi')) || 0;
       done.wIn = Number(tagVal(tags, '+w-in')) || 0;
+      done.wEx = Number(tagVal(tags, '+w-ex')) || 0;
+      done.wGd = Number(tagVal(tags, '+w-gd')) || 0;
+      done.wBs = Number(tagVal(tags, '+w-bs')) || 0;
       done.wGr = Number(tagVal(tags, '+w-gr')) || 0;
       done.wBr = Number(tagVal(tags, '+w-br')) || 0;
       done.wMs = Number(tagVal(tags, '+w-ms')) || 0;
       done.bBl = Number(tagVal(tags, '+b-bl')) || 0;
       done.bMi = Number(tagVal(tags, '+b-mi')) || 0;
       done.bIn = Number(tagVal(tags, '+b-in')) || 0;
+      done.bEx = Number(tagVal(tags, '+b-ex')) || 0;
+      done.bGd = Number(tagVal(tags, '+b-gd')) || 0;
+      done.bBs = Number(tagVal(tags, '+b-bs')) || 0;
       done.bGr = Number(tagVal(tags, '+b-gr')) || 0;
       done.bBr = Number(tagVal(tags, '+b-br')) || 0;
       done.bMs = Number(tagVal(tags, '+b-ms')) || 0;
       if (tagVal(tags, '+text')) done.err = tagVal(tags, '+text');
-      patchState(channel, { review: done });
+      putReview(channel, gid, prev, done);
       return;
     }
 
     if (ev === 'cmd_err') {
+      if (tagVal(tags, '+nick') && !eventForMe(tags)) return;
       var err = tagVal(tags, '+text');
       if (err === 'idle') {
         ui.sel = '';
@@ -1081,9 +1206,12 @@
       '.oec-board-col{display:flex;align-items:stretch;gap:.4rem;width:min(100%,calc(100dvh - 7.2rem));max-width:min(72dvh,100%);flex:0 0 auto}',
       '.oec-board-col .oec-board-wrap{width:100%;max-width:none;flex:1 1 auto}',
       'body.oec-split .oec-board-col{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
-      '.oec-eval{position:relative;flex:0 0 16px;width:16px;border-radius:9px;overflow:hidden;background:#0c0a09;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
+      '.oec-eval{position:relative;flex:0 0 18px;width:18px;border-radius:9px;overflow:hidden;background:#0c0a09;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
       '.oec-eval__fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#fff7ed,#f5f0e6);transition:height .25s ease}',
-      '.oec-eval__lab{position:absolute;left:50%;top:6px;transform:translateX(-50%);font-size:.52rem;font-weight:800;color:#fde68a;writing-mode:vertical-rl;pointer-events:none}',
+      '.oec-eval__lab{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:.52rem;font-weight:800;color:#fde68a;writing-mode:vertical-rl;pointer-events:none;text-shadow:0 0 4px #000}',
+      '.oec-eval__b,.oec-eval__w{position:absolute;left:0;right:0;text-align:center;font-size:.48rem;font-weight:800;pointer-events:none;z-index:1}',
+      '.oec-eval__b{top:3px;color:#e7e5e4}',
+      '.oec-eval__w{bottom:3px;color:#1c1917}',
       '.oec-sq--best{box-shadow:inset 0 0 0 3px #22d3ee}',
       '.oec-accs{display:grid;grid-template-columns:1fr 1fr;gap:.45rem;margin:.45rem 0 .35rem}',
       '.oec-acc{display:flex;align-items:center;gap:.45rem;background:rgba(0,0,0,.18);border-radius:10px;padding:.4rem .5rem}',
@@ -1095,6 +1223,13 @@
       '.oec-rev-counts span{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .45rem;background:rgba(255,255,255,.1)}',
       '.oec-tip{margin:.35rem 0 .45rem;padding:.5rem .55rem;border-radius:10px;background:rgba(0,0,0,.22);font-size:.78rem;line-height:1.4}',
       '.oec-tip b{display:block;margin-bottom:.15rem}',
+      '.oec-tip__best{display:block;margin-top:.2rem;color:#67e8f9;font-weight:700}',
+      '.oec-eval-hint{margin:.15rem 0 .35rem;font-size:.68rem;opacity:.8}',
+      '.oec-hist{display:flex;flex-direction:column;gap:.22rem}',
+      '.oec-hist button{border:1px solid #e4d9c5;background:#faf6ee;color:#3f3a32;border-radius:10px;padding:.32rem .5rem;text-align:left;cursor:pointer;font-size:.74rem}',
+      '.oec-hist button:hover{border-color:#166534}',
+      '.oec-hist b{display:block;font-size:.78rem}',
+      '.oec-hist span{opacity:.7;font-size:.68rem}',
       '.oec-badge{display:inline-block;border-radius:999px;padding:.08rem .42rem;font-size:.66rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase}',
       '.oec-badge--bk{background:#78716c;color:#fff}',
       '.oec-badge--br{background:#06b6d4;color:#042f2e}',
@@ -1109,6 +1244,7 @@
       '.oec-moves{display:grid;grid-template-columns:1.4rem 1fr 1fr;gap:.12rem .3rem;max-height:9.5rem;overflow:auto;font-size:.75rem;line-height:1.35;margin:.2rem 0}',
       '.oec-moves button{border:0;background:transparent;color:inherit;text-align:left;padding:.12rem .25rem;border-radius:6px;cursor:pointer;font-weight:700}',
       '.oec-moves button.is-on{background:rgba(255,255,255,.16)}',
+      '.oec-moves small{display:block;font-size:.58rem;font-weight:800;opacity:.85;text-transform:uppercase;letter-spacing:.02em}',
       '.oec-mv--bk{color:#d6d3d1}',
       '.oec-mv--br{color:#67e8f9}',
       '.oec-mv--gr{color:#5eead4}',
@@ -1206,12 +1342,14 @@
     }
     var rev = game.review || emptyReview();
     var idx = (view._ply || 0) - 1;
-    if (idx >= 0 && rev.cls && rev.cls[idx]) {
-      view._revClass = rev.cls[idx];
-      view._revEval = rev.ev[idx];
-      view._revBest = rev.bp[idx] || '';
-      view._revBestSan = rev.bs[idx] || '';
-    } else if (idx < 0) {
+    if (idx >= 0) {
+      if (rev.cls && rev.cls[idx]) view._revClass = rev.cls[idx];
+      if (rev.ev && rev.ev.length > idx && rev.ev[idx] != null && rev.ev[idx] !== '') {
+        view._revEval = rev.ev[idx];
+      }
+      view._revBest = (rev.bp && rev.bp[idx]) || '';
+      view._revBestSan = (rev.bs && rev.bs[idx]) || '';
+    } else {
       view._revEval = 0;
     }
     return view;
@@ -1271,13 +1409,16 @@
     html += '</div>' + premoveArrows(flip) +
       (ui.pendingMove ? '<div class="oec-board-wait"><span class="oec-spin" aria-hidden="true"></span></div>' : '') +
       '</div>';
-    if (game.status === 'ended' && game.review && game.review.status) {
+    if (game.status === 'ended') {
       var cp = Number(game._revEval);
       if (isNaN(cp)) cp = 0;
       var pct = Math.max(4, Math.min(96, evalWinPct(cp)));
       html = '<div class="oec-board-col">' +
-        '<div class="oec-eval" title="' + escHtml(fmtEval(cp)) + '">' +
+        '<div class="oec-eval" title="Plus la barre est noire, plus les Noirs sont mieux. Plus elle est claire, plus les Blancs sont mieux. ' +
+        escHtml(fmtEval(cp)) + '">' +
+        '<span class="oec-eval__b">N</span>' +
         '<div class="oec-eval__fill" style="height:' + pct.toFixed(1) + '%"></div>' +
+        '<span class="oec-eval__w">B</span>' +
         '<span class="oec-eval__lab">' + escHtml(fmtEval(cp)) + '</span></div>' +
         html + '</div>';
     }
@@ -1502,25 +1643,55 @@
           pill('setup-color', 'black', 'Noirs', s.color) +
           '</div></div>' +
           '<div class="oec-card oec-card--wide"><h3>Niveau d’IA</h3><div class="oec-pills">' +
-          pill('setup-skill', 'debutant', 'Débutant', s.skill) +
-          pill('setup-skill', 'facile', 'Facile', s.skill) +
-          pill('setup-skill', 'moyen', 'Moyen', s.skill) +
-          pill('setup-skill', 'difficile', 'Difficile', s.skill) +
-          pill('setup-skill', 'expert', 'Expert', s.skill) +
+          pill('setup-skill', 'debutant', 'Débutant (400)', s.skill) +
+          pill('setup-skill', 'facile', 'Facile (800)', s.skill) +
+          pill('setup-skill', 'moyen', 'Moyen (1400)', s.skill) +
+          pill('setup-skill', 'difficile', 'Difficile (1800)', s.skill) +
+          pill('setup-skill', 'expert', 'Expert (2200)', s.skill) +
           '</div></div>'
-        : '') +
-      '<div class="oec-card oec-card--wide"><h3>Cadence</h3><div class="oec-pills">' +
+        : '<div class="oec-card oec-card--wide"><h3>Qui défier ?</h3><div class="oec-pills">' +
+          pill('setup-duo', 'open', 'Premier arrivé', s.duo || 'open') +
+          pill('setup-duo', 'friend', 'Un ami précis', s.duo || 'open') +
+          '</div>' +
+          ((s.duo || 'open') === 'friend'
+            ? '<div class="oec-link" style="margin-top:.35rem"><input id="oec-invite" type="text" maxlength="32" placeholder="Pseudo IRC de ton ami" value="' +
+              escHtml(s.invite || '') + '"></div>'
+            : '<p class="oec-home-lead" style="margin-top:.3rem">N’importe qui dans le salon peut rejoindre.</p>') +
+          '</div>') +
+      '<div class="oec-card oec-card--wide"><h3>Cadence (Chess.com)</h3><div class="oec-pills">' +
       pill('setup-tc', 'casual', 'Illimité', s.tc) +
       pill('setup-tc', 'bullet', 'Bullet 1+0', s.tc) +
       pill('setup-tc', 'blitz', 'Blitz 3+2', s.tc) +
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
-      pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
+      pill('setup-tc', 'rapide15', 'Rapide 15+10', s.tc) +
       '</div></div>' +
       enCard + ccCard +
+      renderHistory(game) +
       '</div>' +
+      (game.flash ? '<div class="oec-flash">' + escHtml(game.flash) + '</div>' : '') +
       '<div class="oec-actions oec-home-actions">' +
-      '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">Lancer la partie</button>' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">' +
+      ((s.vs === 'duo' && s.duo === 'friend') ? 'Défier' : 'Lancer la partie') +
+      '</button>' +
       '</div></div>';
+  }
+
+  function renderHistory(game) {
+    var rows = game.history || [];
+    var html = '<div class="oec-card oec-card--wide"><h3>Tes parties</h3>';
+    if (!rows.length) {
+      html += '<p class="oec-home-lead">Tes parties terminées apparaîtront ici.</p></div>';
+      return html;
+    }
+    html += '<div class="oec-hist">';
+    rows.forEach(function (row) {
+      html += '<button type="button" data-act="revoir" data-val="' + escHtml(row.gid) + '">' +
+        '<b>' + escHtml(row.white || '?') + ' – ' + escHtml(row.black || '?') +
+        ' · ' + escHtml(row.result || '*') + '</b>' +
+        '<span>' + escHtml(tcLabel(row.tc)) + '</span></button>';
+    });
+    html += '</div></div>';
+    return html;
   }
 
   function renderNav(game) {
@@ -1583,7 +1754,7 @@
       (game.reason ? ' — ' + escHtml(reasonFr(game.reason)) : '') + '</dd>' +
       '<dt>Ouverture</dt><dd>' + (openingHtml(game) || 'Hors livre') + '</dd>' +
       '<dt>Coups</dt><dd>' + escHtml(String(game.ply || 0)) + '</dd>' +
-      '<dt>Cadence</dt><dd>' + escHtml(game.tc || 'illimité') +
+      '<dt>Cadence</dt><dd>' + escHtml(tcLabel(game.tc || 'casual')) +
       (game.skill ? ' · IA ' + escHtml(game.skill) : '') + '</dd>' +
       '<dt>Durée</dt><dd>' + durStr + '</dd>' +
       eloBit +
@@ -1599,27 +1770,42 @@
         '<div class="oec-acc">' + accRing(rev.accB) + '<div><b>' + escHtml(game.black || 'Noirs') + '</b><small>Précision</small></div></div>' +
         '</div>';
       html += '<div class="oec-rev-counts">' +
-        countChip('Gaffes', (rev.wBl || 0) + (rev.bBl || 0), 'bl') +
-        countChip('Erreurs', (rev.wMi || 0) + (rev.bMi || 0), 'mi') +
-        countChip('Imprécisions', (rev.wIn || 0) + (rev.bIn || 0), 'in') +
-        countChip('Superbes', (rev.wGr || 0) + (rev.bGr || 0), 'gr') +
-        countChip('Brillants', (rev.wBr || 0) + (rev.bBr || 0), 'br') +
-        countChip('Gains manqués', (rev.wMs || 0) + (rev.bMs || 0), 'ms') +
+        countChip('Brillants', (rev.wBr || 0) + (rev.bBr || 0), 'br', true) +
+        countChip('Superbes', (rev.wGr || 0) + (rev.bGr || 0), 'gr', true) +
+        countChip('Excellents', (rev.wEx || 0) + (rev.bEx || 0), 'ex', true) +
+        countChip('Bons', (rev.wGd || 0) + (rev.bGd || 0), 'gd', true) +
+        countChip('Imprécisions', (rev.wIn || 0) + (rev.bIn || 0), 'in', true) +
+        countChip('Erreurs', (rev.wMi || 0) + (rev.bMi || 0), 'mi', true) +
+        countChip('Gaffes', (rev.wBl || 0) + (rev.bBl || 0), 'bl', true) +
+        countChip('Gains manqués', (rev.wMs || 0) + (rev.bMs || 0), 'ms', true) +
         '</div>';
     }
     var view = viewingGame(game);
-    if (view._revClass) {
-      html += '<div class="oec-tip"><b><span class="oec-badge oec-badge--' + view._revClass + '">' +
-        escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan || '') + '</b>' +
-        escHtml(revTip(view._revClass, view._revBestSan)) + '</div>';
-    }
+    html += '<p class="oec-eval-hint">Barre d’analyse : plus elle est noire, plus les Noirs sont mieux — plus elle est claire, plus les Blancs sont mieux.</p>';
+    html += coachCard(view);
     html += renderMoveList(game, view._ply);
     html += '</div>';
     return html;
   }
 
-  function countChip(label, n, code) {
-    if (!n) return '';
+  function coachCard(view) {
+    if (!view || !view.lastSan) {
+      return '<div class="oec-tip">Clique un coup dans la liste pour voir le conseil de l’entraîneur.</div>';
+    }
+    if (!view._revClass) {
+      return '<div class="oec-tip"><b>' + escHtml(view.lastSan) + '</b>Analyse de ce coup en cours…</div>';
+    }
+    var best = view._revBestSan
+      ? '<span class="oec-tip__best">Conseil : joue ' + escHtml(view._revBestSan) + '.</span>'
+      : '';
+    return '<div class="oec-tip"><b><span class="oec-badge oec-badge--' + view._revClass + '">' +
+      escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan || '') + '</b>' +
+      escHtml(revTip(view._revClass, '')) + best + '</div>';
+  }
+
+  function countChip(label, n, code, always) {
+    n = Number(n) || 0;
+    if (!n && !always) return '';
     return '<span class="oec-badge oec-badge--' + code + '">' + n + ' ' + escHtml(label) + '</span>';
   }
 
@@ -1645,19 +1831,22 @@
     var ply = idx + 1;
     var on = currentPly === ply ? ' is-on' : '';
     var tint = code ? ' oec-mv--' + code : '';
-    return '<button type="button" class="' + on + tint + '" data-act="nav-ply" data-val="' + ply + '">' +
-      escHtml(san) + '</button>';
+    return '<button type="button" class="' + on + tint + '" data-act="nav-ply" data-val="' + ply +
+      '" title="' + escHtml(revLabel(code) || 'Coup') + '">' +
+      escHtml(san) + (code ? ' <small>' + escHtml(revLabel(code)) + '</small>' : '') + '</button>';
   }
 
   function renderPanel(orbit, root, buffer) {
-    var game = getState(buffer);
+    var live = getState(buffer);
+    var game = archiveGame || live;
     var view = viewingGame(game);
     var mode = getViewMode(orbit);
     var badge = game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
       : game.status === 'waiting' ? 'En attente'
       : game.status === 'ended' ? escHtml(game.result || 'Fin')
       : 'Prêt';
-    if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + game.tc;
+    if (game._archive) badge = 'Relecture';
+    if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + tcLabel(game.tc);
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
       renderSettings(game) + '</div>';
@@ -1677,12 +1866,15 @@
         '<span class="' + (wTurn ? 'is-turn' : '') + '"><span class="oec-clock__top">Blancs <b>' +
         escHtml(game.white || '—') + '</b> <span class="oec-clock__time">' + liveClock(game, 'white') +
         '</span></span>' + playerStatsLine(game.pWhite, game.white) + '</span></div>';
-      if (game.ccPrompt === 'preview' || game.ccPrompt === 'found') {
+      if (!game._archive && (game.ccPrompt === 'preview' || game.ccPrompt === 'found')) {
         body += '<div class="oec-cc-banner">' + renderCcConfirm(game) + '</div>';
       }
       if (game.opening || game.openingVar) body += '<p class="oec-opening">' + openingHtml(game) + '</p>';
       if (game.status === 'waiting') {
-        body += '<p class="oec-turn">' + pick({ fr: 'En attente d’un adversaire…', en: 'Waiting for an opponent…' }) + '</p>';
+        var waitTxt = game.invited
+          ? ('En attente de ' + game.invited + '…')
+          : pick({ fr: 'En attente d’un adversaire…', en: 'Waiting for an opponent…' });
+        body += '<p class="oec-turn">' + escHtml(waitTxt) + '</p>';
       } else if (view.lastSan) {
         var mark = view._revClass
           ? ' <span class="oec-badge oec-badge--' + view._revClass + '">' + escHtml(revLabel(view._revClass)) + '</span>'
@@ -1708,9 +1900,15 @@
           '<button type="button" data-promo="n" title="Cavalier">' + pieceSvg('N') + '</button></div>';
       }
       body += '<div class="oec-actions">';
-      if (game.status === 'waiting') {
-        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="join">Rejoindre</button>';
-        body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
+      if (game._archive) {
+        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
+      } else if (game.status === 'waiting') {
+        var me = myNick(orbit);
+        var invited = String(game.invited || '').toLowerCase();
+        var creator = String(game.creator || '').toLowerCase();
+        var canJoin = invited ? invited === me : creator && creator !== me;
+        if (canJoin) body += '<button type="button" class="oec-btn oec-btn--pri" data-act="join">Rejoindre</button>';
+        if (creator === me) body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
       } else if (game.status === 'playing') {
         body += '<button type="button" class="oec-btn" data-act="draw">Nulle</button>';
         body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
@@ -1916,7 +2114,7 @@
       return ok;
     }
 
-    if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc') {
+    if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc' || act === 'setup-duo') {
       var key = act.replace('setup-', '');
       ui.setup[key] = val;
       bump();
@@ -1956,7 +2154,15 @@
       return;
     }
     if (act === 'sync') { sent('sync'); return; }
-    if (act === 'start-setup') { sent('commencer', startArg()); return; }
+    if (act === 'start-setup') {
+      if (ui.setup.vs === 'duo' && ui.setup.duo === 'friend' && !String(ui.setup.invite || '').trim()) {
+        patchState(buffer, { flash: 'Indique le pseudo de ton ami.' });
+        return;
+      }
+      archiveGame = null;
+      sent('commencer', startArg());
+      return;
+    }
     if (act === 'start') { sent('commencer', startArg()); return; }
     if (act === 'start-w') { sent('commencer', 'blancs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
     if (act === 'start-b') { sent('commencer', 'noirs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
@@ -1988,11 +2194,22 @@
     if (act === 'home') {
       var prev = getState(buffer);
       ui.navPly = -1;
+      archiveGame = null;
       patchState(buffer, Object.assign(defaultState(), keepProfile(prev)));
+      sent('historique');
+      return;
+    }
+    if (act === 'revoir') {
+      var liveNow = getState(buffer);
+      if (liveNow.status === 'playing' || liveNow.status === 'waiting') {
+        patchState(buffer, { flash: 'Termine ou annule la partie en cours pour revoir une ancienne.' });
+        return;
+      }
+      sent('revoir', val);
       return;
     }
     if (act === 'nav-start' || act === 'nav-prev' || act === 'nav-next' || act === 'nav-end' || act === 'nav-ply') {
-      var game = getState(buffer);
+      var game = archiveGame || getState(buffer);
       var n = splitUcis(game.ucis).length;
       var cur = ui.navPly < 0 ? n : ui.navPly;
       if (act === 'nav-start') ui.navPly = 0;
@@ -2044,6 +2261,7 @@
       bindBoardPointer(root, orbit);
       root.addEventListener('input', function (ev) {
         if (ev.target && ev.target.id === 'oec-cc') ui.ccUser = ev.target.value;
+        if (ev.target && ev.target.id === 'oec-invite') ui.setup.invite = ev.target.value;
       });
       root.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Enter' || !ev.target || ev.target.id !== 'oec-cc') return;
@@ -2057,11 +2275,14 @@
     }
     applyViewMode(orbit, getViewMode(orbit));
     if (ui.drag) return;
-    var g = getState(buf);
-    var tick = (g.status === 'playing' && g.tc && g.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
+    var g = archiveGame || getState(buf);
+    var live = getState(buf);
+    var tick = (live.status === 'playing' && live.tc && live.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
       (ui.ccBusy ? '1' : '0') + '|' + (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
+      (ui.setup.vs || '') + (ui.setup.skill || '') + (ui.setup.tc || '') + (ui.setup.duo || '') + '|' +
+      (archiveGame ? archiveGame.gid : '') + '|' +
       (ui.premoves || []).map(function (p) { return p.from + p.to + (p.promo || ''); }).join(',');
     if (root.__oecSig === sig) return;
     root.__oecSig = sig;
