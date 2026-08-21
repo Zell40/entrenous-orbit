@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 6;
+  var OEC_VER = 8;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -29,7 +29,11 @@
   var viewListeners = new Set();
 
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
-  var ui = { sel: '', promo: null, drag: null };
+  var ui = {
+    sel: '', promo: null, drag: null, navPly: -1,
+    setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
+  };
+  var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
 
   function subscribe(cb) { store.listeners.add(cb); return function () { store.listeners.delete(cb); }; }
   function bump() { store.rev++; store.listeners.forEach(function (l) { l(); }); }
@@ -136,8 +140,12 @@
     return {
       status: 'idle', mode: '', white: '', black: '', creator: '', invited: '',
       fen: START_FEN, turn: 'white', ply: 0, lastUci: '', lastSan: '',
-      from: '', to: '', capW: '', capB: '', sans: '', waiting: false,
+      from: '', to: '', capW: '', capB: '', sans: '', ucis: '', waiting: false,
       result: '', reason: '', winner: '', flash: '', gid: '', updatedAt: 0,
+      opening: '', skill: '', tc: 'casual', clockW: 0, clockB: 0, clockInc: 0,
+      clockAt: 0, rated: false, duration: 0, elo: '', eloGames: '',
+      chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
+      eloW: '', eloB: '', eloDw: '',
     };
   }
 
@@ -179,6 +187,101 @@
     return { grid: grid, turn: turn, fen: fen };
   }
 
+  function splitUcis(raw) {
+    return String(raw || '').split(/[,\s]+/).filter(Boolean);
+  }
+
+  function sqRF(name) {
+    return { f: 'abcdefgh'.indexOf(String(name || '').charAt(0)), r: Number(String(name || '').charAt(1)) - 1 };
+  }
+
+  function gridToFen(grid, turn) {
+    var ranks = [];
+    var r, f, empty, ch, row;
+    for (r = 7; r >= 0; r--) {
+      empty = 0;
+      row = '';
+      for (f = 0; f < 8; f++) {
+        ch = grid[r][f];
+        if (!ch) empty += 1;
+        else {
+          if (empty) { row += String(empty); empty = 0; }
+          row += ch;
+        }
+      }
+      if (empty) row += String(empty);
+      ranks.push(row);
+    }
+    return ranks.join('/') + '_' + (turn === 'black' ? 'b' : 'w') + '_KQkq_-_0_1';
+  }
+
+  function applyUciFen(fenTag, uci) {
+    var parsed = parseFen(fenTag);
+    var grid = parsed.grid.map(function (row) { return row.slice(); });
+    uci = String(uci || '').toLowerCase();
+    if (uci.length < 4) return fenTag;
+    var from = sqRF(uci.slice(0, 2));
+    var to = sqRF(uci.slice(2, 4));
+    var promo = uci.charAt(4);
+    if (from.f < 0 || to.f < 0 || from.r < 0 || to.r < 0) return fenTag;
+    var piece = grid[from.r][from.f];
+    if (!piece) return fenTag;
+    var dest = grid[to.r][to.f];
+    if (piece.toLowerCase() === 'k' && Math.abs(to.f - from.f) === 2) {
+      if (to.f === 6) { grid[to.r][5] = grid[to.r][7]; grid[to.r][7] = null; }
+      else if (to.f === 2) { grid[to.r][3] = grid[to.r][0]; grid[to.r][0] = null; }
+    }
+    if (piece.toLowerCase() === 'p' && from.f !== to.f && !dest) {
+      grid[from.r][to.f] = null;
+    }
+    grid[from.r][from.f] = null;
+    if (promo) {
+      var up = piece === piece.toUpperCase();
+      piece = up ? promo.toUpperCase() : promo.toLowerCase();
+    }
+    grid[to.r][to.f] = piece;
+    return gridToFen(grid, parsed.turn === 'white' ? 'black' : 'white');
+  }
+
+  function fenAtPly(game, ply) {
+    var ucis = splitUcis(game.ucis);
+    var n = ply < 0 ? ucis.length : Math.min(ply, ucis.length);
+    var fen = START_FEN;
+    var i;
+    for (i = 0; i < n; i++) fen = applyUciFen(fen, ucis[i]);
+    return fen;
+  }
+
+  function fmtClock(sec) {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function liveClock(game, color) {
+    var base = Number(color === 'white' ? game.clockW : game.clockB) || 0;
+    if (!game.tc || game.tc === 'casual') return '∞';
+    var extra = 0;
+    if (game.status === 'playing' && game.turn === color && Number(game.clockAt)) {
+      extra = (Date.now() / 1000) - Number(game.clockAt);
+    }
+    return fmtClock(base - extra);
+  }
+
+  function startArg() {
+    var s = ui.setup || {};
+    var parts = [];
+    if (s.vs === 'duo') parts.push('duo');
+    else {
+      if (s.skill) parts.push(s.skill);
+      if (s.color === 'white') parts.push('blancs');
+      if (s.color === 'black') parts.push('noirs');
+    }
+    if (s.tc && s.tc !== 'casual') parts.push(s.tc);
+    return parts.join(' ');
+  }
+
   function sqName(file, rank) {
     return 'abcdefgh'.charAt(file) + String(rank + 1);
   }
@@ -214,6 +317,7 @@
       fifty: 'Règle des 50 coups', threefold: 'Triple répétition', resign: 'Abandon',
       abort: 'Partie annulée', timeout: 'Délai dépassé', inactivity: 'Inactivité',
       agree: 'Nulle acceptée', quit: 'Déconnexion', part: 'Départ',
+      flag: 'Temps écoulé', engine: 'Erreur moteur',
     };
     return map[code] || code || '';
   }
@@ -231,10 +335,24 @@
 
     if (ev === 'waiting') {
       ui.sel = '';
+      ui.navPly = -1;
       patchState(channel, {
         status: 'waiting', waiting: true, mode: tagVal(tags, '+mode') || 'pvp',
         creator: tagVal(tags, '+creator'), invited: tagVal(tags, '+invited'),
         gid: gid || prev.gid, result: '', reason: '', flash: '',
+        tc: tagVal(tags, '+tc') || prev.tc,
+      });
+      return;
+    }
+
+    if (ev === 'elo_sync') {
+      patchState(channel, {
+        elo: tagVal(tags, '+elo') || prev.elo,
+        eloGames: tagVal(tags, '+games') || prev.eloGames,
+        chesscom: tagVal(tags, '+chesscom') || prev.chesscom,
+        ccRapid: tagVal(tags, '+cc-rapid') || prev.ccRapid,
+        ccBlitz: tagVal(tags, '+cc-blitz') || prev.ccBlitz,
+        ccBullet: tagVal(tags, '+cc-bullet') || prev.ccBullet,
       });
       return;
     }
@@ -243,8 +361,8 @@
       var fen = tagVal(tags, '+fen') || (ev === 'game_start' ? START_FEN : prev.fen);
       var parsed = parseFen(fen);
       var status = tagVal(tags, '+status') || (tagVal(tags, '+waiting') === '1' ? 'waiting' : 'playing');
-      if (ev === 'game_start') status = 'playing';
-      if (ev === 'move') { ui.sel = ''; ui.promo = null; }
+      if (ev === 'game_start') { status = 'playing'; ui.navPly = -1; }
+      if (ev === 'move') { ui.sel = ''; ui.promo = null; ui.navPly = -1; }
       patchState(channel, {
         status: status,
         waiting: tagVal(tags, '+waiting') === '1' || status === 'waiting',
@@ -263,6 +381,17 @@
         capW: tagVal(tags, '+cap-w') || prev.capW,
         capB: tagVal(tags, '+cap-b') || prev.capB,
         sans: tagVal(tags, '+sans') || prev.sans,
+        ucis: tagVal(tags, '+ucis') || (ev === 'move' && tagVal(tags, '+uci')
+          ? (prev.ucis ? prev.ucis + ',' + tagVal(tags, '+uci') : tagVal(tags, '+uci'))
+          : prev.ucis),
+        opening: tagVal(tags, '+opening') || prev.opening,
+        skill: tagVal(tags, '+skill') || prev.skill,
+        tc: tagVal(tags, '+tc') || prev.tc,
+        clockW: tagVal(tags, '+clock-w') !== '' ? Number(tagVal(tags, '+clock-w')) : prev.clockW,
+        clockB: tagVal(tags, '+clock-b') !== '' ? Number(tagVal(tags, '+clock-b')) : prev.clockB,
+        clockInc: tagVal(tags, '+clock-inc') !== '' ? Number(tagVal(tags, '+clock-inc')) : prev.clockInc,
+        clockAt: tagVal(tags, '+clock-at') !== '' ? Number(tagVal(tags, '+clock-at')) : prev.clockAt,
+        rated: tagVal(tags, '+rated') === '1' || prev.rated,
         gid: gid || prev.gid,
         result: '',
         flash: ev === 'move' ? '' : prev.flash,
@@ -291,10 +420,25 @@
     if (ev === 'game_end') {
       ui.sel = '';
       ui.promo = null;
+      var endUcis = tagVal(tags, '+ucis') || prev.ucis;
+      var endPly = Number(tagVal(tags, '+ply')) || splitUcis(endUcis).length;
+      ui.navPly = endPly;
       patchState(channel, {
         status: 'ended', waiting: false, fen: tagVal(tags, '+fen') || prev.fen,
         result: tagVal(tags, '+result'), reason: tagVal(tags, '+reason'),
         winner: tagVal(tags, '+winner'), flash: '', gid: gid || prev.gid,
+        sans: tagVal(tags, '+sans') || prev.sans,
+        ucis: endUcis,
+        opening: tagVal(tags, '+opening') || prev.opening,
+        skill: tagVal(tags, '+skill') || prev.skill,
+        tc: tagVal(tags, '+tc') || prev.tc,
+        duration: Number(tagVal(tags, '+duration')) || prev.duration,
+        white: tagVal(tags, '+white') || prev.white,
+        black: tagVal(tags, '+black') || prev.black,
+        ply: endPly,
+        eloW: tagVal(tags, '+elo-w'),
+        eloB: tagVal(tags, '+elo-b'),
+        eloDw: tagVal(tags, '+elo-dw'),
       });
       return;
     }
@@ -304,8 +448,11 @@
       if (err === 'idle') {
         ui.sel = '';
         ui.promo = null;
+        ui.navPly = -1;
         patchState(channel, Object.assign(defaultState(), {
-          flash: pick({ fr: 'Aucune partie en cours', en: 'No game in progress' }),
+          flash: '',
+          elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
+          ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
         }));
         return;
       }
@@ -408,12 +555,13 @@
     el.id = 'orbit-echecs-css';
     el.textContent = [
       '.oec-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;background:#1a1c19;color:#f5f5f4;font-family:var(--font,system-ui,sans-serif)}',
+      '.oec-panel--home{background:#f6f1e7;color:#3f3a32}',
       '.oec-panel--full{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;border-bottom:0}',
       '.oec-panel--split{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
       '.oec-panel--chat{flex:0 0 auto;min-height:0;display:flex;flex-direction:column}',
       '.oec-panel--chat .oec-stage{display:none!important}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
-      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(22rem,min(58vh,48vw)) minmax(16rem,1fr);grid-template-rows:auto auto 1fr auto;align-items:stretch}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:22rem;min-height:0;height:auto!important;max-height:none!important;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
+      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;height:auto!important;max-height:none!important;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column}body.oec-split #oec-dom-panel{flex:0 0 auto}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
       '.oec-head{display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto}',
       '.oec-head__title{font-weight:800;font-size:.88rem}',
@@ -425,7 +573,9 @@
       '.oec-head__btn svg{width:18px;height:18px;display:block}',
       '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.7rem .8rem;overflow:hidden}',
       '.oec-board-wrap{width:min(100%,calc(100dvh - 7.2rem));max-width:min(72dvh,100%);flex:0 0 auto}',
-      'body.oec-split .oec-board-wrap{width:100%;max-width:100%}',
+      'body.oec-split .oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto;gap:.65rem}',
+      'body.oec-split .oec-board-wrap{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
+      'body.oec-split .oec-meta{max-width:none;width:100%;flex:0 0 auto}',
       '.oec-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
       '.oec-sq{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden;cursor:pointer}',
       '.oec-sq--light{background:#eed7ac}',
@@ -447,6 +597,14 @@
       '.oec-clock span{display:flex;justify-content:space-between;background:rgba(255,255,255,.06);border-radius:10px;padding:.4rem .55rem;font-weight:700}',
       '.oec-clock span b{font-weight:800}',
       '.oec-clock span.is-turn{outline:2px solid #86efac}',
+      '.oec-clock__time{font-variant-numeric:tabular-nums;font-size:1.05rem;letter-spacing:.02em}',
+      '.oec-opening{margin:0 0 .45rem;font-size:.8rem;font-weight:700;color:#fde68a}',
+      '.oec-nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0}',
+      '.oec-review{margin:.45rem 0;padding:.65rem .7rem;border-radius:12px;background:#14532d;color:#ecfdf5;font-size:.82rem;line-height:1.45}',
+      '.oec-review h3{margin:0 0 .35rem;font-size:.9rem}',
+      '.oec-review dl{display:grid;grid-template-columns:auto 1fr;gap:.12rem .7rem;margin:0}',
+      '.oec-review dt{opacity:.75}',
+      '.oec-review dd{margin:0;font-weight:700}',
       '.oec-turn{margin:0 0 .5rem;font-size:.8rem;font-weight:800;color:#86efac}',
       '.oec-caps{display:flex;flex-wrap:wrap;gap:.1rem;min-height:1.3em;margin:0 0 .35rem}',
       '.oec-sans{font-size:.72rem;color:#a8a29e;max-height:5.2rem;overflow:auto;line-height:1.45}',
@@ -457,14 +615,25 @@
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
-      '.oec-idle{text-align:center;max-width:28rem}',
-      '.oec-idle p{margin:0 0 .8rem;color:#a8a29e}',
+      '.oec-idle{text-align:left;max-width:40rem;width:100%;color:#3f3a32}',
+      '.oec-hero{position:relative;border-radius:18px;overflow:hidden;margin:0 0 1rem;min-height:10rem;background:#e8dcc4}',
+      '.oec-hero img{display:block;width:100%;height:10.5rem;object-fit:cover}',
+      '.oec-hero__label{position:absolute;left:1rem;bottom:1rem;margin:0;color:#fff;font-size:1.35rem;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
+      '.oec-home-lead{margin:0 0 .85rem;color:#5c564c;font-size:.92rem;line-height:1.45}',
+      '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:16px;padding:.75rem .85rem;margin:0 0 .7rem;box-shadow:0 8px 22px rgba(92,70,40,.08)}',
+      '.oec-card h3{margin:0 0 .5rem;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
+      '.oec-pills{display:flex;flex-wrap:wrap;gap:.35rem}',
+      '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.38rem .7rem;font-size:.76rem;font-weight:800;cursor:pointer;min-height:34px}',
+      '.oec-pill.is-on{background:#166534;border-color:#166534;color:#fff}',
+      '.oec-elo{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;margin:0;font-size:.84rem}',
+      '.oec-elo b{color:#14532d}',
+      '.oec-link{display:flex;gap:.4rem;margin-top:.55rem}',
+      '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.4rem .55rem;font-size:.82rem;background:#fff;color:#3f3a32}',
+      '.oec-panel--home .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
+      '.oec-panel--home .oec-btn:hover{border-color:#166534;color:#14532d}',
+      '.oec-panel--home .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-promo{display:flex;gap:.35rem;margin:.45rem 0}',
       '.oec-promo button{width:2.6rem;height:2.6rem;border-radius:10px;border:1px solid #166534;background:#fff;cursor:pointer;padding:.2rem}',
-      '.oec-topbtns{display:flex;gap:.2rem;align-items:center}',
-      '.oec-topbtn{border:0;background:transparent;color:inherit;width:34px;height:34px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}',
-      '.oec-topbtn:hover,.oec-topbtn--on{background:rgba(127,127,127,.18)}',
-      '.oec-topbtn svg{width:18px;height:18px}',
       '@media(max-width:720px){.oec-stage{flex-direction:column;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap{width:min(100%,calc(100vw - 1.6rem))}}',
     ].join('');
     document.head.appendChild(el);
@@ -514,13 +683,21 @@
   }
 
   function viewBtns(mode) {
+    var layoutAct = mode === VIEW_SPLIT ? 'view-full' : 'view-split';
+    var layoutIcon = mode === VIEW_SPLIT ? 'full' : 'split';
+    var layoutTitle = mode === VIEW_SPLIT
+      ? pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })
+      : pick({ fr: 'Jeu + tchat', en: 'Game + chat' });
+    var paneAct = mode === VIEW_CHAT ? 'view-full' : 'view-chat';
+    var paneIcon = mode === VIEW_CHAT ? 'game' : 'chat';
+    var paneTitle = mode === VIEW_CHAT
+      ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
+      : pick({ fr: 'Afficher le tchat', en: 'Show chat' });
     return '<div class="oec-head__actions">' +
-      '<button type="button" class="oec-head__btn' + (mode === VIEW_FULL ? ' oec-head__btn--on' : '') +
-        '" data-act="view-full" title="' + escHtml(pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })) + '">' + iconSvg('full') + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
-        '" data-act="view-split" title="' + escHtml(pick({ fr: 'Jeu + tchat', en: 'Game + chat' })) + '">' + iconSvg('split') + '</button>' +
+        '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
-        '" data-act="view-chat" title="' + escHtml(pick({ fr: 'Afficher le tchat', en: 'Show chat' })) + '">' + iconSvg('chat') + '</button>' +
+        '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) + '</button>' +
       '<button type="button" class="oec-head__btn" data-act="sync" title="Sync">↻</button>' +
       '</div>';
   }
@@ -764,39 +941,10 @@
     renderPanel(orbit, root, buf);
   }
 
-  function bindTopbar(orbit) {
-    if (!orbit.addUi || !Orbit.React) return;
-    var React = Orbit.React;
-    var h = React.createElement;
-    var useSyncExternalStore = React.useSyncExternalStore;
-    function ChessTopbar() {
-      var mode = useSyncExternalStore(subscribeView, function () {
-        return viewMode + '|' + (orbit.state.active() || '');
-      });
-      var on = isChessChannel(orbit, orbit.state.active());
-      if (!on) return null;
-      function btn(id, title, icon, active) {
-        return h('button', {
-          type: 'button',
-          className: 'oec-topbtn' + (active ? ' oec-topbtn--on' : ''),
-          title: title,
-          onClick: function () { setViewMode(orbit, id); },
-        }, h('span', { dangerouslySetInnerHTML: { __html: iconSvg(icon) } }));
-      }
-      return h('div', { className: 'oec-topbtns', title: 'Échecs' },
-        btn(VIEW_FULL, pick({ fr: 'Jeu', en: 'Game' }), 'game', viewMode === VIEW_FULL),
-        btn(VIEW_SPLIT, pick({ fr: 'Jeu + tchat', en: 'Game + chat' }), 'split', viewMode === VIEW_SPLIT),
-        btn(VIEW_CHAT, pick({ fr: 'Tchat', en: 'Chat' }), 'chat', viewMode === VIEW_CHAT)
-      );
-    }
-    orbit.addUi('topbar_item', function () { return h(ChessTopbar); });
-  }
-
   Orbit.plugin('orbit-echecs', function (orbit, log) {
     pluginOrbit = orbit;
     viewMode = getViewMode(orbit);
     injectStyles();
-    bindTopbar(orbit);
     console.info('[orbit-echecs] loaded v' + OEC_VER);
 
     function syncDom() {

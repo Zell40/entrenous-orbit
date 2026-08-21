@@ -6,10 +6,11 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 50;
+  var PBAC_VER = 53;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
+  var STORAGE_GAME_VIEW = 'opbacGameView';
   var STORAGE_LIVE_OPEN = 'opbacLiveOpen';
   var STORAGE_SKIP_RULES = 'opbacSkipRules';
   var PANEL_HEIGHT_MIN = 220;
@@ -1973,6 +1974,9 @@
       '.opbac-end__pts{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent,#6366f1)}',
       '.opbac-end__notes{display:flex;flex-direction:column;gap:.35rem}',
       '.opbac-end__note{margin:0;padding:.55rem .65rem;border-radius:10px;background:var(--bg-soft,rgba(127,127,127,.07));border:1px solid var(--border,#e5e5e5);font-size:.78rem;line-height:1.4;color:var(--ink,#222)}',
+      '.opbac-end__wait{display:flex;align-items:center;justify-content:center;gap:.55rem;margin-top:.7rem;padding:.75rem .9rem;border-radius:12px;background:color-mix(in srgb,var(--accent,#6366f1) 8%,var(--bg-soft,rgba(127,127,127,.07)));border:1px solid color-mix(in srgb,var(--accent,#6366f1) 28%,var(--border,#e5e5e5))}',
+      '.opbac-end__wait .opbac-refresh{flex-shrink:0;width:1.2rem;height:1.2rem}',
+      '.opbac-end__wait-txt{margin:0;font-size:.84rem;font-weight:700;color:var(--ink,#222)}',
       '.opbac-end__actions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.85rem}',
       '.opbac-end__btn{flex:1;min-width:8rem;border:0;border-radius:999px;padding:.65rem 1rem;font-size:.84rem;font-weight:800;cursor:pointer}',
       '.opbac-end__btn--primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}',
@@ -2445,9 +2449,32 @@
   function setViewMode(orbit, root, mode, opts) {
     mode = normalizeViewMode(mode);
     if (root) root.__opbacViewMode = mode;
+    if (mode === VIEW_FULL || mode === VIEW_SPLIT) {
+      if (root) root.__opbacGameView = mode;
+      try { if (orbit) orbit.storage.set(STORAGE_GAME_VIEW, mode); } catch (e) { /* ignore */ }
+    }
     try { if (orbit) orbit.storage.set(STORAGE_VIEW_MODE, mode); } catch (e) { /* ignore */ }
     applyViewMode(root, orbit, mode, opts || {});
     requestAnimationFrame(function () { pinChatIfFollowing(); });
+  }
+
+  function rememberedGameView(orbit, root) {
+    if (root && (root.__opbacGameView === VIEW_FULL || root.__opbacGameView === VIEW_SPLIT)) {
+      return root.__opbacGameView;
+    }
+    try {
+      if (orbit) {
+        var stored = normalizeViewMode(orbit.storage.get(STORAGE_GAME_VIEW, VIEW_FULL));
+        if (stored === VIEW_FULL || stored === VIEW_SPLIT) return stored;
+      }
+    } catch (e) { /* ignore */ }
+    return VIEW_FULL;
+  }
+
+  function currentGameView(orbit, root, viewMode) {
+    viewMode = normalizeViewMode(viewMode);
+    if (viewMode === VIEW_FULL || viewMode === VIEW_SPLIT) return viewMode;
+    return rememberedGameView(orbit, root);
   }
 
   function chatReservePx() {
@@ -2514,11 +2541,12 @@
     if (playBtn) playBtn.hidden = normalizeViewMode(root.__opbacViewMode) === VIEW_CHAT && kind === 'play';
   }
 
-  function buildHeadHtml(headBadge, modeBadge, viewMode, gameActive, collapsedCta, modeId) {
+  function buildHeadHtml(headBadge, modeBadge, viewMode, gameActive, collapsedCta, modeId, gameView) {
     viewMode = normalizeViewMode(viewMode);
     var chatOn = viewMode === VIEW_CHAT;
-    var splitOn = viewMode === VIEW_SPLIT;
-    var fullOn = viewMode === VIEW_FULL;
+    gameView = (gameView === VIEW_SPLIT) ? VIEW_SPLIT : VIEW_FULL;
+    var layoutTarget = gameView === VIEW_SPLIT ? VIEW_FULL : VIEW_SPLIT;
+    var backToGame = gameView === VIEW_SPLIT ? 'view-split' : 'view-full';
     var modeHtml = '';
     if (modeBadge) {
       modeHtml = '<div class="opbac-head__mode" data-opbac-mode-wrap>' +
@@ -2550,16 +2578,14 @@
         '<span class="opbac-head__cta-wrap" data-opbac-cta-wrap>' +
           buildCollapsedCtaHtml(chatOn ? collapsedCta : '') +
         '</span>' +
-        '<button type="button" class="opbac-head__btn' + (fullOn ? ' opbac-head__btn--on' : '') +
-          '" data-act="view-full" title="' +
-          escHtml(pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })) + '">' +
-          iconSvg('full') + '</button>' +
-        '<button type="button" class="opbac-head__btn' + (splitOn ? ' opbac-head__btn--on' : '') +
-          '" data-act="view-split" title="' +
-          escHtml(pick({ fr: 'Partager l\'écran (jeu + tchat)', en: 'Split screen (game + chat)' })) + '">' +
-          iconSvg('split') + '</button>' +
+        '<button type="button" class="opbac-head__btn' + (!chatOn ? ' opbac-head__btn--on' : '') +
+          '" data-act="view-' + layoutTarget + '" title="' +
+          escHtml(layoutTarget === VIEW_SPLIT
+            ? pick({ fr: 'Partager l\'écran (jeu + tchat)', en: 'Split screen (game + chat)' })
+            : pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })) + '">' +
+          iconSvg(layoutTarget) + '</button>' +
         '<button type="button" class="opbac-head__btn' + (chatOn ? ' opbac-head__btn--on' : '') +
-          '" data-act="' + (chatOn ? 'view-full' : 'view-chat') + '" title="' +
+          '" data-act="' + (chatOn ? backToGame : 'view-chat') + '" title="' +
           escHtml(chatOn
             ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
             : pick({ fr: 'Afficher le tchat', en: 'Show chat' })) + '">' +
@@ -4376,9 +4402,14 @@
           escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
         '</button></p>';
     } else if (game.round && game.totalRounds && game.round < game.totalRounds) {
-      html += '<p class="opbac-end__note" style="margin-top:.5rem">' +
-        escHtml(pick({ fr: '⏳ La manche suivante va démarrer…', en: '⏳ Next round starting soon…' })) +
-        '</p>';
+      html += '<div class="opbac-end__wait" role="status" aria-live="polite">' +
+        refreshSpinnerHtml() +
+        '<p class="opbac-end__wait-txt">' +
+          escHtml(pick({
+            fr: 'Préparation de la manche suivante…',
+            en: 'Preparing the next round…',
+          })) +
+        '</p></div>';
     }
 
     html += '</div>';
@@ -4589,6 +4620,58 @@
     });
   }
 
+  function catInputEl(root, catKey) {
+    if (!root || !catKey) return null;
+    var key = String(catKey).toLowerCase();
+    var inputs = root.querySelectorAll('[data-cat-input]');
+    for (var i = 0; i < inputs.length; i++) {
+      if (String(inputs[i].getAttribute('data-cat-input') || '').toLowerCase() === key) return inputs[i];
+    }
+    return null;
+  }
+
+  function captureFormFocus(root) {
+    if (!root) return null;
+    if (root.__opbacRestoreFocus) {
+      var pending = root.__opbacRestoreFocus;
+      root.__opbacRestoreFocus = null;
+      return pending;
+    }
+    var ae = document.activeElement;
+    if (!ae || !root.contains(ae)) return null;
+    var inp = (ae.getAttribute && ae.getAttribute('data-cat-input')) ? ae : null;
+    if (!inp && ae.closest) {
+      var row = ae.closest('[data-cat]');
+      inp = row && row.querySelector('[data-cat-input]');
+      if (row && inp) {
+        return { cat: row.getAttribute('data-cat') || inp.getAttribute('data-cat-input'), select: true };
+      }
+    }
+    if (!inp) return null;
+    return {
+      cat: inp.getAttribute('data-cat-input'),
+      start: typeof inp.selectionStart === 'number' ? inp.selectionStart : null,
+      end: typeof inp.selectionEnd === 'number' ? inp.selectionEnd : null,
+    };
+  }
+
+  function restoreFormFocus(root, saved) {
+    if (!root || !saved || !saved.cat) return false;
+    var apply = function () {
+      var inp = catInputEl(root, saved.cat);
+      if (!inp || inp.disabled) return false;
+      inp.focus();
+      try {
+        if (saved.select && inp.value) inp.select();
+        else if (saved.start != null && saved.end != null) inp.setSelectionRange(saved.start, saved.end);
+      } catch (e) { /* ignore */ }
+      return document.activeElement === inp;
+    };
+    if (apply()) return true;
+    requestAnimationFrame(apply);
+    return true;
+  }
+
   function bindDomPanel(root, orbit) {
     if (root.__opbacBound) return;
     root.__opbacBound = true;
@@ -4596,6 +4679,12 @@
     document.addEventListener('click', function (ev) {
       if (!root.contains(ev.target)) closeModeMenu(root);
     }, true);
+    root.addEventListener('mousedown', function (ev) {
+      var keep = ev.target && ev.target.closest
+        ? ev.target.closest('[data-verify-cat]')
+        : null;
+      if (keep) ev.preventDefault();
+    });
     root.addEventListener('click', function (ev) {
       var buffer = orbit.state.active();
       if (!buffer || !isBacChannel(orbit, buffer)) return;
@@ -4619,7 +4708,11 @@
           var vInp = vRow && vRow.querySelector('[data-cat-input]');
           vWord = vInp ? vInp.value : '';
         }
-        if (vCat && vWord) sendVerify(orbit, buffer, vCat, vWord);
+        if (vCat && vWord) {
+          root.__opbacRestoreFocus = { cat: vCat, select: true };
+          sendVerify(orbit, buffer, vCat, vWord);
+          restoreFormFocus(root, { cat: vCat, select: true });
+        }
         return;
       }
       var infoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="info"]') : null;
@@ -4816,6 +4909,7 @@
 
     if (gameRunning && !isEnd) maybeRequestGameSync(orbit, buffer, game);
 
+    var restoreFocus = captureFormFocus(root);
     if (rebuild) {
       saveDraftFromDom(root, buffer);
       root.__opbacSig = sig;
@@ -4890,7 +4984,8 @@
       }
 
       root.innerHTML =
-        buildHeadHtml(headBadge, modeBadge, viewMode, gameRunning && !isEnd, collapsedCta, game.mode) +
+        buildHeadHtml(headBadge, modeBadge, viewMode, gameRunning && !isEnd, collapsedCta, game.mode,
+          currentGameView(orbit, root, viewMode)) +
         '<div class="opbac-body">' + bodyHtml + '</div>' +
         '<div class="opbac-resize" data-opbac-resize role="separator" aria-label="' +
           escHtml(pick({ fr: 'Redimensionner le panneau', en: 'Resize panel' })) + '"></div>';
@@ -4902,6 +4997,7 @@
 
       if (isLive && !isEnd && viewMode !== VIEW_CHAT) {
         requestAnimationFrame(function () {
+          if (restoreFormFocus(root, restoreFocus)) return;
           var first = root.querySelector('.opbac-col__input:not([disabled])');
           if (first) first.focus();
         });
@@ -4954,6 +5050,7 @@
           root.__opbacDraftSig = dSig;
           saveDraftFromDom(root, buffer);
           formWrap.innerHTML = buildFormHtml(buffer, game);
+          restoreFormFocus(root, restoreFocus);
         }
         syncCompleteCelebration(root, buffer, game);
       } else if (isPrep) {
