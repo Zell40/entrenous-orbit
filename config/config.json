@@ -104,6 +104,11 @@
     "defaultCollapsed": false,
     "botNicks": ["Choixpeau", "HarryPotter"]
   },
+  "callerid": {
+    "group": "controle-parentale",
+    "modes": "+ixIgcRw",
+    "autoMode": true
+  },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js", "sandbox": true, "permissions": ["storage"] },
@@ -114,8 +119,9 @@
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=53",
-    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=7",
-    "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=2"
+    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=8",
+    "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=2",
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=1"
   ],
   "builtins": [],
   "analytics": {

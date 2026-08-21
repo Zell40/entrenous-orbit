@@ -639,13 +639,30 @@
     document.head.appendChild(el);
   }
 
+  function viewingGame(game) {
+    var view = Object.assign({}, game);
+    var ucis = splitUcis(game.ucis);
+    if (ui.navPly >= 0 && ucis.length) {
+      var ply = Math.min(ui.navPly, ucis.length);
+      view.fen = fenAtPly(game, ply);
+      var uci = ucis[ply - 1] || '';
+      view.from = uci.slice(0, 2);
+      view.to = uci.slice(2, 4);
+      view.lastUci = uci;
+      var sans = String(game.sans || '').split(',').filter(Boolean);
+      view.lastSan = sans[ply - 1] || '';
+      view._replay = ply < ucis.length || game.status === 'ended';
+    }
+    return view;
+  }
+
   function renderBoard(orbit, game) {
     var parsed = parseFen(game.fen);
     var flip = myColor(orbit, game) === 'black';
     var lastFrom = game.from || (game.lastUci && game.lastUci.slice(0, 2)) || '';
     var lastTo = game.to || (game.lastUci && game.lastUci.slice(2, 4)) || '';
     var color = myColor(orbit, game);
-    var myTurn = game.status === 'playing' && color && game.turn === color;
+    var myTurn = game.status === 'playing' && color && game.turn === color && !game._replay;
     var ranks = flip ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
     var files = flip ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
     var html = '<div class="oec-board-wrap"><div class="oec-board" role="grid">';
@@ -702,50 +719,139 @@
       '</div>';
   }
 
+  function pill(act, val, label, current) {
+    return '<button type="button" class="oec-pill' + (current === val ? ' is-on' : '') +
+      '" data-act="' + act + '" data-val="' + val + '">' + label + '</button>';
+  }
+
+  function renderHome(orbit, game) {
+    var s = ui.setup;
+    var eloLine = game.elo
+      ? 'ELO EntreNous <b>' + escHtml(game.elo) + '</b>' +
+        (game.eloGames ? ' · ' + escHtml(game.eloGames) + ' parties' : '')
+      : 'ELO EntreNous <b>1200</b> (provisoire)';
+    var cc = game.chesscom
+      ? 'Chess.com <b>' + escHtml(game.chesscom) + '</b> — blitz ' +
+        escHtml(game.ccBlitz || '—') + ', rapide ' + escHtml(game.ccRapid || '—') +
+        ', bullet ' + escHtml(game.ccBullet || '—')
+      : 'Liez votre compte Chess.com pour afficher votre classement.';
+    return '<div class="oec-idle">' +
+      '<div class="oec-hero"><img src="' + HOME_IMG + '" alt="">' +
+      '<p class="oec-hero__label">Bienvenue aux échecs</p></div>' +
+      '<p class="oec-home-lead">' +
+      pick({ fr: 'Choisissez un niveau, une cadence, puis lancez une partie contre l’IA ou un ami du salon.',
+        en: 'Pick a level and time control, then play the AI or a friend.' }) +
+      '</p>' +
+      '<div class="oec-card"><h3>Adversaire</h3><div class="oec-pills">' +
+      pill('setup-vs', 'ai', 'Contre l’IA', s.vs) +
+      pill('setup-vs', 'duo', 'Partie duo', s.vs) +
+      '</div></div>' +
+      (s.vs === 'ai'
+        ? '<div class="oec-card"><h3>Niveau d’IA</h3><div class="oec-pills">' +
+          pill('setup-skill', 'debutant', 'Débutant', s.skill) +
+          pill('setup-skill', 'facile', 'Facile', s.skill) +
+          pill('setup-skill', 'moyen', 'Moyen', s.skill) +
+          pill('setup-skill', 'difficile', 'Difficile', s.skill) +
+          pill('setup-skill', 'expert', 'Expert', s.skill) +
+          '</div></div>' +
+          '<div class="oec-card"><h3>Votre couleur</h3><div class="oec-pills">' +
+          pill('setup-color', 'random', 'Au hasard', s.color) +
+          pill('setup-color', 'white', 'Blancs', s.color) +
+          pill('setup-color', 'black', 'Noirs', s.color) +
+          '</div></div>'
+        : '') +
+      '<div class="oec-card"><h3>Cadence</h3><div class="oec-pills">' +
+      pill('setup-tc', 'casual', 'Illimité', s.tc) +
+      pill('setup-tc', 'bullet', 'Bullet 1+0', s.tc) +
+      pill('setup-tc', 'blitz', 'Blitz 3+2', s.tc) +
+      pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
+      pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
+      '</div></div>' +
+      '<div class="oec-card"><h3>Classement</h3><p class="oec-elo"><span>' + eloLine +
+      '</span><span>' + cc + '</span></p>' +
+      '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
+      escHtml(game.chesscom || '') + '">' +
+      '<button type="button" class="oec-btn" data-act="lier">Lier</button>' +
+      '<button type="button" class="oec-btn" data-act="elo">Mon ELO</button></div></div>' +
+      '<div class="oec-actions">' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">Lancer la partie</button>' +
+      '</div></div>';
+  }
+
+  function renderNav(game) {
+    var ucis = splitUcis(game.ucis);
+    if (!ucis.length) return '';
+    var at = ui.navPly < 0 ? ucis.length : ui.navPly;
+    return '<div class="oec-nav">' +
+      '<button type="button" class="oec-btn" data-act="nav-start" title="Début">⏮</button>' +
+      '<button type="button" class="oec-btn" data-act="nav-prev" title="Coup précédent">◀</button>' +
+      '<button type="button" class="oec-btn" data-act="nav-next" title="Coup suivant">▶</button>' +
+      '<button type="button" class="oec-btn" data-act="nav-end" title="Position actuelle">⏭</button>' +
+      '<span class="oec-turn">' + at + ' / ' + ucis.length + '</span></div>';
+  }
+
+  function renderReview(game) {
+    var dur = Number(game.duration) || 0;
+    var mm = Math.floor(dur / 60);
+    var ss = dur % 60;
+    var durStr = mm + ' min ' + (ss < 10 ? '0' : '') + ss + ' s';
+    var eloBit = '';
+    if (game.eloW || game.eloB) {
+      eloBit = '<dt>ELO</dt><dd>' + escHtml(game.white) + ' ' + escHtml(game.eloW || '—') +
+        ' · ' + escHtml(game.black) + ' ' + escHtml(game.eloB || '—') +
+        (game.eloDw ? ' (' + (Number(game.eloDw) > 0 ? '+' : '') + escHtml(game.eloDw) + ' Blancs)</dd>' : '</dd>');
+    }
+    return '<div class="oec-review"><h3>Bilan de la partie</h3><dl>' +
+      '<dt>Résultat</dt><dd>' + escHtml(game.result || '') +
+      (game.reason ? ' — ' + escHtml(reasonFr(game.reason)) : '') + '</dd>' +
+      '<dt>Ouverture</dt><dd>' + escHtml(game.opening || 'Hors livre') + '</dd>' +
+      '<dt>Coups</dt><dd>' + escHtml(String(game.ply || 0)) + '</dd>' +
+      '<dt>Cadence</dt><dd>' + escHtml(game.tc || 'illimité') +
+      (game.skill ? ' · IA ' + escHtml(game.skill) : '') + '</dd>' +
+      '<dt>Durée</dt><dd>' + durStr + '</dd>' +
+      eloBit +
+      '</dl></div>';
+  }
+
   function renderPanel(orbit, root, buffer) {
     var game = getState(buffer);
+    var view = viewingGame(game);
     var mode = getViewMode(orbit);
     var badge = game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
       : game.status === 'waiting' ? 'En attente'
       : game.status === 'ended' ? escHtml(game.result || 'Fin')
       : 'Prêt';
+    if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + game.tc;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) + '</div>';
 
     var body = '<div class="oec-stage">';
     if (game.status === 'idle') {
-      body += '<div class="oec-idle"><p>' +
-        pick({ fr: 'Lancez une partie contre l’IA ou en duo. Glissez les pièces pour jouer.',
-          en: 'Start vs AI or a duo game. Drag pieces to move.' }) +
-        '</p><div class="oec-actions">' +
-        '<button type="button" class="oec-btn oec-btn--pri" data-act="start">IA (aléatoire)</button>' +
-        '<button type="button" class="oec-btn" data-act="start-w">Blancs</button>' +
-        '<button type="button" class="oec-btn" data-act="start-b">Noirs</button>' +
-        '<button type="button" class="oec-btn" data-act="duo">Duo</button>' +
-        '</div></div>';
+      body += renderHome(orbit, game);
     } else {
-      body += renderBoard(orbit, game);
+      body += renderBoard(orbit, view);
       body += '<div class="oec-meta">';
-      var wTurn = game.status === 'playing' && game.turn === 'white';
-      var bTurn = game.status === 'playing' && game.turn === 'black';
+      var wTurn = game.status === 'playing' && game.turn === 'white' && !view._replay;
+      var bTurn = game.status === 'playing' && game.turn === 'black' && !view._replay;
       body += '<div class="oec-clock">' +
-        '<span class="' + (bTurn ? 'is-turn' : '') + '">Noirs <b>' + escHtml(game.black || '—') + '</b></span>' +
-        '<span class="' + (wTurn ? 'is-turn' : '') + '">Blancs <b>' + escHtml(game.white || '—') + '</b></span></div>';
+        '<span class="' + (bTurn ? 'is-turn' : '') + '">Noirs <b>' + escHtml(game.black || '—') +
+        '</b> <span class="oec-clock__time">' + liveClock(game, 'black') + '</span></span>' +
+        '<span class="' + (wTurn ? 'is-turn' : '') + '">Blancs <b>' + escHtml(game.white || '—') +
+        '</b> <span class="oec-clock__time">' + liveClock(game, 'white') + '</span></span></div>';
+      if (game.opening) body += '<p class="oec-opening">' + escHtml(game.opening) + '</p>';
       if (game.status === 'waiting') {
         body += '<p class="oec-turn">' + pick({ fr: 'En attente d’un adversaire…', en: 'Waiting for an opponent…' }) + '</p>';
-      } else if (game.status === 'playing' && game.lastSan) {
-        body += '<p class="oec-turn">' + pick({ fr: 'Dernier coup', en: 'Last move' }) + ' ' + escHtml(game.lastSan) + '</p>';
+      } else if (view.lastSan) {
+        body += '<p class="oec-turn">' + pick({ fr: 'Dernier coup', en: 'Last move' }) + ' ' + escHtml(view.lastSan) + '</p>';
       }
+      body += renderNav(game);
       if (game.capW || game.capB) {
         body += '<div class="oec-caps">' + (capturedHtml(game.capB) || '') + '</div>';
         body += '<div class="oec-caps">' + (capturedHtml(game.capW) || '') + '</div>';
       }
       if (game.sans) body += '<div class="oec-sans">' + escHtml(String(game.sans).replace(/,/g, ' ')) + '</div>';
       if (game.flash) body += '<div class="oec-flash">' + escHtml(game.flash) + '</div>';
-      if (game.status === 'ended') {
-        body += '<div class="oec-end">' + escHtml(game.result || '') +
-          (game.reason ? ' — ' + escHtml(reasonFr(game.reason)) : '') + '</div>';
-      }
+      if (game.status === 'ended') body += renderReview(game);
       if (ui.promo) {
         body += '<div class="oec-promo">' +
           '<button type="button" data-promo="q" title="Dame">' + pieceSvg('Q') + '</button>' +
@@ -762,17 +868,19 @@
         body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
         body += '<button type="button" class="oec-btn oec-btn--danger" data-act="resign">Abandonner</button>';
       } else if (game.status === 'ended') {
-        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="start">Nouvelle partie</button>';
-        body += '<button type="button" class="oec-btn" data-act="duo">Duo</button>';
+        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
+        body += '<button type="button" class="oec-btn" data-act="start-setup">Rejouer</button>';
       }
       body += '</div></div>';
     }
     body += '</div>';
     root.innerHTML = head + body;
+    root.classList.toggle('oec-panel--home', game.status === 'idle');
   }
 
   function tryMove(orbit, buffer, from, to) {
     var game = getState(buffer);
+    if (viewingGame(game)._replay) return;
     if (!from || !to || from === to) return;
     if (needsPromo(game, from, to)) {
       ui.promo = { from: from, to: to };
@@ -815,6 +923,7 @@
       var buffer = orbit.state.active();
       var game = getState(buffer);
       if (game.status !== 'playing') return;
+      if (viewingGame(game)._replay) return;
       var color = myColor(orbit, game);
       if (!color || game.turn !== color) return;
       var from = sqEl.getAttribute('data-sq');
@@ -874,6 +983,7 @@
     ev.preventDefault();
     var act = el.getAttribute('data-act');
     var promo = el.getAttribute('data-promo');
+    var val = el.getAttribute('data-val');
 
     function sent(name, arg) {
       var ok = sendEcCmd(orbit, buffer, name, arg);
@@ -881,18 +991,54 @@
       return ok;
     }
 
+    if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc') {
+      var key = act.replace('setup-', '');
+      ui.setup[key] = val;
+      bump();
+      return;
+    }
     if (act === 'view-full') { setViewMode(orbit, VIEW_FULL); return; }
     if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
     if (act === 'sync') { sent('sync'); return; }
-    if (act === 'start') { sent('commencer'); return; }
-    if (act === 'start-w') { sent('commencer', 'blancs'); return; }
-    if (act === 'start-b') { sent('commencer', 'noirs'); return; }
-    if (act === 'duo') { sent('commencer', 'duo'); return; }
+    if (act === 'start-setup') { sent('commencer', startArg()); return; }
+    if (act === 'start') { sent('commencer', startArg()); return; }
+    if (act === 'start-w') { sent('commencer', 'blancs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
+    if (act === 'start-b') { sent('commencer', 'noirs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
+    if (act === 'duo') { sent('commencer', 'duo ' + (ui.setup.tc || '')); return; }
     if (act === 'join') { sent('rejoindre'); return; }
     if (act === 'draw') { sent('nul'); return; }
     if (act === 'abort') { sent('annuler'); return; }
     if (act === 'resign') { sent('abandonner'); return; }
+    if (act === 'elo') { sent('elo'); return; }
+    if (act === 'lier') {
+      var inp = document.getElementById('oec-cc');
+      var user = inp ? String(inp.value || '').trim() : '';
+      if (!user) { patchState(buffer, { flash: 'Indiquez un pseudo Chess.com' }); return; }
+      sent('lier', 'chesscom ' + user);
+      return;
+    }
+    if (act === 'home') {
+      var prev = getState(buffer);
+      ui.navPly = -1;
+      patchState(buffer, Object.assign(defaultState(), {
+        elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
+        ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
+      }));
+      return;
+    }
+    if (act === 'nav-start' || act === 'nav-prev' || act === 'nav-next' || act === 'nav-end') {
+      var game = getState(buffer);
+      var n = splitUcis(game.ucis).length;
+      var cur = ui.navPly < 0 ? n : ui.navPly;
+      if (act === 'nav-start') ui.navPly = 0;
+      else if (act === 'nav-prev') ui.navPly = Math.max(0, cur - 1);
+      else if (act === 'nav-next') ui.navPly = Math.min(n, cur + 1);
+      else ui.navPly = game.status === 'ended' ? n : -1;
+      if (game.status !== 'ended' && ui.navPly === n) ui.navPly = -1;
+      bump();
+      return;
+    }
 
     if (promo && ui.promo) {
       sent('jouer', ui.promo.from + ui.promo.to + promo);
@@ -935,7 +1081,10 @@
     }
     applyViewMode(orbit, getViewMode(orbit));
     if (ui.drag) return;
-    var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' + getViewMode(orbit);
+    var g = getState(buf);
+    var tick = (g.status === 'playing' && g.tc && g.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
+    var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
+      getViewMode(orbit) + '|' + ui.navPly + '|' + tick;
     if (root.__oecSig === sig) return;
     root.__oecSig = sig;
     renderPanel(orbit, root, buf);
