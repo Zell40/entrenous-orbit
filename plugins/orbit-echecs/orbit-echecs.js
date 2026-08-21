@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 8;
+  var OEC_VER = 9;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -554,15 +554,17 @@
     var el = document.createElement('style');
     el.id = 'orbit-echecs-css';
     el.textContent = [
-      '.oec-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;background:#1a1c19;color:#f5f5f4;font-family:var(--font,system-ui,sans-serif)}',
+      '.oec-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;background:#1a1c19;color:#f5f5f4;font-family:var(--font,system-ui,sans-serif);display:flex;flex-direction:column;min-height:0;overflow:hidden}',
       '.oec-panel--home{background:#f6f1e7;color:#3f3a32}',
-      '.oec-panel--full{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;border-bottom:0}',
-      '.oec-panel--split{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
-      '.oec-panel--chat{flex:0 0 auto;min-height:0;display:flex;flex-direction:column}',
+      '.oec-panel--full{flex:1 1 auto;min-height:0;max-height:100%;border-bottom:0}',
+      '.oec-panel--split{flex:1 1 auto;min-height:0;max-height:100%}',
+      '.oec-panel--chat{flex:0 0 auto;min-height:0}',
       '.oec-panel--chat .oec-stage{display:none!important}',
+      'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
-      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;height:auto!important;max-height:none!important;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
-      '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column}body.oec-split #oec-dom-panel{flex:0 0 auto}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
+      'body.oec-full #oec-dom-panel{flex:1 1 auto;min-height:0;height:auto!important;max-height:calc(100dvh - 9.25rem)}',
+      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;height:auto!important;max-height:calc(100dvh - 7.25rem)!important;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
+      '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column;overflow:hidden}body.oec-split #oec-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
       '.oec-head{display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto}',
       '.oec-head__title{font-weight:800;font-size:.88rem}',
       '.oec-head__badge{font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(255,255,255,.18)}',
@@ -571,9 +573,12 @@
       '.oec-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.oec-head__btn--on{background:rgba(255,255,255,.34)}',
       '.oec-head__btn svg{width:18px;height:18px;display:block}',
-      '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.7rem .8rem;overflow:hidden}',
+      '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.55rem .7rem .65rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#166534 rgba(22,101,52,.15)}',
+      '.oec-stage::-webkit-scrollbar{width:8px}',
+      '.oec-stage::-webkit-scrollbar-thumb{background:rgba(22,101,52,.35);border-radius:999px}',
+      '.oec-panel--home .oec-stage{align-items:stretch;justify-content:flex-start}',
       '.oec-board-wrap{width:min(100%,calc(100dvh - 7.2rem));max-width:min(72dvh,100%);flex:0 0 auto}',
-      'body.oec-split .oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto;gap:.65rem}',
+      'body.oec-split .oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.65rem}',
       'body.oec-split .oec-board-wrap{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
       'body.oec-split .oec-meta{max-width:none;width:100%;flex:0 0 auto}',
       '.oec-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
@@ -615,23 +620,28 @@
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
-      '.oec-idle{text-align:left;max-width:40rem;width:100%;color:#3f3a32}',
-      '.oec-hero{position:relative;border-radius:18px;overflow:hidden;margin:0 0 1rem;min-height:10rem;background:#e8dcc4}',
-      '.oec-hero img{display:block;width:100%;height:10.5rem;object-fit:cover}',
-      '.oec-hero__label{position:absolute;left:1rem;bottom:1rem;margin:0;color:#fff;font-size:1.35rem;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
-      '.oec-home-lead{margin:0 0 .85rem;color:#5c564c;font-size:.92rem;line-height:1.45}',
-      '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:16px;padding:.75rem .85rem;margin:0 0 .7rem;box-shadow:0 8px 22px rgba(92,70,40,.08)}',
-      '.oec-card h3{margin:0 0 .5rem;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
-      '.oec-pills{display:flex;flex-wrap:wrap;gap:.35rem}',
-      '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.38rem .7rem;font-size:.76rem;font-weight:800;cursor:pointer;min-height:34px}',
+      '.oec-idle{text-align:left;max-width:46rem;width:100%;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.45rem;min-height:min-content}',
+      '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 0 auto;background:#e8dcc4}',
+      '.oec-hero img{display:block;width:100%;height:clamp(4.2rem,14vh,6.6rem);object-fit:cover}',
+      '.oec-hero__label{position:absolute;left:.75rem;bottom:.55rem;margin:0;color:#fff;font-size:1.05rem;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
+      '.oec-home-lead{margin:0;color:#5c564c;font-size:.8rem;line-height:1.35}',
+      '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}',
+      '.oec-home-grid .oec-card--wide{grid-column:1/-1}',
+      '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.5rem .6rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
+      '.oec-card h3{margin:0 0 .32rem;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
+      '.oec-pills{display:flex;flex-wrap:wrap;gap:.28rem}',
+      '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.26rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:30px}',
       '.oec-pill.is-on{background:#166534;border-color:#166534;color:#fff}',
-      '.oec-elo{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;margin:0;font-size:.84rem}',
+      '.oec-elo{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin:0;font-size:.78rem}',
       '.oec-elo b{color:#14532d}',
-      '.oec-link{display:flex;gap:.4rem;margin-top:.55rem}',
-      '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.4rem .55rem;font-size:.82rem;background:#fff;color:#3f3a32}',
+      '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
+      '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
+      '.oec-home-actions{position:sticky;bottom:0;z-index:2;margin:0;padding:.4rem 0 .1rem;background:linear-gradient(180deg,rgba(246,241,231,0) 0%,#f6f1e7 38%)}',
+      '.oec-home-actions .oec-btn--pri{width:100%;min-height:38px}',
       '.oec-panel--home .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
       '.oec-panel--home .oec-btn:hover{border-color:#166534;color:#14532d}',
       '.oec-panel--home .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
+      '@media(max-width:640px){.oec-home-grid{grid-template-columns:1fr}.oec-hero img{height:clamp(3.6rem,12vh,5.4rem)}.oec-hero__label{font-size:.95rem}}',
       '.oec-promo{display:flex;gap:.35rem;margin:.45rem 0}',
       '.oec-promo button{width:2.6rem;height:2.6rem;border-radius:10px;border:1px solid #166534;background:#fff;cursor:pointer;padding:.2rem}',
       '@media(max-width:720px){.oec-stage{flex-direction:column;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap{width:min(100%,calc(100vw - 1.6rem))}}',
@@ -742,38 +752,40 @@
       pick({ fr: 'Choisissez un niveau, une cadence, puis lancez une partie contre l’IA ou un ami du salon.',
         en: 'Pick a level and time control, then play the AI or a friend.' }) +
       '</p>' +
+      '<div class="oec-home-grid">' +
       '<div class="oec-card"><h3>Adversaire</h3><div class="oec-pills">' +
       pill('setup-vs', 'ai', 'Contre l’IA', s.vs) +
       pill('setup-vs', 'duo', 'Partie duo', s.vs) +
       '</div></div>' +
       (s.vs === 'ai'
-        ? '<div class="oec-card"><h3>Niveau d’IA</h3><div class="oec-pills">' +
+        ? '<div class="oec-card"><h3>Votre couleur</h3><div class="oec-pills">' +
+          pill('setup-color', 'random', 'Au hasard', s.color) +
+          pill('setup-color', 'white', 'Blancs', s.color) +
+          pill('setup-color', 'black', 'Noirs', s.color) +
+          '</div></div>' +
+          '<div class="oec-card oec-card--wide"><h3>Niveau d’IA</h3><div class="oec-pills">' +
           pill('setup-skill', 'debutant', 'Débutant', s.skill) +
           pill('setup-skill', 'facile', 'Facile', s.skill) +
           pill('setup-skill', 'moyen', 'Moyen', s.skill) +
           pill('setup-skill', 'difficile', 'Difficile', s.skill) +
           pill('setup-skill', 'expert', 'Expert', s.skill) +
-          '</div></div>' +
-          '<div class="oec-card"><h3>Votre couleur</h3><div class="oec-pills">' +
-          pill('setup-color', 'random', 'Au hasard', s.color) +
-          pill('setup-color', 'white', 'Blancs', s.color) +
-          pill('setup-color', 'black', 'Noirs', s.color) +
           '</div></div>'
         : '') +
-      '<div class="oec-card"><h3>Cadence</h3><div class="oec-pills">' +
+      '<div class="oec-card oec-card--wide"><h3>Cadence</h3><div class="oec-pills">' +
       pill('setup-tc', 'casual', 'Illimité', s.tc) +
       pill('setup-tc', 'bullet', 'Bullet 1+0', s.tc) +
       pill('setup-tc', 'blitz', 'Blitz 3+2', s.tc) +
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
       pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
       '</div></div>' +
-      '<div class="oec-card"><h3>Classement</h3><p class="oec-elo"><span>' + eloLine +
+      '<div class="oec-card oec-card--wide"><h3>Classement</h3><p class="oec-elo"><span>' + eloLine +
       '</span><span>' + cc + '</span></p>' +
       '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
       escHtml(game.chesscom || '') + '">' +
       '<button type="button" class="oec-btn" data-act="lier">Lier</button>' +
       '<button type="button" class="oec-btn" data-act="elo">Mon ELO</button></div></div>' +
-      '<div class="oec-actions">' +
+      '</div>' +
+      '<div class="oec-actions oec-home-actions">' +
       '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">Lancer la partie</button>' +
       '</div></div>';
   }
