@@ -5,6 +5,8 @@
  * Reçoit en POST le JWT + nick/channel (+ profil) depuis MonIdentité Orbit,
  * pose le marqueur sessionStorage attendu par Orbit (`orbit_handoff`),
  * pose un cookie HttpOnly de reprise (`orbit_en_resume`) pour renouveler le JWT,
+ * pose un cookie `orbit_en_listen` (cp|reg) pour qu’Apache route le websocket
+ * IRC vers le listen UnrealIRCd contrôle parental ou normal,
  * puis redirige vers l’app Orbit (?nick=&channel=).
  *
  * Déployer à la racine du webchat Orbit, ex. :
@@ -30,6 +32,10 @@ $account = isset($_POST['account']) ? trim((string) $_POST['account']) : '';
 $age     = isset($_POST['age'])     ? trim((string) $_POST['age']) : '';
 $sexe    = isset($_POST['sexe'])    ? trim((string) $_POST['sexe']) : '';
 $ville   = isset($_POST['ville'])   ? trim((string) $_POST['ville']) : '';
+$listen  = isset($_POST['listen'])  ? strtolower(trim((string) $_POST['listen'])) : 'reg';
+if ($listen !== 'cp') {
+    $listen = 'reg';
+}
 
 if ($token === '' || $nick === '') {
     http_response_code(400);
@@ -79,22 +85,48 @@ if ($realname !== '') {
 // Long-lived resume cookie (14 days) so Orbit can mint a fresh SASL JWT later.
 $resumeAccount = $account !== '' ? $account : $nick;
 $local = __DIR__ . '/chat-resume.local.php';
-if ($resumeAccount !== '' && is_readable($local)) {
-    /** @var array{jwt_secret?:string} $cfg */
+/** @var array{jwt_secret?:string,listen_cookie_domain?:string} $cfg */
+$cfg = [];
+if (is_readable($local)) {
     $cfg = require $local;
+    if (!is_array($cfg)) {
+        $cfg = [];
+    }
+}
+
+$cookieExp = time() + 14 * 86400;
+$listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
+    ? $cfg['listen_cookie_domain']
+    : '.entrenous.chat';
+
+// Cookie lu par Apache sur irc.entrenous.chat (même eTLD+1) pour choisir le
+// listen websocket UnrealIRCd. Le navigateur ne peut pas poser d’en-tête
+// custom sur une WebSocket : Cookie est l’en-tête HTTP que Apache voit.
+$listenOpts = [
+    'expires'  => $cookieExp,
+    'path'     => '/',
+    'secure'   => true,
+    'httponly' => true,
+    'samesite' => 'Lax',
+];
+if ($listenDomain !== '') {
+    $listenOpts['domain'] = $listenDomain;
+}
+setcookie('orbit_en_listen', $listen, $listenOpts);
+
+if ($resumeAccount !== '') {
     $secret = (string)($cfg['jwt_secret'] ?? '');
     if ($secret !== '' && $secret !== 'CHANGE_ME_SAME_AS_WORDPRESS') {
-        $exp = time() + 14 * 86400;
         // Cookie payload: nick \n account \n exp [ \n realname ] \n sig
         // realname is optional (EntreNous GECOS) so older 4-field cookies still verify.
-        $body = $nick . "\n" . $resumeAccount . "\n" . $exp;
+        $body = $nick . "\n" . $resumeAccount . "\n" . $cookieExp;
         if ($realname !== '') {
             $body .= "\n" . $realname;
         }
         $sig = hash_hmac('sha256', $body, $secret);
         $cookie = rtrim(strtr(base64_encode($body . "\n" . $sig), '+/', '-_'), '=');
         setcookie('orbit_en_resume', $cookie, [
-            'expires'  => $exp,
+            'expires'  => $cookieExp,
             'path'     => '/',
             'secure'   => true,
             'httponly' => true,

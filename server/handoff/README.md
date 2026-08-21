@@ -33,6 +33,13 @@ Les champs optionnels `age` / `sexe` (`H`|`F`|`A`) / `ville` construisent le
 GECOS IRC `40 - Homme - Paris`, stocké dans `orbit_handoff.realname` (badges
 genre dans la liste des membres et le profil Orbit).
 
+Le champ POST `listen` (`cp` ou `reg`, défaut `reg`) pose le cookie HttpOnly
+`orbit_en_listen` (Domain `.entrenous.chat`). Apache sur `irc.entrenous.chat`
+le lit (en-tête `Cookie`) et route le websocket vers le listen InspIRCd
+contrôle parental (`8197`) ou normal (`8107`). Voir
+`server/apache/irc-websocket-listen.conf`
+(vhost live : `kiwiirc.websocket.irc.conf`, ne pas renommer).
+
 Côté WordPress, constantes dans `functions.php` :
 
 - `ENTRENOUS_ORBIT_BASE` — ex. `https://webchat.entrenous.chat`

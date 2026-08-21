@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 10;
+  var OEC_VER = 11;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -146,6 +146,7 @@
       clockAt: 0, rated: false, duration: 0, elo: '', eloGames: '',
       chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
       eloW: '', eloB: '', eloDw: '',
+      ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
     };
   }
 
@@ -295,6 +296,21 @@
     return String((orbit && orbit.state && orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
   }
 
+  function eventForMe(tags) {
+    var who = String(tagVal(tags, '+nick') || '').toLowerCase();
+    if (!who) return true;
+    var me = myNick(pluginOrbit);
+    return me && who === me;
+  }
+
+  function keepProfile(prev) {
+    return {
+      elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
+      ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
+      ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
+    };
+  }
+
   function iAm(orbit, game, color) {
     var nick = myNick(orbit);
     var who = String((game && game[color]) || '').toLowerCase();
@@ -346,13 +362,28 @@
     }
 
     if (ev === 'elo_sync') {
+      if (!eventForMe(tags)) return;
+      var linked = tagVal(tags, '+chesscom') || prev.chesscom;
       patchState(channel, {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
-        chesscom: tagVal(tags, '+chesscom') || prev.chesscom,
+        chesscom: linked,
         ccRapid: tagVal(tags, '+cc-rapid') || prev.ccRapid,
         ccBlitz: tagVal(tags, '+cc-blitz') || prev.ccBlitz,
         ccBullet: tagVal(tags, '+cc-bullet') || prev.ccBullet,
+        ccName: tagVal(tags, '+cc-name') || prev.ccName,
+        ccTitle: tagVal(tags, '+cc-title') || prev.ccTitle,
+        ccCountry: tagVal(tags, '+cc-country') || prev.ccCountry,
+        ccAsk: linked ? false : prev.ccAsk,
+      });
+      return;
+    }
+
+    if (ev === 'cc_ask') {
+      if (!eventForMe(tags)) return;
+      patchState(channel, {
+        ccAsk: true,
+        flash: tagVal(tags, '+text') || 'Indique ton pseudo Chess.com',
       });
       return;
     }
@@ -449,11 +480,7 @@
         ui.sel = '';
         ui.promo = null;
         ui.navPly = -1;
-        patchState(channel, Object.assign(defaultState(), {
-          flash: '',
-          elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
-          ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
-        }));
+        patchState(channel, Object.assign(defaultState(), keepProfile(prev), { flash: '' }));
         return;
       }
       patchState(channel, { flash: err || 'Erreur' });
@@ -628,6 +655,8 @@
       '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}',
       '.oec-home-grid .oec-card--wide{grid-column:1/-1}',
       '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.5rem .6rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
+      '.oec-card--ask{border-color:#ea580c;background:#fff7ed}',
+      '.oec-card--ask h3{color:#c2410c}',
       '.oec-card h3{margin:0 0 .32rem;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
       '.oec-pills{display:flex;flex-wrap:wrap;gap:.28rem}',
       '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.26rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:30px}',
@@ -740,11 +769,20 @@
       ? 'ELO EntreNous <b>' + escHtml(game.elo) + '</b>' +
         (game.eloGames ? ' · ' + escHtml(game.eloGames) + ' parties' : '')
       : 'ELO EntreNous <b>1200</b> (provisoire)';
-    var cc = game.chesscom
-      ? 'Chess.com <b>' + escHtml(game.chesscom) + '</b> — blitz ' +
-        escHtml(game.ccBlitz || '—') + ', rapide ' + escHtml(game.ccRapid || '—') +
-        ', bullet ' + escHtml(game.ccBullet || '—')
-      : 'Liez votre compte Chess.com pour afficher votre classement.';
+    var cc;
+    var ccCardCls = 'oec-card oec-card--wide' + (game.ccAsk && !game.chesscom ? ' oec-card--ask' : '');
+    if (game.chesscom) {
+      cc = (game.ccTitle ? escHtml(game.ccTitle) + ' ' : '') +
+        '<b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
+        (game.ccCountry ? ' · ' + escHtml(game.ccCountry) : '') +
+        ' — blitz ' + escHtml(game.ccBlitz || '—') +
+        ', rapide ' + escHtml(game.ccRapid || '—') +
+        ', bullet ' + escHtml(game.ccBullet || '—');
+    } else if (game.ccAsk) {
+      cc = 'Aucun compte Chess.com pour ton identifiant Anope. Indique ton pseudo, il sera mémorisé.';
+    } else {
+      cc = 'Liez votre compte Chess.com pour afficher votre classement.';
+    }
     return '<div class="oec-idle">' +
       '<div class="oec-hero"><img src="' + HOME_IMG + '" alt="">' +
       '<p class="oec-hero__label">Bienvenue aux échecs</p></div>' +
@@ -778,7 +816,9 @@
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
       pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
       '</div></div>' +
-      '<div class="oec-card oec-card--wide"><h3>Classement</h3><p class="oec-elo"><span>' + eloLine +
+      '<div class="' + ccCardCls + '"><h3>' +
+      (game.ccAsk && !game.chesscom ? 'Compte Chess.com requis' : 'Classement') +
+      '</h3><p class="oec-elo"><span>' + eloLine +
       '</span><span>' + cc + '</span></p>' +
       '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
       escHtml(game.chesscom || '') + '">' +
@@ -1033,10 +1073,7 @@
     if (act === 'home') {
       var prev = getState(buffer);
       ui.navPly = -1;
-      patchState(buffer, Object.assign(defaultState(), {
-        elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
-        ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
-      }));
+      patchState(buffer, Object.assign(defaultState(), keepProfile(prev)));
       return;
     }
     if (act === 'nav-start' || act === 'nav-prev' || act === 'nav-next' || act === 'nav-end') {

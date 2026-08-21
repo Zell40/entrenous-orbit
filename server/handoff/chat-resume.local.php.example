@@ -7,4 +7,7 @@ return [
     'jwt_secret' => 'CHANGE_ME_SAME_AS_WORDPRESS',
     'issuer'     => 'EntreNous',
     'ttl'        => 3600, // seconds for each minted SASL JWT
+    // Cookie orbit_en_listen (cp|reg) : Domain pour qu’Apache le voie aussi
+    // sur wss://irc.entrenous.chat (même site). Chaîne vide = host-only (webchat only).
+    'listen_cookie_domain' => '.entrenous.chat',
 ];
