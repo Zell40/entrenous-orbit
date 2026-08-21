@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=10"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=11"]
  */
 (function () {
   'use strict';
@@ -479,8 +479,8 @@
     if (!n) return;
     setPending(n, null);
     delete popupOpenFor[pendingKey(n)];
-    // Callerid has no server deny list — only ACCEPT whitelist. We persist a local
-    // deny list and SILENCE (if available) so retries are blocked / ignored.
+    // Drop from ACCEPT if present, then local deny + SILENCE.
+    sendAccept(orbit, n, false);
     saveDenyNick(orbit, n, true);
     silenceNick(orbit, n, true);
 
@@ -494,10 +494,11 @@
     orbit.notify(
       pick(orbit, { fr: 'Messages privés', en: 'Private messages' }),
       pick(orbit, {
-        fr: 'Demande de ' + n + ' refusée. Il ne pourra plus vous écrire en privé.',
-        en: 'Request from ' + n + ' declined. They can no longer private-message you.',
+        fr: n + ' a été refusé / bloqué. Il ne pourra plus vous écrire en privé.',
+        en: n + ' was declined / blocked. They can no longer private-message you.',
       })
     );
+    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
   }
 
   function ignoreRequest(nick) {
@@ -620,9 +621,12 @@
   function openListModal(orbit) { openListView(orbit); }
 
   function injectStyles() {
-    if (document.getElementById('orbit-callerid-css')) return;
-    var style = document.createElement('style');
-    style.id = 'orbit-callerid-css';
+    var style = document.getElementById('orbit-callerid-css');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'orbit-callerid-css';
+      document.head.appendChild(style);
+    }
     style.textContent = [
       '.ocid-side{display:flex;align-items:center;gap:.45rem;margin:.55rem .8rem .4rem;padding:.4rem .65rem;border-radius:8px;background:color-mix(in srgb,#0ea5e9 14%,var(--bg,#fff));border:1px solid color-mix(in srgb,#0ea5e9 35%,var(--border,rgba(0,0,0,.12)));color:var(--ink,inherit);font-size:.82rem;font-weight:600;width:calc(100% - 1.6rem);box-sizing:border-box;text-align:left;cursor:default}',
       '.ocid-room{cursor:default}',
@@ -633,37 +637,51 @@
       '.ocid-room.is-active{background:var(--accent-soft)}',
       '.ocid-room.is-active::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:60%;border-radius:0 3px 3px 0;background:var(--accent);box-shadow:0 0 10px 0 rgba(20,82,204,.6)}',
       '.ocid-room.is-active .room__name{color:var(--accent-d);font-weight:800}',
-      /* Full-pane view (like Status): hide chat chrome, fill main column */
       'body.ocid-view-open .messages,body.ocid-view-open .composer,body.ocid-view-open .chan-hero,body.ocid-view-open .main__room-bg,body.ocid-view-open .empty{display:none!important}',
       'body.ocid-view-open .main{background:var(--bg)}',
-      '.ocid-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);border-top:1px solid var(--border,rgba(0,0,0,.08))}',
-      '.ocid-view__head{display:flex;align-items:center;gap:.65rem;flex:none;padding:.7rem 1rem;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:var(--bg-soft,rgba(0,0,0,.02))}',
-      '.ocid-view__title{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.01em;flex:1;min-width:0}',
-      '.ocid-view__sub{margin:0;font-size:.82rem;color:var(--muted,var(--faint));font-weight:500}',
-      '.ocid-view__body{flex:1 1 auto;min-height:0;overflow:auto;padding:1rem 1.15rem 1.4rem}',
-      '.ocid-view .ocid-modal{max-width:36rem;min-width:0;width:100%;margin:0 auto}',
+      '.ocid-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(180deg,color-mix(in srgb,#0ea5e9 6%,var(--bg,#fff)) 0,var(--bg,#fff) 8rem)}',
+      '.ocid-view__head{display:flex;align-items:center;gap:.75rem;flex:none;padding:.85rem 1.15rem;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 8%,var(--bg,#fff))}',
+      '.ocid-view__head-ic{display:grid;place-items:center;width:2.4rem;height:2.4rem;border-radius:10px;background:color-mix(in srgb,#0ea5e9 18%,var(--bg,#fff));color:#0284c7;flex:none}',
+      '.ocid-view__title{margin:0;font-size:1.12rem;font-weight:800;letter-spacing:-.02em}',
+      '.ocid-view__sub{margin:.15rem 0 0;font-size:.84rem;color:var(--muted,var(--faint));font-weight:500;line-height:1.35}',
+      '.ocid-view__body{flex:1 1 auto;min-height:0;overflow:auto;padding:1.1rem 1.15rem 1.6rem}',
       '.ocid-banner{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.55rem .85rem;margin:0;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 12%,var(--bg,#fff));color:var(--ink,inherit);font-size:.92rem;flex:none}',
       '.ocid-banner--wait{background:color-mix(in srgb,#f59e0b 14%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#f59e0b 30%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner__txt{flex:1 1 12rem;min-width:0}',
       '.ocid-banner__nick{font-weight:600}',
-      '.ocid-banner__btn{appearance:none;border:1px solid var(--border,rgba(0,0,0,.15));background:var(--bg,#fff);color:inherit;border-radius:6px;padding:.28rem .7rem;cursor:pointer;font:inherit}',
+      '.ocid-banner__btn{appearance:none;border:1px solid var(--border,rgba(0,0,0,.15));background:var(--bg,#fff);color:inherit;border-radius:8px;padding:.32rem .75rem;cursor:pointer;font:inherit;font-size:.88rem}',
       '.ocid-banner__btn--ok{background:#0ea5e9;border-color:#0ea5e9;color:#fff}',
+      '.ocid-banner__btn--danger{background:transparent;border-color:color-mix(in srgb,#ef4444 45%,var(--border));color:#dc2626}',
+      '.ocid-banner__btn--danger:hover{background:color-mix(in srgb,#ef4444 10%,var(--bg,#fff))}',
       '.ocid-banner__btn:hover{filter:brightness(1.05)}',
-      '.ocid-modal{display:flex;flex-direction:column;gap:.75rem;padding:.25rem 0}',
-      '.ocid-modal__row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.45rem 0;border-bottom:1px solid var(--border,rgba(0,0,0,.08))}',
-      '.ocid-modal__empty{opacity:.7;font-size:.92rem;margin:0}',
-      '.ocid-modal__actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}',
-      '.ocid-modal__check{display:flex;align-items:center;gap:.45rem;font-size:.9rem;cursor:pointer}',
-      '.ocid-modal input[type=text]{flex:1 1 8rem;min-width:0;padding:.4rem .6rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:6px;background:var(--bg,#fff);color:inherit;font:inherit}',
+      '.ocid-page{display:flex;flex-direction:column;gap:1rem;max-width:42rem;margin:0 auto;width:100%}',
+      '.ocid-card{border:1px solid var(--border,rgba(0,0,0,.1));border-radius:12px;background:var(--bg,#fff);box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden}',
+      '.ocid-card__hd{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.65rem .9rem;border-bottom:1px solid var(--border,rgba(0,0,0,.08));background:var(--bg-soft,rgba(0,0,0,.02))}',
+      '.ocid-card__hd h3{margin:0;font-size:.92rem;font-weight:800;letter-spacing:-.01em}',
+      '.ocid-card__count{font-size:.75rem;font-weight:700;padding:.12rem .45rem;border-radius:999px;background:color-mix(in srgb,#0ea5e9 16%,var(--bg));color:#0369a1}',
+      '.ocid-card__count--warn{background:color-mix(in srgb,#f59e0b 20%,var(--bg));color:#b45309}',
+      '.ocid-card__count--danger{background:color-mix(in srgb,#ef4444 16%,var(--bg));color:#b91c1c}',
+      '.ocid-card__bd{padding:.35rem .55rem .55rem}',
+      '.ocid-card__hint{margin:0;padding:.55rem .35rem .25rem;font-size:.82rem;opacity:.72;line-height:1.35}',
+      '.ocid-row{display:flex;align-items:center;justify-content:space-between;gap:.65rem;padding:.55rem .4rem;border-radius:8px}',
+      '.ocid-row:hover{background:var(--bg-soft,rgba(0,0,0,.03))}',
+      '.ocid-row__nick{font-weight:650;font-size:.95rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.ocid-row__meta{font-size:.75rem;opacity:.65;margin-top:.1rem}',
+      '.ocid-row__actions{display:flex;gap:.35rem;flex-wrap:wrap;flex:none}',
+      '.ocid-empty{margin:0;padding:.7rem .4rem;font-size:.88rem;opacity:.65;text-align:center}',
+      '.ocid-toolbar{display:flex;flex-direction:column;gap:.55rem;padding:.85rem .9rem}',
+      '.ocid-toolbar__row{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}',
+      '.ocid-toolbar input[type=text]{flex:1 1 10rem;min-width:0;padding:.45rem .65rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:8px;background:var(--bg,#fff);color:inherit;font:inherit}',
+      '.ocid-check{display:flex;align-items:center;gap:.45rem;font-size:.86rem;cursor:pointer;user-select:none;padding:0 .15rem}',
       '.ocid-popup{display:flex;flex-direction:column;align-items:stretch;gap:.85rem;padding:.35rem .15rem .15rem;max-width:24rem}',
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
       '.ocid-popup__actions{display:flex;gap:.55rem;justify-content:center;flex-wrap:wrap}',
+      '.ocid-modal__empty{opacity:.7;font-size:.92rem;margin:0}',
       '.topbar__search.ocid-topbar.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
       '.topbar__search.ocid-topbar .ocid-topbar__badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:.65rem;font-weight:800;line-height:14px;text-align:center}',
       '.topbar__search.ocid-topbar{position:relative}',
     ].join('');
-    document.head.appendChild(style);
   }
 
   function ShieldIcon(props) {
@@ -760,15 +778,15 @@
     if (!listView.open) return null;
     return h('div', { className: 'ocid-view', role: 'region', 'aria-label': pick(orbit, { fr: 'Liste blanche', en: 'Allow list' }) },
       h('div', { className: 'ocid-view__head' },
-        h('span', { 'aria-hidden': true }, h(ShieldIcon, { size: 22 })),
+        h('span', { className: 'ocid-view__head-ic', 'aria-hidden': true }, h(ShieldIcon, { size: 22 })),
         h('div', { style: { flex: 1, minWidth: 0 } },
           h('h2', { className: 'ocid-view__title' },
-            pick(orbit, { fr: 'Liste blanche', en: 'Allow list' })
+            pick(orbit, { fr: 'Messages privés', en: 'Private messages' })
           ),
           h('p', { className: 'ocid-view__sub' },
             pick(orbit, {
-              fr: 'Personnes autorisées à vous écrire en message privé',
-              en: 'People allowed to private-message you',
+              fr: 'Autorisez, refusez ou bloquez les personnes qui peuvent vous écrire.',
+              en: 'Allow, decline or block who can private-message you.',
             })
           )
         ),
@@ -894,140 +912,193 @@
     var saved = loadSavedAccept(orbit);
     var denied = loadSavedDeny(orbit);
 
-    return h('div', { className: 'ocid-modal' },
-      h('p', { className: 'ocid-modal__empty' },
-        pick(orbit, {
-          fr: 'Seules les personnes acceptées peuvent vous écrire en privé (mode +g).',
-          en: 'Only accepted people can private-message you (+g).',
-        })
+    function doAllow(nick) {
+      var n = String(nick || '').trim();
+      if (!n) return;
+      sendAccept(orbit, n, true);
+      saveDenyNick(orbit, n, false);
+      silenceNick(orbit, n, false);
+      window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+    }
+
+    function doRefuse(nick) {
+      var n = String(nick || '').trim();
+      if (!n) return;
+      refuseRequest(orbit, n);
+    }
+
+    return h('div', { className: 'ocid-page' },
+      h('div', { className: 'ocid-card' },
+        h('div', { className: 'ocid-card__hd' },
+          h('h3', null, pick(orbit, { fr: 'Ajouter ou refuser', en: 'Allow or decline' }))
+        ),
+        h('div', { className: 'ocid-toolbar' },
+          h('div', { className: 'ocid-toolbar__row' },
+            h('input', {
+              type: 'text',
+              value: draft,
+              placeholder: pick(orbit, { fr: 'Pseudo…', en: 'Nick…' }),
+              onChange: function (e) { setDraft(e.target.value); },
+              onKeyDown: function (e) {
+                if (e.key === 'Enter' && draft.trim()) {
+                  doAllow(draft.trim());
+                  setDraft('');
+                }
+              },
+            }),
+            h('button', {
+              type: 'button',
+              className: 'ocid-banner__btn ocid-banner__btn--ok',
+              onClick: function () {
+                if (!draft.trim()) return;
+                doAllow(draft.trim());
+                setDraft('');
+              },
+            }, pick(orbit, { fr: 'Autoriser', en: 'Allow' })),
+            h('button', {
+              type: 'button',
+              className: 'ocid-banner__btn ocid-banner__btn--danger',
+              onClick: function () {
+                if (!draft.trim()) return;
+                doRefuse(draft.trim());
+                setDraft('');
+              },
+            }, pick(orbit, { fr: 'Refuser', en: 'Decline' })),
+            h('button', {
+              type: 'button',
+              className: 'ocid-banner__btn',
+              onClick: function () { refreshAcceptList(orbit); bumpDeny(); },
+            }, pick(orbit, { fr: 'Actualiser', en: 'Refresh' }))
+          ),
+          h('label', { className: 'ocid-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: persist,
+              onChange: function (e) {
+                var on = !!e.target.checked;
+                setPersist(on);
+                setPersistEnabled(orbit, on);
+                if (on) nicks.forEach(function (n) { saveAcceptNick(orbit, n, true); });
+              },
+            }),
+            pick(orbit, {
+              fr: 'Conserver les autorisations entre les connexions',
+              en: 'Keep allowed nicks across connections',
+            })
+          ),
+          persist && saved.length
+            ? h('p', { className: 'ocid-card__hint' },
+              pick(orbit, {
+                fr: 'Mémorisés : ' + saved.join(', '),
+                en: 'Remembered: ' + saved.join(', '),
+              })
+            )
+            : null
+        )
       ),
-      h('label', { className: 'ocid-modal__check' },
-        h('input', {
-          type: 'checkbox',
-          checked: persist,
-          onChange: function (e) {
-            var on = !!e.target.checked;
-            setPersist(on);
-            setPersistEnabled(orbit, on);
-            if (on) {
-              nicks.forEach(function (n) { saveAcceptNick(orbit, n, true); });
-            }
-          },
-        }),
-        pick(orbit, {
-          fr: 'Conserver la liste entre les connexions',
-          en: 'Keep this list across connections',
-        })
-      ),
+
       pendingItems.length
-        ? h('div', null,
-          h('b', null, pick(orbit, { fr: 'Demandes en cours', en: 'Pending requests' })),
-          pendingItems.map(function (req) {
-            return h('div', { key: 'p-' + req.nick, className: 'ocid-modal__row' },
-              h('span', null, req.nick),
-              h('span', { className: 'ocid-modal__actions' },
-                h('button', {
-                  type: 'button',
-                  className: 'ocid-banner__btn ocid-banner__btn--ok',
-                  onClick: function () { acceptAndClear(orbit, req.nick); },
-                }, pick(orbit, { fr: 'Accepter', en: 'Accept' })),
+        ? h('div', { className: 'ocid-card' },
+          h('div', { className: 'ocid-card__hd' },
+            h('h3', null, pick(orbit, { fr: 'Demandes en cours', en: 'Pending requests' })),
+            h('span', { className: 'ocid-card__count ocid-card__count--warn' }, String(pendingItems.length))
+          ),
+          h('div', { className: 'ocid-card__bd' },
+            pendingItems.map(function (req) {
+              return h('div', { key: 'p-' + req.nick, className: 'ocid-row' },
+                h('div', { style: { minWidth: 0 } },
+                  h('div', { className: 'ocid-row__nick' }, req.nick),
+                  h('div', { className: 'ocid-row__meta' },
+                    pick(orbit, { fr: 'En attente de votre réponse', en: 'Waiting for your reply' })
+                  )
+                ),
+                h('span', { className: 'ocid-row__actions' },
+                  h('button', {
+                    type: 'button',
+                    className: 'ocid-banner__btn ocid-banner__btn--ok',
+                    onClick: function () { acceptAndClear(orbit, req.nick); },
+                  }, pick(orbit, { fr: 'Accepter', en: 'Accept' })),
+                  h('button', {
+                    type: 'button',
+                    className: 'ocid-banner__btn ocid-banner__btn--danger',
+                    onClick: function () { refuseRequest(orbit, req.nick); },
+                  }, pick(orbit, { fr: 'Refuser', en: 'Decline' }))
+                )
+              );
+            })
+          )
+        )
+        : null,
+
+      h('div', { className: 'ocid-card' },
+        h('div', { className: 'ocid-card__hd' },
+          h('h3', null, pick(orbit, { fr: 'Personnes acceptées', en: 'Accepted' })),
+          h('span', { className: 'ocid-card__count' }, String(nicks.length))
+        ),
+        h('div', { className: 'ocid-card__bd' },
+          acceptList.loading && !nicks.length
+            ? h('p', { className: 'ocid-empty' }, pick(orbit, { fr: 'Chargement…', en: 'Loading…' }))
+            : null,
+          !acceptList.loading && !nicks.length
+            ? h('p', { className: 'ocid-empty' }, pick(orbit, {
+              fr: 'Personne n’est encore autorisé.',
+              en: 'Nobody allowed yet.',
+            }))
+            : null,
+          nicks.map(function (nick) {
+            return h('div', { key: nick, className: 'ocid-row' },
+              h('div', { className: 'ocid-row__nick' }, nick),
+              h('span', { className: 'ocid-row__actions' },
                 h('button', {
                   type: 'button',
                   className: 'ocid-banner__btn',
-                  onClick: function () { refuseRequest(orbit, req.nick); },
+                  onClick: function () {
+                    sendAccept(orbit, nick, false);
+                    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+                  },
+                }, pick(orbit, { fr: 'Retirer', en: 'Remove' })),
+                h('button', {
+                  type: 'button',
+                  className: 'ocid-banner__btn ocid-banner__btn--danger',
+                  onClick: function () { refuseRequest(orbit, nick); },
                 }, pick(orbit, { fr: 'Refuser', en: 'Decline' }))
               )
             );
           })
         )
-        : null,
-      h('b', null, pick(orbit, { fr: 'Personnes acceptées', en: 'Accepted' })),
-      acceptList.loading && !nicks.length
-        ? h('p', { className: 'ocid-modal__empty' }, pick(orbit, { fr: 'Chargement…', en: 'Loading…' }))
-        : null,
-      !acceptList.loading && !nicks.length
-        ? h('p', { className: 'ocid-modal__empty' }, pick(orbit, {
-          fr: 'Aucune entrée pour l’instant.',
-          en: 'No entries yet.',
-        }))
-        : null,
-      nicks.map(function (nick) {
-        return h('div', { key: nick, className: 'ocid-modal__row' },
-          h('span', null, nick),
-          h('button', {
-            type: 'button',
-            className: 'ocid-banner__btn',
-            onClick: function () {
-              sendAccept(orbit, nick, false);
-              window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
-            },
-          }, pick(orbit, { fr: 'Retirer', en: 'Remove' }))
-        );
-      }),
-      persist && saved.length
-        ? h('p', { className: 'ocid-modal__empty' },
-          pick(orbit, {
-            fr: 'Mémorisés pour la prochaine connexion : ' + saved.join(', '),
-            en: 'Remembered for next login: ' + saved.join(', '),
+      ),
+
+      h('div', { className: 'ocid-card' },
+        h('div', { className: 'ocid-card__hd' },
+          h('h3', null, pick(orbit, { fr: 'Personnes bloquées', en: 'Blocked' })),
+          h('span', { className: 'ocid-card__count ocid-card__count--danger' }, String(denied.length))
+        ),
+        h('div', { className: 'ocid-card__bd' },
+          h('p', { className: 'ocid-card__hint' },
+            pick(orbit, {
+              fr: 'Refusés via SILENCE. Débloquez pour permettre une nouvelle demande.',
+              en: 'Declined via SILENCE. Unblock to allow a new request.',
+            })
+          ),
+          !denied.length
+            ? h('p', { className: 'ocid-empty' }, pick(orbit, {
+              fr: 'Aucun pseudo bloqué.',
+              en: 'No blocked nicks.',
+            }))
+            : null,
+          denied.map(function (nick) {
+            return h('div', { key: 'd-' + nick, className: 'ocid-row' },
+              h('div', { className: 'ocid-row__nick' }, nick),
+              h('span', { className: 'ocid-row__actions' },
+                h('button', {
+                  type: 'button',
+                  className: 'ocid-banner__btn ocid-banner__btn--ok',
+                  onClick: function () { unblockNick(orbit, nick); },
+                }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
+              )
+            );
           })
         )
-        : null,
-      h('b', null, pick(orbit, { fr: 'Personnes bloquées', en: 'Blocked' })),
-      h('p', { className: 'ocid-modal__empty' },
-        pick(orbit, {
-          fr: 'Refusés (liste locale + SILENCE). Débloquez pour autoriser une nouvelle demande.',
-          en: 'Declined (local list + SILENCE). Unblock to allow a new request.',
-        })
-      ),
-      !denied.length
-        ? h('p', { className: 'ocid-modal__empty' }, pick(orbit, {
-          fr: 'Aucun pseudo bloqué.',
-          en: 'No blocked nicks.',
-        }))
-        : null,
-      denied.map(function (nick) {
-        return h('div', { key: 'd-' + nick, className: 'ocid-modal__row' },
-          h('span', null, nick),
-          h('button', {
-            type: 'button',
-            className: 'ocid-banner__btn ocid-banner__btn--ok',
-            onClick: function () { unblockNick(orbit, nick); },
-          }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
-        );
-      }),
-      h('div', { className: 'ocid-modal__actions' },
-        h('input', {
-          type: 'text',
-          value: draft,
-          placeholder: pick(orbit, { fr: 'Pseudo à autoriser', en: 'Nick to allow' }),
-          onChange: function (e) { setDraft(e.target.value); },
-          onKeyDown: function (e) {
-            if (e.key === 'Enter' && draft.trim()) {
-              sendAccept(orbit, draft.trim(), true);
-              saveDenyNick(orbit, draft.trim(), false);
-              silenceNick(orbit, draft.trim(), false);
-              setDraft('');
-              window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
-            }
-          },
-        }),
-        h('button', {
-          type: 'button',
-          className: 'ocid-banner__btn ocid-banner__btn--ok',
-          onClick: function () {
-            if (!draft.trim()) return;
-            sendAccept(orbit, draft.trim(), true);
-            saveDenyNick(orbit, draft.trim(), false);
-            silenceNick(orbit, draft.trim(), false);
-            setDraft('');
-            window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
-          },
-        }, pick(orbit, { fr: 'Ajouter', en: 'Add' })),
-        h('button', {
-          type: 'button',
-          className: 'ocid-banner__btn',
-          onClick: function () { refreshAcceptList(orbit); bumpDeny(); },
-        }, pick(orbit, { fr: 'Actualiser', en: 'Refresh' }))
       )
     );
   }

@@ -39,7 +39,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "autoMode": true
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=10"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=11"
   ]
 }
 ```

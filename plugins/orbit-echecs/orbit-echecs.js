@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 17;
+  var OEC_VER = 18;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -32,7 +32,7 @@
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
   var ui = {
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
-    premoves: [], flushing: false, pendingMove: null, ccUser: '',
+    ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '',
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
   };
   var ccBusyTimer = 0;
@@ -43,17 +43,21 @@
   function subscribeView(cb) { viewListeners.add(cb); return function () { viewListeners.delete(cb); }; }
   function bumpView() { viewListeners.forEach(function (l) { l(); }); }
 
-  function setCcBusy(on, ms) {
+  function setCcBusy(on, ms, channel) {
     ui.ccBusy = !!on;
+    if (channel) ui.ccBusyChan = channel;
     if (ccBusyTimer) {
       clearTimeout(ccBusyTimer);
       ccBusyTimer = 0;
     }
     if (on) {
+      var ch = channel || ui.ccBusyChan;
       ccBusyTimer = setTimeout(function () {
         ccBusyTimer = 0;
+        if (!ui.ccBusy) return;
         ui.ccBusy = false;
-        bump();
+        if (ch) patchState(ch, { ccErr: 'Chess.com ne répond pas. Réessaie.' });
+        else bump();
       }, Number(ms) > 0 ? Number(ms) : 20000);
     }
   }
@@ -480,9 +484,15 @@
 
     if (ev === 'elo_sync') {
       if (!eventForMe(tags)) return;
+      if (ui.ccBusy) {
+        patchState(channel, {
+          elo: tagVal(tags, '+elo') || prev.elo,
+          eloGames: tagVal(tags, '+games') || prev.eloGames,
+        });
+        return;
+      }
       var linked = tagVal(tags, '+chesscom') || prev.chesscom;
       var opted = tagVal(tags, '+optout') === '1';
-      if (ui.ccBusy) setCcBusy(false);
       patchState(channel, {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
@@ -504,7 +514,7 @@
       if (!eventForMe(tags)) return;
       var mode = tagVal(tags, '+mode') || 'missing';
       if (mode === 'wait') {
-        setCcBusy(true, 20000);
+        setCcBusy(true, 20000, channel);
         patchState(channel, { ccErr: '', flash: '' });
         return;
       }
@@ -975,14 +985,14 @@
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
-      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.65rem;min-height:100%;flex:1 1 auto}',
-      '.oec-hero{position:relative;border-radius:16px;overflow:hidden;margin:0;flex:1 1 auto;min-height:clamp(12rem,34vh,24rem);background:#e8dcc4}',
+      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;height:100%;flex:1 1 auto}',
+      '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 1 auto;min-height:clamp(5.5rem,14vh,9.5rem);max-height:min(16vh,9.5rem);background:#e8dcc4}',
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
-      '.oec-hero__label{position:absolute;left:.9rem;bottom:.7rem;margin:0;color:#fff;font-size:clamp(1.15rem,2.4vh,1.55rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
-      '.oec-home-lead{margin:0;color:#5c564c;font-size:.8rem;line-height:1.35}',
-      '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}',
+      '.oec-hero__label{position:absolute;left:.8rem;bottom:.5rem;margin:0;color:#fff;font-size:clamp(1rem,2vh,1.35rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
+      '.oec-home-lead{margin:0;color:#5c564c;font-size:.74rem;line-height:1.3}',
+      '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.32rem}',
       '.oec-home-grid .oec-card--wide{grid-column:1/-1}',
-      '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.5rem .6rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
+      '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.38rem .52rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
       '.oec-card--ask{border-color:#ea580c;background:#fff7ed}',
       '.oec-card--ask h3{color:#c2410c}',
       '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
@@ -990,18 +1000,18 @@
       '.oec-cc-preview{margin:.15rem 0 .4rem;font-size:.82rem;line-height:1.4}',
       '.oec-card h3{margin:0 0 .32rem;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
       '.oec-pills{display:flex;flex-wrap:wrap;gap:.28rem}',
-      '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.26rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:30px}',
+      '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.2rem .5rem;font-size:.7rem;font-weight:800;cursor:pointer;min-height:26px}',
       '.oec-pill.is-on{background:#166534;border-color:#166534;color:#fff}',
       '.oec-elo{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin:0;font-size:.78rem}',
       '.oec-elo b{color:#14532d}',
       '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
-      '.oec-home-actions{position:sticky;bottom:0;z-index:2;margin:0;padding:.4rem 0 .1rem;background:linear-gradient(180deg,rgba(246,241,231,0) 0%,#f6f1e7 38%)}',
-      '.oec-home-actions .oec-btn--pri{width:100%;min-height:38px}',
+      '.oec-home-actions{position:sticky;bottom:0;z-index:2;margin:0;padding:.28rem 0 0;background:linear-gradient(180deg,rgba(246,241,231,0) 0%,#f6f1e7 38%)}',
+      '.oec-home-actions .oec-btn--pri{width:100%;min-height:34px}',
       '.oec-panel--home .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
       '.oec-panel--home .oec-btn:hover{border-color:#166534;color:#14532d}',
       '.oec-panel--home .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
-      '@media(max-width:640px){.oec-home-grid{grid-template-columns:1fr}.oec-hero{min-height:clamp(9rem,28vh,16rem)}.oec-hero__label{font-size:1.05rem}}',
+      '@media(max-width:640px){.oec-home-grid{grid-template-columns:1fr}.oec-hero{min-height:clamp(4.8rem,12vh,8rem);max-height:8rem}.oec-hero__label{font-size:.95rem}}',
       '.oec-promo{display:flex;gap:.35rem;margin:.45rem 0}',
       '.oec-promo button{width:2.6rem;height:2.6rem;border-radius:10px;border:1px solid #166534;background:#fff;cursor:pointer;padding:.2rem}',
       '@media(max-width:720px){.oec-stage{flex-direction:column;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap{width:min(100%,calc(100vw - 1.6rem))}}',
@@ -1718,7 +1728,7 @@
       if (ui.ccBusy) return;
       var gameNow = getState(buffer);
       var wantOn = !!gameNow.ccOptout;
-      setCcBusy(true);
+      setCcBusy(true, 8000, buffer);
       if (wantOn) {
         if (getViewMode(orbit) === VIEW_CHAT) setViewMode(orbit, VIEW_FULL);
         patchState(buffer, {
@@ -1753,7 +1763,7 @@
     if (act === 'lier-oui') { sent('lier', 'oui'); return; }
     if (act === 'lier-non') { sent('lier', 'non'); return; }
     if (act === 'lier-skip') {
-      setCcBusy(true);
+      setCcBusy(true, 8000, buffer);
       patchState(buffer, { ccOptout: true, ccPrompt: 'optout', ccAsk: false, ccErr: '' });
       sent('lier', 'ignorer');
       return;
@@ -1764,7 +1774,7 @@
       var user = inp ? String(inp.value || '').trim() : String(ui.ccUser || '').trim();
       if (!user) { patchState(buffer, { ccErr: 'Indique un pseudo Chess.com' }); return; }
       ui.ccUser = user;
-      setCcBusy(true, 20000);
+      setCcBusy(true, 20000, buffer);
       bump();
       sent('lier', 'chesscom ' + user);
       return;
