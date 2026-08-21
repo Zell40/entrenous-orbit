@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 11;
+  var OEC_VER = 12;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -147,6 +147,7 @@
       chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
+      ccPrompt: '', ccOptout: false, ccErr: '',
     };
   }
 
@@ -308,6 +309,7 @@
       elo: prev.elo, eloGames: prev.eloGames, chesscom: prev.chesscom,
       ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
       ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
+      ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr,
     };
   }
 
@@ -364,17 +366,52 @@
     if (ev === 'elo_sync') {
       if (!eventForMe(tags)) return;
       var linked = tagVal(tags, '+chesscom') || prev.chesscom;
+      var opted = tagVal(tags, '+optout') === '1';
       patchState(channel, {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
-        chesscom: linked,
+        chesscom: opted ? '' : linked,
         ccRapid: tagVal(tags, '+cc-rapid') || prev.ccRapid,
         ccBlitz: tagVal(tags, '+cc-blitz') || prev.ccBlitz,
         ccBullet: tagVal(tags, '+cc-bullet') || prev.ccBullet,
         ccName: tagVal(tags, '+cc-name') || prev.ccName,
         ccTitle: tagVal(tags, '+cc-title') || prev.ccTitle,
         ccCountry: tagVal(tags, '+cc-country') || prev.ccCountry,
-        ccAsk: linked ? false : prev.ccAsk,
+        ccOptout: opted,
+        ccAsk: !opted && !linked,
+        ccPrompt: opted ? 'optout' : (linked ? 'linked' : prev.ccPrompt),
+      });
+      return;
+    }
+
+    if (ev === 'cc_prompt') {
+      if (!eventForMe(tags)) return;
+      var mode = tagVal(tags, '+mode') || 'missing';
+      var previewUser = tagVal(tags, '+chesscom');
+      var keepPreview = mode === 'preview' || mode === 'found' || mode === 'linked';
+      patchState(channel, {
+        ccPrompt: mode,
+        ccOptout: mode === 'optout',
+        ccAsk: mode === 'missing' || mode === 'preview' || mode === 'found',
+        ccErr: '',
+        chesscom: keepPreview ? (previewUser || prev.chesscom) : '',
+        ccName: keepPreview ? (tagVal(tags, '+cc-name') || prev.ccName) : '',
+        ccTitle: keepPreview ? (tagVal(tags, '+cc-title') || prev.ccTitle) : '',
+        ccCountry: keepPreview ? (tagVal(tags, '+cc-country') || prev.ccCountry) : '',
+        ccRapid: keepPreview ? (tagVal(tags, '+cc-rapid') || prev.ccRapid) : '',
+        ccBlitz: keepPreview ? (tagVal(tags, '+cc-blitz') || prev.ccBlitz) : '',
+        ccBullet: keepPreview ? (tagVal(tags, '+cc-bullet') || prev.ccBullet) : '',
+        flash: '',
+      });
+      return;
+    }
+
+    if (ev === 'cc_err') {
+      if (!eventForMe(tags)) return;
+      patchState(channel, {
+        ccErr: tagVal(tags, '+text') || 'Compte Chess.com introuvable',
+        ccPrompt: prev.ccPrompt === 'preview' ? 'missing' : (prev.ccPrompt || 'missing'),
+        ccAsk: true,
       });
       return;
     }
@@ -383,6 +420,7 @@
       if (!eventForMe(tags)) return;
       patchState(channel, {
         ccAsk: true,
+        ccPrompt: 'missing',
         flash: tagVal(tags, '+text') || 'Indique ton pseudo Chess.com',
       });
       return;
@@ -657,6 +695,9 @@
       '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.5rem .6rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
       '.oec-card--ask{border-color:#ea580c;background:#fff7ed}',
       '.oec-card--ask h3{color:#c2410c}',
+      '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
+      '.oec-cc-err{margin:.35rem 0 0;color:#b91c1c;font-size:.78rem;font-weight:800}',
+      '.oec-cc-preview{margin:.15rem 0 .4rem;font-size:.82rem;line-height:1.4}',
       '.oec-card h3{margin:0 0 .32rem;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
       '.oec-pills{display:flex;flex-wrap:wrap;gap:.28rem}',
       '.oec-pill{border:1px solid #d7ccb8;background:#faf6ee;color:#3f3a32;border-radius:999px;padding:.26rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:30px}',
@@ -769,19 +810,52 @@
       ? 'ELO EntreNous <b>' + escHtml(game.elo) + '</b>' +
         (game.eloGames ? ' · ' + escHtml(game.eloGames) + ' parties' : '')
       : 'ELO EntreNous <b>1200</b> (provisoire)';
-    var cc;
-    var ccCardCls = 'oec-card oec-card--wide' + (game.ccAsk && !game.chesscom ? ' oec-card--ask' : '');
-    if (game.chesscom) {
-      cc = (game.ccTitle ? escHtml(game.ccTitle) + ' ' : '') +
+    var prompt = game.ccPrompt || (game.ccAsk && !game.chesscom ? 'missing' : '');
+    var preview = prompt === 'preview' || prompt === 'found';
+    var missing = prompt === 'missing';
+    var linked = prompt === 'linked' || (!!game.chesscom && !preview && !missing && !game.ccOptout);
+    var ccCardCls = 'oec-card oec-card--wide' +
+      (preview || missing ? ' oec-card--ask' : '') +
+      (linked ? ' oec-card--ok' : '');
+    var ccTitle = preview ? 'Confirmer le compte Chess.com'
+      : missing ? 'Compte Chess.com non trouvé'
+      : game.ccOptout ? 'Classement'
+      : 'Classement';
+    var ccBody = '';
+    if (game.ccOptout) {
+      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span></p>';
+    } else if (preview) {
+      ccBody = '<p class="oec-cc-preview">Compte trouvé : ' +
+        (game.ccTitle ? escHtml(game.ccTitle) + ' ' : '') +
+        '<b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
+        (game.ccCountry ? ' · ' + escHtml(game.ccCountry) : '') +
+        '<br>blitz ' + escHtml(game.ccBlitz || '—') +
+        ', rapide ' + escHtml(game.ccRapid || '—') +
+        ', bullet ' + escHtml(game.ccBullet || '—') +
+        '<br>C’est bien ton compte ?</p>' +
+        '<div class="oec-actions" style="margin-top:.35rem">' +
+        '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">C’est moi</button>' +
+        '<button type="button" class="oec-btn" data-act="lier-non">Ce n’est pas moi</button>' +
+        '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button>' +
+        '</div>';
+    } else if (missing) {
+      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span>' +
+        '<span>Aucun compte Chess.com n’a été trouvé. Indique ton pseudo pour afficher tes infos, ou désactive cette fonction.</span></p>' +
+        (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
+        '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="">' +
+        '<button type="button" class="oec-btn oec-btn--pri" data-act="lier">Vérifier</button>' +
+        '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button></div>';
+    } else if (linked) {
+      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span><span>' +
+        (game.ccTitle ? escHtml(game.ccTitle) + ' ' : '') +
         '<b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
         (game.ccCountry ? ' · ' + escHtml(game.ccCountry) : '') +
         ' — blitz ' + escHtml(game.ccBlitz || '—') +
         ', rapide ' + escHtml(game.ccRapid || '—') +
-        ', bullet ' + escHtml(game.ccBullet || '—');
-    } else if (game.ccAsk) {
-      cc = 'Aucun compte Chess.com pour ton identifiant Anope. Indique ton pseudo, il sera mémorisé.';
+        ', bullet ' + escHtml(game.ccBullet || '—') +
+        '</span></p>';
     } else {
-      cc = 'Liez votre compte Chess.com pour afficher votre classement.';
+      ccBody = '<p class="oec-elo"><span>' + eloLine + '</span></p>';
     }
     return '<div class="oec-idle">' +
       '<div class="oec-hero"><img src="' + HOME_IMG + '" alt="">' +
@@ -816,14 +890,7 @@
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
       pill('setup-tc', 'classique', 'Classique 15+10', s.tc) +
       '</div></div>' +
-      '<div class="' + ccCardCls + '"><h3>' +
-      (game.ccAsk && !game.chesscom ? 'Compte Chess.com requis' : 'Classement') +
-      '</h3><p class="oec-elo"><span>' + eloLine +
-      '</span><span>' + cc + '</span></p>' +
-      '<div class="oec-link"><input id="oec-cc" type="text" placeholder="pseudo Chess.com" value="' +
-      escHtml(game.chesscom || '') + '">' +
-      '<button type="button" class="oec-btn" data-act="lier">Lier</button>' +
-      '<button type="button" class="oec-btn" data-act="elo">Mon ELO</button></div></div>' +
+      '<div class="' + ccCardCls + '"><h3>' + ccTitle + '</h3>' + ccBody + '</div>' +
       '</div>' +
       '<div class="oec-actions oec-home-actions">' +
       '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">Lancer la partie</button>' +
@@ -1063,10 +1130,13 @@
     if (act === 'abort') { sent('annuler'); return; }
     if (act === 'resign') { sent('abandonner'); return; }
     if (act === 'elo') { sent('elo'); return; }
+    if (act === 'lier-oui') { sent('lier', 'oui'); return; }
+    if (act === 'lier-non') { sent('lier', 'non'); return; }
+    if (act === 'lier-skip') { sent('lier', 'ignorer'); return; }
     if (act === 'lier') {
       var inp = document.getElementById('oec-cc');
       var user = inp ? String(inp.value || '').trim() : '';
-      if (!user) { patchState(buffer, { flash: 'Indiquez un pseudo Chess.com' }); return; }
+      if (!user) { patchState(buffer, { ccErr: 'Indique un pseudo Chess.com' }); return; }
       sent('lier', 'chesscom ' + user);
       return;
     }
