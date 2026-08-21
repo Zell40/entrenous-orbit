@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 13;
+  var OEC_VER = 14;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -30,15 +30,31 @@
 
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
   var ui = {
-    sel: '', promo: null, drag: null, navPly: -1, settings: false,
+    sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
   };
+  var ccBusyTimer = 0;
   var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
 
   function subscribe(cb) { store.listeners.add(cb); return function () { store.listeners.delete(cb); }; }
   function bump() { store.rev++; store.listeners.forEach(function (l) { l(); }); }
   function subscribeView(cb) { viewListeners.add(cb); return function () { viewListeners.delete(cb); }; }
   function bumpView() { viewListeners.forEach(function (l) { l(); }); }
+
+  function setCcBusy(on) {
+    ui.ccBusy = !!on;
+    if (ccBusyTimer) {
+      clearTimeout(ccBusyTimer);
+      ccBusyTimer = 0;
+    }
+    if (on) {
+      ccBusyTimer = setTimeout(function () {
+        ccBusyTimer = 0;
+        ui.ccBusy = false;
+        bump();
+      }, 8000);
+    }
+  }
 
   function pick(table) {
     if (pluginOrbit && pluginOrbit.i18n && pluginOrbit.i18n.pick) return pluginOrbit.i18n.pick(table);
@@ -367,6 +383,7 @@
       if (!eventForMe(tags)) return;
       var linked = tagVal(tags, '+chesscom') || prev.chesscom;
       var opted = tagVal(tags, '+optout') === '1';
+      if (ui.ccBusy) setCcBusy(false);
       patchState(channel, {
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
@@ -379,7 +396,7 @@
         ccCountry: tagVal(tags, '+cc-country') || prev.ccCountry,
         ccOptout: opted,
         ccAsk: !opted && !linked,
-        ccPrompt: opted ? 'optout' : (linked ? 'linked' : prev.ccPrompt),
+        ccPrompt: opted ? 'optout' : (linked ? 'linked' : (prev.ccPrompt === 'optout' ? 'missing' : prev.ccPrompt)),
       });
       return;
     }
@@ -389,6 +406,7 @@
       var mode = tagVal(tags, '+mode') || 'missing';
       var previewUser = tagVal(tags, '+chesscom');
       var keepPreview = mode === 'preview' || mode === 'found' || mode === 'linked';
+      if (ui.ccBusy) setCcBusy(false);
       patchState(channel, {
         ccPrompt: mode,
         ccOptout: mode === 'optout',
@@ -408,9 +426,11 @@
 
     if (ev === 'cc_err') {
       if (!eventForMe(tags)) return;
+      if (ui.ccBusy) setCcBusy(false);
       patchState(channel, {
         ccErr: tagVal(tags, '+text') || 'Compte Chess.com introuvable',
-        ccPrompt: prev.ccPrompt === 'preview' ? 'missing' : (prev.ccPrompt || 'missing'),
+        ccOptout: false,
+        ccPrompt: prev.ccPrompt === 'preview' ? 'missing' : (prev.ccPrompt === 'optout' ? 'missing' : (prev.ccPrompt || 'missing')),
         ccAsk: true,
       });
       return;
@@ -648,6 +668,11 @@
       '.oec-settings .oec-btn{border-color:#cfc3ad;background:#faf6ee;color:#3f3a32}',
       '.oec-settings .oec-btn:hover{border-color:#166534;color:#14532d}',
       '.oec-settings .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
+      '.oec-check{display:flex;align-items:center;gap:.55rem;margin:0;cursor:pointer;font-size:.84rem;font-weight:700;color:#3f3a32;user-select:none}',
+      '.oec-check input{width:1.1rem;height:1.1rem;accent-color:#166534;flex:0 0 auto}',
+      '.oec-check.is-busy{opacity:.72;cursor:wait}',
+      '.oec-spin{width:16px;height:16px;border:2px solid #d7ccb8;border-top-color:#166534;border-radius:50%;animation:oec-spin .7s linear infinite;flex:0 0 auto}',
+      '@keyframes oec-spin{to{transform:rotate(360deg)}}',
       '.oec-panel--menu{overflow:visible}',
       '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.55rem .7rem .65rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#166534 rgba(22,101,52,.15)}',
       '.oec-stage::-webkit-scrollbar{width:8px}',
@@ -802,33 +827,37 @@
       ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
       : pick({ fr: 'Afficher le tchat', en: 'Show chat' });
     return '<div class="oec-head__actions">' +
-      '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
-        '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
-        iconSvg('settings') + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
         '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) + '</button>' +
       '<button type="button" class="oec-head__btn" data-act="sync" title="Sync">↻</button>' +
+      '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
+        '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
+        iconSvg('settings') + '</button>' +
       '</div>';
   }
 
   function renderSettings(game) {
     if (!ui.settings) return '';
-    var body;
-    if (game.ccOptout) {
-      body = '<p>L’affichage Chess.com est désactivé. Tu peux le réactiver ici à tout moment.</p>' +
-        '<div class="oec-actions"><button type="button" class="oec-btn oec-btn--pri" data-act="cc-on">Réafficher Chess.com</button></div>';
-    } else if (game.ccPrompt === 'linked' || game.chesscom) {
-      body = '<p>Compte Chess.com : <b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
-        (game.ccBlitz ? ' — blitz ' + escHtml(game.ccBlitz) : '') + '.</p>' +
-        '<div class="oec-actions"><button type="button" class="oec-btn" data-act="lier-skip">Ne plus afficher Chess.com</button></div>';
+    var on = !game.ccOptout;
+    var busy = !!ui.ccBusy;
+    var extra = '';
+    if (on && (game.ccPrompt === 'linked' || game.chesscom)) {
+      extra = '<p>Compte lié : <b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
+        (game.ccBlitz ? ' — blitz ' + escHtml(game.ccBlitz) : '') + '.</p>';
+    } else if (on) {
+      extra = '<p>Le bloc Chess.com est affiché sur l’accueil. Tu peux y indiquer ton pseudo.</p>';
     } else {
-      body = '<p>Chess.com est activé. Si aucun compte n’est lié, indique ton pseudo sur l’accueil.</p>' +
-        '<div class="oec-actions"><button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser Chess.com</button></div>';
+      extra = '<p>Le bloc Chess.com est masqué. Coche la case pour le réafficher.</p>';
     }
     return '<div class="oec-settings" role="dialog" aria-label="Paramètres">' +
-      '<h3>Paramètres</h3>' + body + '</div>';
+      '<h3>Paramètres</h3>' + extra +
+      '<label class="oec-check' + (busy ? ' is-busy' : '') + '" data-act="cc-toggle">' +
+      '<input type="checkbox"' + (on ? ' checked' : '') + (busy ? ' disabled' : '') + '>' +
+      '<span>Afficher Chess.com</span>' +
+      (busy ? '<span class="oec-spin" aria-hidden="true"></span>' : '') +
+      '</label></div>';
   }
 
   function pill(act, val, label, current) {
@@ -1154,10 +1183,29 @@
     if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
     if (act === 'settings') { ui.settings = !ui.settings; bump(); return; }
-    if (act === 'cc-on') {
-      ui.settings = false;
-      if (getViewMode(orbit) === VIEW_CHAT) setViewMode(orbit, VIEW_FULL);
-      sent('lier', 'activer');
+    if (act === 'cc-toggle') {
+      if (ui.ccBusy) return;
+      var gameNow = getState(buffer);
+      var wantOn = !!gameNow.ccOptout;
+      setCcBusy(true);
+      if (wantOn) {
+        if (getViewMode(orbit) === VIEW_CHAT) setViewMode(orbit, VIEW_FULL);
+        patchState(buffer, {
+          ccOptout: false,
+          ccPrompt: gameNow.chesscom ? 'linked' : 'missing',
+          ccAsk: !gameNow.chesscom,
+          ccErr: '',
+        });
+        sent('lier', 'activer');
+      } else {
+        patchState(buffer, {
+          ccOptout: true,
+          ccPrompt: 'optout',
+          ccAsk: false,
+          ccErr: '',
+        });
+        sent('lier', 'ignorer');
+      }
       return;
     }
     if (act === 'sync') { sent('sync'); return; }
@@ -1173,7 +1221,12 @@
     if (act === 'elo') { sent('elo'); return; }
     if (act === 'lier-oui') { sent('lier', 'oui'); return; }
     if (act === 'lier-non') { sent('lier', 'non'); return; }
-    if (act === 'lier-skip') { ui.settings = false; sent('lier', 'ignorer'); return; }
+    if (act === 'lier-skip') {
+      setCcBusy(true);
+      patchState(buffer, { ccOptout: true, ccPrompt: 'optout', ccAsk: false, ccErr: '' });
+      sent('lier', 'ignorer');
+      return;
+    }
     if (act === 'lier') {
       var inp = document.getElementById('oec-cc');
       var user = inp ? String(inp.value || '').trim() : '';
@@ -1244,7 +1297,7 @@
     var g = getState(buf);
     var tick = (g.status === 'playing' && g.tc && g.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
-      getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0');
+      getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' + (ui.ccBusy ? '1' : '0');
     if (root.__oecSig === sig) return;
     root.__oecSig = sig;
     renderPanel(orbit, root, buf);

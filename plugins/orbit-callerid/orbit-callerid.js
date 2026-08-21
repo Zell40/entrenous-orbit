@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=3"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=5"]
  */
 (function () {
   'use strict';
@@ -413,11 +413,12 @@
     var style = document.createElement('style');
     style.id = 'orbit-callerid-css';
     style.textContent = [
-      '.ocid-side{display:flex;align-items:center;gap:.45rem;margin:0 .8rem .35rem;padding:.4rem .65rem;border-radius:8px;background:color-mix(in srgb,#0ea5e9 14%,var(--bg,#fff));border:1px solid color-mix(in srgb,#0ea5e9 35%,var(--border,rgba(0,0,0,.12)));color:var(--ink,inherit);font-size:.82rem;font-weight:600;cursor:pointer;width:calc(100% - 1.6rem);box-sizing:border-box;text-align:left}',
+      '.ocid-side{display:flex;align-items:center;gap:.45rem;margin:.55rem .8rem .4rem;padding:.4rem .65rem;border-radius:8px;background:color-mix(in srgb,#0ea5e9 14%,var(--bg,#fff));border:1px solid color-mix(in srgb,#0ea5e9 35%,var(--border,rgba(0,0,0,.12)));color:var(--ink,inherit);font-size:.82rem;font-weight:600;cursor:pointer;width:calc(100% - 1.6rem);box-sizing:border-box;text-align:left}',
       '.ocid-side:hover{filter:brightness(1.03)}',
       '.ocid-side__dot{width:.55rem;height:.55rem;border-radius:50%;background:#0ea5e9;flex:none}',
       '.ocid-side__txt{flex:1;min-width:0}',
       '.ocid-side__n{opacity:.75;font-weight:500;font-size:.78rem}',
+      '.ocid-room .room__av[data-ocid]{background:color-mix(in srgb,#0ea5e9 22%,#dfe4ea);color:#0369a1}',
       '.ocid-banner{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.55rem .85rem;margin:0;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 12%,var(--bg,#fff));color:var(--ink,inherit);font-size:.92rem;flex:none}',
       '.ocid-banner--wait{background:color-mix(in srgb,#f59e0b 14%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#f59e0b 30%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner__txt{flex:1 1 12rem;min-width:0}',
@@ -435,6 +436,9 @@
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
       '.ocid-popup__actions{display:flex;gap:.55rem;justify-content:center;flex-wrap:wrap}',
+      '.topbar__search.ocid-topbar.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
+      '.topbar__search.ocid-topbar .ocid-topbar__badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:.65rem;font-weight:800;line-height:14px;text-align:center}',
+      '.topbar__search.ocid-topbar{position:relative}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -454,7 +458,7 @@
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
-    // Badge « contrôle parental » = security group only (never +g alone).
+    // Badge « contrôle parental » = policy only (never +g alone). Indicator, not the list entry.
     if (!gate.parental) return null;
     var n = listPending().length;
     return h('button', {
@@ -468,6 +472,59 @@
         pick(orbit, { fr: 'Contrôle parental actif', en: 'Parental controls on' })
       ),
       n ? h('span', { className: 'ocid-side__n' }, '(' + n + ')') : null
+    );
+  }
+
+  /** Sidebar row styled like Status — primary entry to the allow list. */
+  function WhitelistRoomRow(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
+    useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    if (!gate.callerid && !gate.parental && !listPending().length) return null;
+    var n = listPending().length;
+    return h('div', {
+      className: 'room ocid-room' + (n ? ' has-unread' : ''),
+      role: 'button',
+      tabIndex: 0,
+      onClick: function () { openListModal(orbit); },
+      onKeyDown: function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openListModal(orbit);
+        }
+      },
+    },
+      h('span', { className: 'room__av', 'data-ocid': true, 'aria-hidden': true }, h(ShieldIcon, { size: 18 })),
+      h('span', { className: 'room__body' },
+        h('span', { className: 'room__name' },
+          pick(orbit, { fr: 'Liste blanche', en: 'Allow list' })
+        ),
+        h('span', { className: 'room__sub' },
+          pick(orbit, {
+            fr: 'Messages privés autorisés',
+            en: 'Allowed private messages',
+          })
+        )
+      ),
+      n ? h('span', { className: 'room__badge' }, n > 99 ? '99+' : String(n)) : null
+    );
+  }
+
+  function TopbarButton(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
+    useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    if (!gate.callerid && !gate.parental && !listPending().length) return null;
+    var n = listPending().length;
+    return h('button', {
+      type: 'button',
+      className: 'topbar__search ocid-topbar' + (n ? ' is-on' : ''),
+      title: pick(orbit, { fr: 'Liste blanche des messages privés', en: 'Private-message allow list' }),
+      'aria-label': pick(orbit, { fr: 'Liste blanche MP', en: 'PM allow list' }),
+      onClick: function () { openListModal(orbit); },
+    },
+      h(ShieldIcon, { size: 19 }),
+      n ? h('span', { className: 'ocid-topbar__badge', 'aria-hidden': true }, n > 9 ? '9+' : String(n)) : null
     );
   }
 
@@ -879,7 +936,9 @@
     });
 
     orbit.addUi('sidebar_item', function () { return h(SideBadge, { orbit: orbit }); });
+    orbit.addUi('sidebar_room', function () { return h(WhitelistRoomRow, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(ChatBanners, { orbit: orbit }); });
+    orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
 
     if (typeof orbit.addCommand === 'function') {

@@ -1,7 +1,8 @@
 {
   "server": {
     "url": "https://irc.entrenous.chat/",
-    "guestIdent": "ENuser"
+    "guestIdent": "ENuser",
+    "bouncerUrl": "wss://bnc.reseau-entrenous.fr/webirc/websocket/"
   },
   "startup": {
     "channels": [
@@ -62,7 +63,8 @@
     "sessionResume": true,
     "passkeySasl": true,
     "saslScram": true,
-    "saslOauthBearer": true
+    "saslOauthBearer": true,
+    "bouncer": true
   },
   "conference": {
     "server": "visio.entrenous.chat",
@@ -119,9 +121,9 @@
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=53",
-    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=13",
+    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=14",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=2",
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=4"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=5"
   ],
   "builtins": [],
   "analytics": {
