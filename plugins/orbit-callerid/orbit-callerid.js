@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=13"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=15"]
  */
 (function () {
   'use strict';
@@ -34,6 +34,8 @@
   var MARK_ACCEPT_EN = 'Your conversation request has been accepted';
   var MARK_REFUSE_FR = 'Votre demande de conversation a été refusée';
   var MARK_REFUSE_EN = 'Your conversation request has been declined';
+  var MARK_REVOKED_FR = 'La conversation a été bloquée';
+  var MARK_REVOKED_EN = 'The conversation has been blocked';
   var MARK_BLOCK_FR = 'Vous ne pouvez plus envoyer de messages privés à cet utilisateur';
   var MARK_BLOCK_EN = 'You can no longer send private messages to this user';
 
@@ -432,17 +434,38 @@
     return false;
   }
 
-  function pushLocalLine(orbit, buffer, text, kind) {
+  function pushLocalLine(orbit, buffer, text, kind, asSelf) {
     try {
       var st = orbit.state.get();
       if (st && typeof st.pushLocal === 'function') {
-        st.pushLocal(buffer, text, '', kind || 'system');
+        if (asSelf) st.pushLocal(buffer, text, st.nick || '', kind || 'privmsg', true);
+        else st.pushLocal(buffer, text, '', kind || 'system');
         return;
       }
     } catch (e) { /* ignore */ }
   }
 
+  function bufferHasSelfText(orbit, nick, text) {
+    try {
+      var st = orbit.state.get();
+      var buffers = (st && st.buffers) || {};
+      var buf = buffers[nick] || buffers[fold(nick)];
+      if (!buf && buffers) {
+        Object.keys(buffers).forEach(function (k) {
+          if (fold(k) === fold(nick)) buf = buffers[k];
+        });
+      }
+      var msgs = (buf && buf.messages) || [];
+      var want = String(text || '');
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i] && msgs[i].self && String(msgs[i].text || '') === want) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
   function captureOutboundText(orbit, nick) {
+    if (outboundText[pendingKey(nick)]) return;
     try {
       var st = orbit.state.get();
       var buffers = (st && st.buffers) || {};
@@ -460,6 +483,30 @@
         }
       }
     } catch (e) { /* ignore */ }
+  }
+
+  /** Keep the undelivered first DM visible while waiting for ACCEPT (no server echo on +g). */
+  function ensurePendingVisible(orbit, nick) {
+    var n = String(nick || '').trim();
+    if (!n) return;
+    captureOutboundText(orbit, n);
+    var text = outboundText[pendingKey(n)];
+    if (!text) return;
+    if (bufferHasSelfText(orbit, n, text)) return;
+    openPm(orbit, n);
+    pushLocalLine(orbit, n, text, 'privmsg', true);
+  }
+
+  function hookOutboundCapture(orbit) {
+    if (!orbit.irc || typeof orbit.irc.msg !== 'function' || orbit.irc.__ocidHooked) return;
+    var orig = orbit.irc.msg.bind(orbit.irc);
+    orbit.irc.msg = function (target, text) {
+      var t = String(target || '').trim();
+      var body = String(text || '');
+      if (t && body && !isChannelName(t)) outboundText[pendingKey(t)] = body;
+      return orig(target, text);
+    };
+    orbit.irc.__ocidHooked = true;
   }
 
   function noticePeer(orbit, nick, text) {
@@ -507,28 +554,51 @@
     window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
   }
 
+  function isOnAcceptList(nick) {
+    var low = fold(nick);
+    if (!low) return false;
+    for (var i = 0; i < acceptList.nicks.length; i++) {
+      if (fold(acceptList.nicks[i]) === low) return true;
+    }
+    return false;
+  }
+
   function refuseRequest(orbit, nick) {
     var n = String(nick || '').trim();
     if (!n) return;
+    var key = pendingKey(n);
+    var hadPending = !!pending.map[key];
+    var wasAccepted = isOnAcceptList(n);
     setPending(n, null);
-    delete popupOpenFor[pendingKey(n)];
+    delete popupOpenFor[key];
     // Drop from ACCEPT if present, then local deny + SILENCE.
     sendAccept(orbit, n, false);
     saveDenyNick(orbit, n, true);
     silenceNick(orbit, n, true);
 
-    var refuseMsg = pick(orbit, {
-      fr: MARK_REFUSE_FR + '. ' + MARK_BLOCK_FR + '.',
-      en: MARK_REFUSE_EN + '. ' + MARK_BLOCK_EN + '.',
-    });
+    // Already accepted then re-blocked → « bloquée », not « refusée ».
+    var revoke = wasAccepted || !hadPending;
+    var refuseMsg = revoke
+      ? pick(orbit, {
+        fr: MARK_REVOKED_FR + '. ' + MARK_BLOCK_FR + '.',
+        en: MARK_REVOKED_EN + '. ' + MARK_BLOCK_EN + '.',
+      })
+      : pick(orbit, {
+        fr: MARK_REFUSE_FR + '. ' + MARK_BLOCK_FR + '.',
+        en: MARK_REFUSE_EN + '. ' + MARK_BLOCK_EN + '.',
+      });
     noticePeer(orbit, n, refuseMsg);
-    refuseNotified[pendingKey(n)] = true;
+    refuseNotified[key] = true;
 
     orbit.notify(
       pick(orbit, { fr: 'Messages privés', en: 'Private messages' }),
       pick(orbit, {
-        fr: n + ' a été refusé / bloqué. Il ne pourra plus vous écrire en privé.',
-        en: n + ' was declined / blocked. They can no longer private-message you.',
+        fr: revoke
+          ? n + ' a été bloqué. Il ne pourra plus vous écrire en privé.'
+          : 'Demande de ' + n + ' refusée. Il ne pourra plus vous écrire en privé.',
+        en: revoke
+          ? n + ' was blocked. They can no longer private-message you.'
+          : 'Request from ' + n + ' declined. They can no longer private-message you.',
       })
     );
     window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
@@ -548,6 +618,11 @@
   function isRefuseNotice(text) {
     var t = String(text || '');
     return t.indexOf(MARK_REFUSE_FR) > -1 || t.indexOf(MARK_REFUSE_EN) > -1;
+  }
+
+  function isRevokedNotice(text) {
+    var t = String(text || '');
+    return t.indexOf(MARK_REVOKED_FR) > -1 || t.indexOf(MARK_REVOKED_EN) > -1;
   }
 
   function isBlockNotice(text) {
@@ -579,13 +654,21 @@
       );
       return;
     }
-    if (isRefuseNotice(text) || isBlockNotice(text)) {
+    if (isRefuseNotice(text) || isRevokedNotice(text) || isBlockNotice(text)) {
       markPeerBlockedUs(orbit, fromNick);
+      var revoked = isRevokedNotice(text) || (isBlockNotice(text) && !isRefuseNotice(text));
       orbit.notify(
-        pick(orbit, { fr: 'Conversation bloquée', en: 'Conversation blocked' }),
         pick(orbit, {
-          fr: fromNick + ' vous a bloqué. Impossible de lui envoyer des messages privés.',
-          en: fromNick + ' blocked you. You cannot send them private messages.',
+          fr: revoked ? 'Conversation bloquée' : 'Conversation refusée',
+          en: revoked ? 'Conversation blocked' : 'Conversation declined',
+        }),
+        pick(orbit, {
+          fr: fromNick + (revoked
+            ? ' a bloqué la conversation. Impossible de lui envoyer des messages privés.'
+            : ' a refusé votre demande. Impossible de lui envoyer des messages privés.'),
+          en: fromNick + (revoked
+            ? ' blocked the conversation. You cannot send them private messages.'
+            : ' declined your request. You cannot send them private messages.'),
         })
       );
     }
@@ -1203,6 +1286,7 @@
 
     boot();
     orbit.on('connected', boot);
+    hookOutboundCapture(orbit);
 
     orbit.on('buffer.active', function (name) {
       if (listView.open) closeListView();
@@ -1294,6 +1378,7 @@
         var blocked = params[1] || '';
         if (blocked) {
           captureOutboundText(orbit, blocked);
+          ensurePendingVisible(orbit, blocked);
           if (isBlockedBy(orbit, blocked)) {
             markPeerBlockedUs(orbit, blocked);
             orbit.notify(
@@ -1320,6 +1405,7 @@
         var informed = params[1] || '';
         if (informed) {
           captureOutboundText(orbit, informed);
+          ensurePendingVisible(orbit, informed);
           if (isBlockedBy(orbit, informed)) {
             markPeerBlockedUs(orbit, informed);
             orbit.notify(
@@ -1357,8 +1443,8 @@
         if (isDenied(orbit, fromNick)) {
           // Already refused — remind the requester they are blocked (each retry).
           noticePeer(orbit, fromNick, pick(orbit, {
-            fr: MARK_REFUSE_FR + '. ' + MARK_BLOCK_FR + '.',
-            en: MARK_REFUSE_EN + '. ' + MARK_BLOCK_EN + '.',
+            fr: MARK_REVOKED_FR + '. ' + MARK_BLOCK_FR + '.',
+            en: MARK_REVOKED_EN + '. ' + MARK_BLOCK_EN + '.',
           }));
           refuseNotified[pendingKey(fromNick)] = true;
           return;
@@ -1394,7 +1480,7 @@
       if ((up === 'PRIVMSG' || up === 'NOTICE') && msg.nick) {
         if (fold(msg.nick) === fold(me)) return;
         var body = (params.length >= 2 ? params[1] : '') || '';
-        if (isAcceptNotice(body) || isRefuseNotice(body) || isBlockNotice(body)) {
+        if (isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body) || isBlockNotice(body)) {
           handlePeerDecision(orbit, msg.nick, body);
           return;
         }

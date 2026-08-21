@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 21;
+  var OEC_VER = 22;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -101,10 +101,10 @@
   }
 
   function isChessChannel(orbit, channelKey) {
-    if (!channelKey) return false;
-    var n = normChan(resolveChannelName(orbit, channelKey));
-    if (!isChannelName(n)) return false;
-    if (/echecs|chess/i.test(n)) return true;
+    if (!orbit || !channelKey) return false;
+    var raw = String(resolveChannelName(orbit, channelKey) || channelKey).trim();
+    if (!isChannelName(raw)) return false;
+    var n = normChan(raw);
     var c = cfg(orbit);
     if (c.channelsAll) return true;
     return c.channels.indexOf(n) >= 0;
