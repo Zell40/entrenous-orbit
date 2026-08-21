@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 12;
+  var OEC_VER = 13;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -30,7 +30,7 @@
 
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
   var ui = {
-    sel: '', promo: null, drag: null, navPly: -1,
+    sel: '', promo: null, drag: null, navPly: -1, settings: false,
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random' },
   };
   var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
@@ -569,6 +569,9 @@
     if (name === 'full') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
     }
+    if (name === 'settings') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1.1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+    }
     return '';
   }
 
@@ -630,7 +633,7 @@
       'body.oec-full #oec-dom-panel{flex:1 1 auto;min-height:0;height:auto!important;max-height:calc(100dvh - 9.25rem)}',
       '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;height:auto!important;max-height:calc(100dvh - 9.25rem)!important;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column;overflow:hidden}body.oec-split #oec-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
-      '.oec-head{display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto}',
+      '.oec-head{position:relative;display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto;overflow:visible;z-index:30}',
       '.oec-head__title{font-weight:800;font-size:.88rem}',
       '.oec-head__badge{font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(255,255,255,.18)}',
       '.oec-head__actions{margin-left:auto;display:flex;gap:.28rem}',
@@ -638,6 +641,14 @@
       '.oec-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.oec-head__btn--on{background:rgba(255,255,255,.34)}',
       '.oec-head__btn svg{width:18px;height:18px;display:block}',
+      '.oec-settings{position:absolute;right:.55rem;top:calc(100% + 6px);z-index:50;width:min(22rem,calc(100vw - 1.4rem));padding:.7rem .75rem .8rem;border-radius:12px;background:#fff;color:#3f3a32;border:1px solid #d7ccb8;box-shadow:0 16px 36px rgba(15,23,42,.22);text-align:left}',
+      '.oec-settings h3{margin:0 0 .4rem;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
+      '.oec-settings p{margin:0 0 .55rem;font-size:.8rem;line-height:1.4;color:#5c564c}',
+      '.oec-settings .oec-actions{margin:0}',
+      '.oec-settings .oec-btn{border-color:#cfc3ad;background:#faf6ee;color:#3f3a32}',
+      '.oec-settings .oec-btn:hover{border-color:#166534;color:#14532d}',
+      '.oec-settings .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
+      '.oec-panel--menu{overflow:visible}',
       '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.55rem .7rem .65rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#166534 rgba(22,101,52,.15)}',
       '.oec-stage::-webkit-scrollbar{width:8px}',
       '.oec-stage::-webkit-scrollbar-thumb{background:rgba(22,101,52,.35);border-radius:999px}',
@@ -791,12 +802,33 @@
       ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
       : pick({ fr: 'Afficher le tchat', en: 'Show chat' });
     return '<div class="oec-head__actions">' +
+      '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
+        '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
+        iconSvg('settings') + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
         '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) + '</button>' +
       '<button type="button" class="oec-head__btn" data-act="sync" title="Sync">↻</button>' +
       '</div>';
+  }
+
+  function renderSettings(game) {
+    if (!ui.settings) return '';
+    var body;
+    if (game.ccOptout) {
+      body = '<p>L’affichage Chess.com est désactivé. Tu peux le réactiver ici à tout moment.</p>' +
+        '<div class="oec-actions"><button type="button" class="oec-btn oec-btn--pri" data-act="cc-on">Réafficher Chess.com</button></div>';
+    } else if (game.ccPrompt === 'linked' || game.chesscom) {
+      body = '<p>Compte Chess.com : <b>' + escHtml(game.ccName || game.chesscom) + '</b>' +
+        (game.ccBlitz ? ' — blitz ' + escHtml(game.ccBlitz) : '') + '.</p>' +
+        '<div class="oec-actions"><button type="button" class="oec-btn" data-act="lier-skip">Ne plus afficher Chess.com</button></div>';
+    } else {
+      body = '<p>Chess.com est activé. Si aucun compte n’est lié, indique ton pseudo sur l’accueil.</p>' +
+        '<div class="oec-actions"><button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser Chess.com</button></div>';
+    }
+    return '<div class="oec-settings" role="dialog" aria-label="Paramètres">' +
+      '<h3>Paramètres</h3>' + body + '</div>';
   }
 
   function pill(act, val, label, current) {
@@ -942,7 +974,8 @@
       : 'Prêt';
     if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + game.tc;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
-      '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) + '</div>';
+      '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
+      renderSettings(game) + '</div>';
 
     var body = '<div class="oec-stage">';
     if (game.status === 'idle') {
@@ -995,6 +1028,7 @@
     body += '</div>';
     root.innerHTML = head + body;
     root.classList.toggle('oec-panel--home', game.status === 'idle');
+    root.classList.toggle('oec-panel--menu', !!ui.settings);
   }
 
   function tryMove(orbit, buffer, from, to) {
@@ -1119,6 +1153,13 @@
     if (act === 'view-full') { setViewMode(orbit, VIEW_FULL); return; }
     if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
+    if (act === 'settings') { ui.settings = !ui.settings; bump(); return; }
+    if (act === 'cc-on') {
+      ui.settings = false;
+      if (getViewMode(orbit) === VIEW_CHAT) setViewMode(orbit, VIEW_FULL);
+      sent('lier', 'activer');
+      return;
+    }
     if (act === 'sync') { sent('sync'); return; }
     if (act === 'start-setup') { sent('commencer', startArg()); return; }
     if (act === 'start') { sent('commencer', startArg()); return; }
@@ -1132,7 +1173,7 @@
     if (act === 'elo') { sent('elo'); return; }
     if (act === 'lier-oui') { sent('lier', 'oui'); return; }
     if (act === 'lier-non') { sent('lier', 'non'); return; }
-    if (act === 'lier-skip') { sent('lier', 'ignorer'); return; }
+    if (act === 'lier-skip') { ui.settings = false; sent('lier', 'ignorer'); return; }
     if (act === 'lier') {
       var inp = document.getElementById('oec-cc');
       var user = inp ? String(inp.value || '').trim() : '';
@@ -1203,7 +1244,7 @@
     var g = getState(buf);
     var tick = (g.status === 'playing' && g.tc && g.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
-      getViewMode(orbit) + '|' + ui.navPly + '|' + tick;
+      getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0');
     if (root.__oecSig === sig) return;
     root.__oecSig = sig;
     renderPanel(orbit, root, buf);
