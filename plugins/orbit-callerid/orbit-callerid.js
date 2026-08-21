@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=5"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=7"]
  */
 (function () {
   'use strict';
@@ -135,6 +135,17 @@
   function setCallerid(on) {
     calleridActive = !!on;
     bumpGate();
+  }
+
+  /** Full-pane allow-list view (Status-like), not a modal. */
+  var listView = { open: false, rev: 0, listeners: new Set() };
+  function subscribeListView(cb) { listView.listeners.add(cb); return function () { listView.listeners.delete(cb); }; }
+  function getListViewSnap() { return listView.rev; }
+  function setListViewOpen(on) {
+    listView.open = !!on;
+    try { document.body.classList.toggle('ocid-view-open', listView.open); } catch (e) { /* ignore */ }
+    listView.rev++;
+    listView.listeners.forEach(function (l) { l(); });
   }
 
   function cfg(orbit) {
@@ -384,41 +395,41 @@
     });
   }
 
-  function openListModal(orbit) {
-    if (typeof orbit.modal !== 'function') {
-      refreshAcceptList(orbit);
-      orbit.notify(
-        pick(orbit, { fr: 'Liste blanche', en: 'Allow list' }),
-        pick(orbit, {
-          fr: 'Liste ACCEPT demandée (voir Status).',
-          en: 'ACCEPT list requested (see Status).',
-        })
-      );
-      return;
-    }
+  function openListView(orbit) {
     refreshAcceptList(orbit);
-    var close = orbit.modal(function () {
-      return h(ListModalBody, {
-        orbit: orbit,
-        onClose: function () { if (typeof close === 'function') close(); },
-      });
-    }, {
-      title: pick(orbit, { fr: 'Liste blanche — messages privés', en: 'Allow list — private messages' }),
-      wide: false,
-    });
+    setListViewOpen(true);
   }
+
+  function closeListView() {
+    setListViewOpen(false);
+  }
+
+  /** @deprecated name kept for call sites — opens the full Status-like pane. */
+  function openListModal(orbit) { openListView(orbit); }
 
   function injectStyles() {
     if (document.getElementById('orbit-callerid-css')) return;
     var style = document.createElement('style');
     style.id = 'orbit-callerid-css';
     style.textContent = [
-      '.ocid-side{display:flex;align-items:center;gap:.45rem;margin:.55rem .8rem .4rem;padding:.4rem .65rem;border-radius:8px;background:color-mix(in srgb,#0ea5e9 14%,var(--bg,#fff));border:1px solid color-mix(in srgb,#0ea5e9 35%,var(--border,rgba(0,0,0,.12)));color:var(--ink,inherit);font-size:.82rem;font-weight:600;cursor:pointer;width:calc(100% - 1.6rem);box-sizing:border-box;text-align:left}',
-      '.ocid-side:hover{filter:brightness(1.03)}',
+      '.ocid-side{display:flex;align-items:center;gap:.45rem;margin:.55rem .8rem .4rem;padding:.4rem .65rem;border-radius:8px;background:color-mix(in srgb,#0ea5e9 14%,var(--bg,#fff));border:1px solid color-mix(in srgb,#0ea5e9 35%,var(--border,rgba(0,0,0,.12)));color:var(--ink,inherit);font-size:.82rem;font-weight:600;width:calc(100% - 1.6rem);box-sizing:border-box;text-align:left;cursor:default}',
+      '.ocid-room{cursor:default}',
       '.ocid-side__dot{width:.55rem;height:.55rem;border-radius:50%;background:#0ea5e9;flex:none}',
       '.ocid-side__txt{flex:1;min-width:0}',
       '.ocid-side__n{opacity:.75;font-weight:500;font-size:.78rem}',
       '.ocid-room .room__av[data-ocid]{background:color-mix(in srgb,#0ea5e9 22%,#dfe4ea);color:#0369a1}',
+      '.ocid-room.is-active{background:var(--accent-soft)}',
+      '.ocid-room.is-active::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:60%;border-radius:0 3px 3px 0;background:var(--accent);box-shadow:0 0 10px 0 rgba(20,82,204,.6)}',
+      '.ocid-room.is-active .room__name{color:var(--accent-d);font-weight:800}',
+      /* Full-pane view (like Status): hide chat chrome, fill main column */
+      'body.ocid-view-open .messages,body.ocid-view-open .composer,body.ocid-view-open .chan-hero,body.ocid-view-open .main__room-bg,body.ocid-view-open .empty{display:none!important}',
+      'body.ocid-view-open .main{background:var(--bg)}',
+      '.ocid-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);border-top:1px solid var(--border,rgba(0,0,0,.08))}',
+      '.ocid-view__head{display:flex;align-items:center;gap:.65rem;flex:none;padding:.7rem 1rem;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:var(--bg-soft,rgba(0,0,0,.02))}',
+      '.ocid-view__title{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.01em;flex:1;min-width:0}',
+      '.ocid-view__sub{margin:0;font-size:.82rem;color:var(--muted,var(--faint));font-weight:500}',
+      '.ocid-view__body{flex:1 1 auto;min-height:0;overflow:auto;padding:1rem 1.15rem 1.4rem}',
+      '.ocid-view .ocid-modal{max-width:36rem;min-width:0;width:100%;margin:0 auto}',
       '.ocid-banner{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.55rem .85rem;margin:0;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 12%,var(--bg,#fff));color:var(--ink,inherit);font-size:.92rem;flex:none}',
       '.ocid-banner--wait{background:color-mix(in srgb,#f59e0b 14%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#f59e0b 30%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner__txt{flex:1 1 12rem;min-width:0}',
@@ -426,12 +437,12 @@
       '.ocid-banner__btn{appearance:none;border:1px solid var(--border,rgba(0,0,0,.15));background:var(--bg,#fff);color:inherit;border-radius:6px;padding:.28rem .7rem;cursor:pointer;font:inherit}',
       '.ocid-banner__btn--ok{background:#0ea5e9;border-color:#0ea5e9;color:#fff}',
       '.ocid-banner__btn:hover{filter:brightness(1.05)}',
-      '.ocid-modal{display:flex;flex-direction:column;gap:.75rem;min-width:min(22rem,92vw);max-width:28rem;padding:.25rem}',
-      '.ocid-modal__row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border,rgba(0,0,0,.08))}',
+      '.ocid-modal{display:flex;flex-direction:column;gap:.75rem;padding:.25rem 0}',
+      '.ocid-modal__row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.45rem 0;border-bottom:1px solid var(--border,rgba(0,0,0,.08))}',
       '.ocid-modal__empty{opacity:.7;font-size:.92rem;margin:0}',
       '.ocid-modal__actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}',
       '.ocid-modal__check{display:flex;align-items:center;gap:.45rem;font-size:.9rem;cursor:pointer}',
-      '.ocid-modal input[type=text]{flex:1 1 8rem;min-width:0;padding:.35rem .55rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:6px;background:var(--bg,#fff);color:inherit;font:inherit}',
+      '.ocid-modal input[type=text]{flex:1 1 8rem;min-width:0;padding:.4rem .6rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:6px;background:var(--bg,#fff);color:inherit;font:inherit}',
       '.ocid-popup{display:flex;flex-direction:column;align-items:stretch;gap:.85rem;padding:.35rem .15rem .15rem;max-width:24rem}',
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
@@ -458,14 +469,13 @@
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
-    // Badge « contrôle parental » = policy only (never +g alone). Indicator, not the list entry.
+    // Indicator only — does not open the allow-list view.
     if (!gate.parental) return null;
     var n = listPending().length;
-    return h('button', {
-      type: 'button',
+    return h('div', {
       className: 'ocid-side',
-      title: pick(orbit, { fr: 'Ouvrir la liste blanche', en: 'Open allow list' }),
-      onClick: function () { openListModal(orbit); },
+      role: 'status',
+      title: pick(orbit, { fr: 'Contrôle parental actif', en: 'Parental controls on' }),
     },
       h('span', { className: 'ocid-side__dot', 'aria-hidden': true }),
       h('span', { className: 'ocid-side__txt' },
@@ -475,24 +485,22 @@
     );
   }
 
-  /** Sidebar row styled like Status — primary entry to the allow list. */
+  /** Sidebar row (Status-like): shows state only — open via topbar icon. */
   function WhitelistRoomRow(props) {
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    useSyncExternalStore(subscribeListView, getListViewSnap, getListViewSnap);
     if (!gate.callerid && !gate.parental && !listPending().length) return null;
     var n = listPending().length;
+    var active = listView.open;
     return h('div', {
-      className: 'room ocid-room' + (n ? ' has-unread' : ''),
-      role: 'button',
-      tabIndex: 0,
-      onClick: function () { openListModal(orbit); },
-      onKeyDown: function (e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          openListModal(orbit);
-        }
-      },
+      className: 'room ocid-room' + (active ? ' is-active' : '') + (n ? ' has-unread' : ''),
+      role: 'status',
+      title: pick(orbit, {
+        fr: 'Ouvrez la liste blanche avec l’icône bouclier en haut du tchat',
+        en: 'Open the allow list with the shield icon in the top bar',
+      }),
     },
       h('span', { className: 'room__av', 'data-ocid': true, 'aria-hidden': true }, h(ShieldIcon, { size: 18 })),
       h('span', { className: 'room__body' },
@@ -500,10 +508,12 @@
           pick(orbit, { fr: 'Liste blanche', en: 'Allow list' })
         ),
         h('span', { className: 'room__sub' },
-          pick(orbit, {
-            fr: 'Messages privés autorisés',
-            en: 'Allowed private messages',
-          })
+          active
+            ? pick(orbit, { fr: 'Ouverte — icône en haut pour fermer', en: 'Open — use top icon to close' })
+            : pick(orbit, {
+              fr: 'Utilisez l’icône bouclier en haut',
+              en: 'Use the shield icon in the top bar',
+            })
         )
       ),
       n ? h('span', { className: 'room__badge' }, n > 99 ? '99+' : String(n)) : null
@@ -514,17 +524,66 @@
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    useSyncExternalStore(subscribeListView, getListViewSnap, getListViewSnap);
     if (!gate.callerid && !gate.parental && !listPending().length) return null;
     var n = listPending().length;
     return h('button', {
       type: 'button',
-      className: 'topbar__search ocid-topbar' + (n ? ' is-on' : ''),
+      className: 'topbar__search ocid-topbar' + ((n || listView.open) ? ' is-on' : ''),
       title: pick(orbit, { fr: 'Liste blanche des messages privés', en: 'Private-message allow list' }),
       'aria-label': pick(orbit, { fr: 'Liste blanche MP', en: 'PM allow list' }),
-      onClick: function () { openListModal(orbit); },
+      'aria-pressed': listView.open,
+      onClick: function () {
+        if (listView.open) closeListView();
+        else openListView(orbit);
+      },
     },
       h(ShieldIcon, { size: 19 }),
       n ? h('span', { className: 'ocid-topbar__badge', 'aria-hidden': true }, n > 9 ? '9+' : String(n)) : null
+    );
+  }
+
+  function WhitelistPane(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeListView, getListViewSnap, getListViewSnap);
+    useEffect(function () {
+      try { document.body.classList.toggle('ocid-view-open', !!listView.open); } catch (e) { /* ignore */ }
+      return function () {
+        try { document.body.classList.remove('ocid-view-open'); } catch (e2) { /* ignore */ }
+      };
+    }, [listView.open]);
+    if (!listView.open) return null;
+    return h('div', { className: 'ocid-view', role: 'region', 'aria-label': pick(orbit, { fr: 'Liste blanche', en: 'Allow list' }) },
+      h('div', { className: 'ocid-view__head' },
+        h('span', { 'aria-hidden': true }, h(ShieldIcon, { size: 22 })),
+        h('div', { style: { flex: 1, minWidth: 0 } },
+          h('h2', { className: 'ocid-view__title' },
+            pick(orbit, { fr: 'Liste blanche', en: 'Allow list' })
+          ),
+          h('p', { className: 'ocid-view__sub' },
+            pick(orbit, {
+              fr: 'Personnes autorisées à vous écrire en message privé',
+              en: 'People allowed to private-message you',
+            })
+          )
+        ),
+        h('button', {
+          type: 'button',
+          className: 'ocid-banner__btn',
+          onClick: function () { closeListView(); },
+        }, pick(orbit, { fr: 'Fermer', en: 'Close' }))
+      ),
+      h('div', { className: 'ocid-view__body' },
+        h(ListModalBody, { orbit: orbit, onClose: closeListView })
+      )
+    );
+  }
+
+  function MainOverlays(props) {
+    var orbit = props.orbit;
+    return h(React.Fragment, null,
+      h(ChatBanners, { orbit: orbit }),
+      h(WhitelistPane, { orbit: orbit })
     );
   }
 
@@ -572,12 +631,7 @@
             type: 'button',
             className: 'ocid-banner__btn',
             onClick: function () { ignoreRequest(req.nick); },
-          }, pick(orbit, { fr: 'Ignorer', en: 'Ignore' })),
-          h('button', {
-            type: 'button',
-            className: 'ocid-banner__btn',
-            onClick: function () { openListModal(orbit); },
-          }, pick(orbit, { fr: 'Liste', en: 'List' }))
+          }, pick(orbit, { fr: 'Ignorer', en: 'Ignore' }))
         ));
       }
     }
@@ -765,6 +819,9 @@
 
   Orbit.plugin('orbit-callerid', function (orbit, log) {
     injectStyles();
+    // Never leave the full-pane view open from a previous session / HMR.
+    try { document.body.classList.remove('ocid-view-open'); } catch (e) { /* ignore */ }
+    listView.open = false;
 
     function boot() {
       myGroupsText = '';
@@ -773,6 +830,7 @@
       popupOpenFor = Object.create(null);
       setParental(false);
       setCallerid(false);
+      closeListView();
       requestWhois(orbit);
       try { orbit.irc.send('MODE ' + (orbit.state.nick() || '')); } catch (e) { /* ignore */ }
       // +g alone → callerid only. Full mode package → parental.
@@ -784,6 +842,7 @@
     orbit.on('connected', boot);
 
     orbit.on('buffer.active', function (name) {
+      if (listView.open) closeListView();
       if (name && !isChannelName(name) && name !== 'Status') probePeer(orbit, name);
     });
 
@@ -937,7 +996,7 @@
 
     orbit.addUi('sidebar_item', function () { return h(SideBadge, { orbit: orbit }); });
     orbit.addUi('sidebar_room', function () { return h(WhitelistRoomRow, { orbit: orbit }); });
-    orbit.addUi('overlay', function () { return h(ChatBanners, { orbit: orbit }); });
+    orbit.addUi('overlay', function () { return h(MainOverlays, { orbit: orbit }); });
     orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
 

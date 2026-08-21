@@ -14,7 +14,7 @@ Un utilisateur qui active seulement `+g` (ou `+i`, etc. un par un) **n’est pas
 ## Affichage
 
 1. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
-2. **Liste blanche** : entrée dans la colonne des salons (comme Status) + **icône bouclier** dans la topbar (à côté notif / heure / …).
+2. **Liste blanche** : vue plein écran **fermée par défaut** — ouverture uniquement via l’**icône bouclier** de la topbar (⋮ sur mobile).
 3. **Haut du tchat** : bannière bleue + **popup** sur **718** (filtre MP).
 4. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
 5. Menu **⋮** (mobile) → **Liste blanche MP**.
@@ -30,7 +30,7 @@ Un utilisateur qui active seulement `+g` (ou `+i`, etc. un par un) **n’est pas
     "autoMode": true
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=5"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=7"
   ]
 }
 ```
