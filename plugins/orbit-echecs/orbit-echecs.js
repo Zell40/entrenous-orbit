@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 28;
+  var OEC_VER = 29;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1647,25 +1647,41 @@
       : '<i class="oec-pl__line">EN —</i>';
   }
 
+  function ccOuiBtn(label, busyLabel) {
+    var busy = !!ui.ccBusy;
+    return '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui"' +
+      (busy ? ' disabled' : '') + '>' +
+      (busy ? '<span class="oec-spin" aria-hidden="true"></span> ' + busyLabel : label) +
+      '</button>';
+  }
+
+  function ccSideBtns() {
+    var busy = !!ui.ccBusy;
+    return '<button type="button" class="oec-btn" data-act="lier-non"' + (busy ? ' disabled' : '') +
+      '>Autre pseudo</button>' +
+      '<button type="button" class="oec-btn" data-act="lier-skip"' + (busy ? ' disabled' : '') +
+      '>Ne pas utiliser</button>';
+  }
+
   function renderCcVerify(game) {
+    var busy = !!ui.ccBusy;
     return '<p class="oec-cc-preview">Pour prouver que <b>' + escHtml(game.chesscom || '') +
       '</b> est à toi, colle ce code dans <b>Localisation</b> de ton profil Chess.com (Paramètres → Profil).</p>' +
       '<p class="oec-cc__token">' + escHtml(game.ccToken || '…') + '</p>' +
       (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
       '<div class="oec-actions" style="margin-top:.3rem">' +
-      '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">J’ai collé le code</button>' +
-      '<button type="button" class="oec-btn" data-act="lier-non">Autre pseudo</button>' +
-      '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button></div>';
+      ccOuiBtn('J’ai collé le code', 'Vérification…') + ccSideBtns() + '</div>' +
+      (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Vérification du profil Chess.com…</p>' : '');
   }
 
   function renderCcConfirm(game) {
+    var busy = !!ui.ccBusy;
     return '<p class="oec-cc-preview">Confirme le compte Chess.com <b>' +
       escHtml(game.chesscom || game.ccName) + '</b>.</p>' +
       ccHandle(game) + ccStatsGrid(game) +
       '<div class="oec-actions" style="margin-top:.3rem">' +
-      '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">C’est moi</button>' +
-      '<button type="button" class="oec-btn" data-act="lier-non">Ce n’est pas moi</button>' +
-      '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button></div>';
+      ccOuiBtn('C’est moi', 'Création du code…') + ccSideBtns() + '</div>' +
+      (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Création du code…</p>' : '');
   }
 
   function pill(act, val, label, current) {
@@ -1699,6 +1715,7 @@
         : verify ? 'Preuve Chess.com'
         : preview ? 'Confirmer le compte Chess.com'
         : (busy && missing) ? 'Recherche Chess.com'
+        : (busy && linked && !isCcVerified(game)) ? 'Preuve Chess.com'
         : missing ? 'Compte Chess.com'
         : linked ? 'Classement Chess.com'
         : 'Chess.com';
@@ -1715,15 +1732,17 @@
         ccBody = '<p class="oec-cc-preview">Un compte a été trouvé. Confirme s’il s’agit bien du tien avant affichage.</p>' +
           ccHandle(game) + ccStatsGrid(game) +
           '<div class="oec-actions" style="margin-top:.35rem">' +
-          '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">C’est moi</button>' +
-          '<button type="button" class="oec-btn" data-act="lier-non">Ce n’est pas moi</button>' +
-          '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button>' +
-          '</div>';
+          ccOuiBtn('C’est moi', 'Création du code…') +
+          '<button type="button" class="oec-btn" data-act="lier-non"' + (busy ? ' disabled' : '') + '>Ce n’est pas moi</button>' +
+          '<button type="button" class="oec-btn" data-act="lier-skip"' + (busy ? ' disabled' : '') + '>Ne pas utiliser</button>' +
+          '</div>' +
+          (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Création du code…</p>' : '');
       } else if (linked) {
         ccBody = ccHandle(game) + ccStatsGrid(game);
         if (!isCcVerified(game)) {
           ccBody += '<div class="oec-actions" style="margin-top:.3rem">' +
-            '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">Prouver que c’est moi</button></div>';
+            ccOuiBtn('Prouver que c’est moi', 'Création du code…') + '</div>' +
+            (busy ? '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Création du code de preuve…</p>' : '');
         }
       } else {
         ccBody = '<p class="oec-cc-preview">Indique ton pseudo Chess.com, ou désactive cette fonction.</p>' +
@@ -2271,7 +2290,13 @@
     if (act === 'abort') { sent('annuler'); return; }
     if (act === 'resign') { sent('abandonner'); return; }
     if (act === 'elo') { sent('elo'); return; }
-    if (act === 'lier-oui') { sent('lier', 'oui'); return; }
+    if (act === 'lier-oui') {
+      if (ui.ccBusy) return;
+      setCcBusy(true, 20000, buffer);
+      bump();
+      sent('lier', 'oui');
+      return;
+    }
     if (act === 'lier-non') { sent('lier', 'non'); return; }
     if (act === 'lier-skip') {
       setCcBusy(true, 8000, buffer);
