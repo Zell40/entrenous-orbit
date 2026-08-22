@@ -1,8 +1,8 @@
 # orbit-asl
 
-Active le **profil ASL** (âge / genre / ville) sur l’écran d’accueil Orbit, et
-peut **bloquer le bouton de connexion** tant que les champs exigés ne sont pas
-remplis.
+Active le **profil ASL** (âge / genre / ville) sur l’écran d’accueil Orbit.
+Si les champs exigés manquent, le client affiche un **message d’erreur** et
+entoure les cases (rouge = manquant, vert = ok).
 
 Sans ce plugin dans `plugins`, les options `"asl"` de `config.json` sont ignorées.
 
@@ -14,17 +14,17 @@ Sans ce plugin dans `plugins`, les options `"asl"` de `config.json` sont ignoré
     "requireAge": true,
     "requireGender": true,
     "requireCity": true,
-    "minAge": 18
+    "minAge": 10
   },
-  "plugins": ["/app/plugins/third/orbit-asl/orbit-asl.js?v=1"]
+  "plugins": ["/app/plugins/third/orbit-asl/orbit-asl.js?v=2"]
 }
 ```
 
 | Clé | Effet |
 | --- | --- |
 | `requireAge` | Connexion impossible sans âge |
-| `requireGender` | Connexion impossible sans Homme / Femme |
+| `requireGender` | Homme, Femme ou Non indiqué (GECOS : Autre) |
 | `requireCity` | Connexion impossible sans ville |
-| `minAge` | Âge minimum (un âge vide est aussi refusé) |
+| `minAge` | Âge minimum, 10 ans comme WordPress (un âge vide est aussi refusé) |
 
 La connexion via bouncer n’est pas bloquée (le profil vient du compte).

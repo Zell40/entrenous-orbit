@@ -1,17 +1,18 @@
 /*
  * orbit-asl — profil âge / genre / ville sur l’écran de connexion Orbit.
  *
- * Le client désactive le bouton « Entrer » quand ce plugin est listé ET que
- * config.json pose des règles sous `"asl"`.
+ * Le client refuse la connexion (message d’erreur) quand ce plugin est listé
+ * ET que config.json pose des règles sous `"asl"`. Genre : Homme / Femme /
+ * Non indiqué (écrit « Autre » dans le GECOS). Âge mini WordPress : 10.
  *
  * config.json :
  *   "asl": {
  *     "requireAge": true,
  *     "requireGender": true,
  *     "requireCity": true,
- *     "minAge": 18
+ *     "minAge": 10
  *   }
- *   "plugins": ["/app/plugins/third/orbit-asl/orbit-asl.js?v=1"]
+ *   "plugins": ["/app/plugins/third/orbit-asl/orbit-asl.js?v=2"]
  */
 (function () {
   'use strict';
