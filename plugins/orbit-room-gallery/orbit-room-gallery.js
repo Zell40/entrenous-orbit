@@ -103,6 +103,43 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   let imageMap = {};
   let mapLoaded = false;
   const mapListeners = new Set();
+  const MAP_CACHE_KEY = 'orbit-rg-map';
+
+  function announceImagesReady() {
+    mapLoaded = true;
+    try { window.__orbitRoomImagesReady = true; } catch (e) { /* ignore */ }
+    try { orbit.emit('room-images-ready'); } catch (e) { /* ignore */ }
+    mapListeners.forEach((f) => f());
+  }
+
+  function writeCachedMap(map) {
+    try { localStorage.setItem(MAP_CACHE_KEY, JSON.stringify({ ts: Date.now(), map: map || {} })); }
+    catch (e) { /* quota / private */ }
+  }
+
+  function hydrateCachedMap() {
+    try {
+      const j = JSON.parse(localStorage.getItem(MAP_CACHE_KEY) || 'null');
+      if (!j || !j.map || typeof j.map !== 'object' || Array.isArray(j.map)) return false;
+      const norm = {};
+      for (const k of Object.keys(j.map)) {
+        if (typeof j.map[k] === 'string' && j.map[k]) norm[normChan(k)] = j.map[k];
+      }
+      imageMap = norm;
+      announceImagesReady();
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function warmImageCache(map) {
+    const urls = Object.values(map || {}).filter((u) => typeof u === 'string' && /^https?:/i.test(u));
+    for (let i = 0; i < urls.length && i < 40; i++) {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = urls[i];
+    }
+  }
+
   async function loadImageMap(force) {
     if (mapLoaded && !force) return imageMap;
     try {
@@ -110,20 +147,17 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       if (res.ok) {
         const raw = await res.json();
         const norm = {};
-        // Accept either a JSON object ({"#chan":"url"}) or a rare empty array
-        // (`[]` — PHP's json_encode of an empty array before we forced {}).
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
           for (const k of Object.keys(raw)) norm[normChan(k)] = raw[k];
         }
         imageMap = norm;
+        writeCachedMap(norm);
+        warmImageCache(norm);
       } else {
         log('room-images GET failed', res.status);
       }
     } catch (e) { log('room-images fetch failed', e); }
-    mapLoaded = true;
-    try { window.__orbitRoomImagesReady = true; } catch (e) { /* ignore */ }
-    try { orbit.emit('room-images-ready'); } catch (e) { /* ignore */ }
-    mapListeners.forEach((f) => f());
+    announceImagesReady();
     return imageMap;
   }
   // Seed / clear one channel in the in-memory map immediately (used after a
@@ -133,6 +167,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const k = normChan(channel);
     if (url) imageMap[k] = url; else delete imageMap[k];
     mapLoaded = true;
+    writeCachedMap(imageMap);
     mapListeners.forEach((f) => f());
   }
   function useImageMap() {
@@ -771,7 +806,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   // startup, and keep it modestly fresh afterwards so a picture another
   // founder just set appears for everyone without anyone needing to reopen
   // anything — it's a single small JSON fetch either way.
-  loadImageMap(false);
+  hydrateCachedMap();
+  loadImageMap(true);
   setInterval(() => loadImageMap(true), 60000);
 
   log('room-gallery ready');
