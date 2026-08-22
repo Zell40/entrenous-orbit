@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 25;
+  var OEC_VER = 26;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -221,7 +221,7 @@
       ccLeague: '', ccTac: '',
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
-      ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false,
+      ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false, ccToken: '',
       pWhite: emptyPlayer(), pBlack: emptyPlayer(),
       review: emptyReview(),
       history: [],
@@ -274,7 +274,7 @@
     return { f: 'abcdefgh'.indexOf(String(name || '').charAt(0)), r: Number(String(name || '').charAt(1)) - 1 };
   }
 
-  function gridToFen(grid, turn) {
+  function gridToFen(grid, turn, rights, ep) {
     var ranks = [];
     var r, f, empty, ch, row;
     for (r = 7; r >= 0; r--) {
@@ -291,10 +291,19 @@
       if (empty) row += String(empty);
       ranks.push(row);
     }
-    return ranks.join('/') + '_' + (turn === 'black' ? 'b' : 'w') + '_KQkq_-_0_1';
+    return ranks.join('/') + '_' + (turn === 'black' ? 'b' : 'w') + '_' +
+      (rights || '-') + '_' + (ep || '-') + '_0_1';
+  }
+
+  function dropCastle(rights, gone) {
+    var next = String(rights || '');
+    gone.split('').forEach(function (ch) { next = next.replace(ch, ''); });
+    return next || '-';
   }
 
   function applyUciFen(fenTag, uci) {
+    var fen = String(fenTag || START_FEN).replace(/_/g, ' ');
+    var parts = fen.split(/\s+/);
     var parsed = parseFen(fenTag);
     var grid = parsed.grid.map(function (row) { return row.slice(); });
     uci = String(uci || '').toLowerCase();
@@ -306,12 +315,23 @@
     var piece = grid[from.r][from.f];
     if (!piece) return fenTag;
     var dest = grid[to.r][to.f];
+    var rights = parts[2] || 'KQkq';
+    var newEp = '-';
     if (piece.toLowerCase() === 'k' && Math.abs(to.f - from.f) === 2) {
       if (to.f === 6) { grid[to.r][5] = grid[to.r][7]; grid[to.r][7] = null; }
       else if (to.f === 2) { grid[to.r][3] = grid[to.r][0]; grid[to.r][0] = null; }
     }
+    if (piece === 'K') rights = dropCastle(rights, 'KQ');
+    if (piece === 'k') rights = dropCastle(rights, 'kq');
+    if (uci.slice(0, 2) === 'a1' || uci.slice(2, 4) === 'a1') rights = dropCastle(rights, 'Q');
+    if (uci.slice(0, 2) === 'h1' || uci.slice(2, 4) === 'h1') rights = dropCastle(rights, 'K');
+    if (uci.slice(0, 2) === 'a8' || uci.slice(2, 4) === 'a8') rights = dropCastle(rights, 'q');
+    if (uci.slice(0, 2) === 'h8' || uci.slice(2, 4) === 'h8') rights = dropCastle(rights, 'k');
     if (piece.toLowerCase() === 'p' && from.f !== to.f && !dest) {
       grid[from.r][to.f] = null;
+    }
+    if (piece.toLowerCase() === 'p' && Math.abs(to.r - from.r) === 2) {
+      newEp = sqName(from.f, (from.r + to.r) / 2);
     }
     grid[from.r][from.f] = null;
     if (promo) {
@@ -319,7 +339,7 @@
       piece = up ? promo.toUpperCase() : promo.toLowerCase();
     }
     grid[to.r][to.f] = piece;
-    return gridToFen(grid, parsed.turn === 'white' ? 'black' : 'white');
+    return gridToFen(grid, parsed.turn === 'white' ? 'black' : 'white', rights, newEp);
   }
 
   function fenAtPly(game, ply) {
@@ -596,6 +616,27 @@
     return map[code] || code || '';
   }
 
+  function mergeMoveChunk(game, start, addU, addS) {
+    var ucis = splitUcis(game.ucis);
+    var sans = String(game.sans || '').split(',').filter(Boolean);
+    (addU || []).forEach(function (uci, i) {
+      ucis[start - 1 + i] = uci;
+      if (addS && addS[i]) sans[start - 1 + i] = addS[i];
+    });
+    var lastU = ucis[ucis.length - 1] || '';
+    var joined = ucis.filter(Boolean).join(',');
+    var joinedS = sans.filter(Boolean).join(',');
+    return {
+      ucis: joined,
+      sans: joinedS,
+      ply: ucis.filter(Boolean).length,
+      lastUci: lastU,
+      lastSan: sans.filter(Boolean)[sans.filter(Boolean).length - 1] || game.lastSan || '',
+      from: lastU.slice(0, 2),
+      to: lastU.slice(2, 4),
+    };
+  }
+
   function parseHistoryRows(raw) {
     return String(raw || '').split(';').filter(Boolean).map(function (row) {
       var p = row.split('|');
@@ -666,7 +707,7 @@
         eloGames: tagVal(tags, '+games') || prev.eloGames,
         enName: tagVal(tags, '+en-name'),
       };
-      if (!prev.ccReady || ui.ccBusy || prev.ccPrompt === 'preview' || prev.ccPrompt === 'found') {
+      if (!prev.ccReady || ui.ccBusy || prev.ccPrompt === 'preview' || prev.ccPrompt === 'found' || prev.ccPrompt === 'verify') {
         patchState(channel, eloPatch);
         return;
       }
@@ -705,14 +746,15 @@
         return;
       }
       var previewUser = tagVal(tags, '+chesscom');
-      var keepPreview = mode === 'preview' || mode === 'found' || mode === 'linked';
+      var keepPreview = mode === 'preview' || mode === 'found' || mode === 'linked' || mode === 'verify';
       if (ui.ccBusy) setCcBusy(false);
       if (mode !== 'wait') finishCcBoot();
       patchState(channel, Object.assign({
         ccPrompt: mode === 'wait' ? prev.ccPrompt : mode,
         ccOptout: mode === 'optout',
-        ccAsk: mode === 'missing' || mode === 'preview' || mode === 'found',
-        ccErr: '',
+        ccAsk: mode === 'missing' || mode === 'preview' || mode === 'found' || mode === 'verify',
+        ccErr: mode === 'verify' ? (tagVal(tags, '+text') || '') : '',
+        ccToken: mode === 'verify' ? (tagVal(tags, '+token') || prev.ccToken || '') : '',
         flash: '',
         ccReady: mode === 'wait' ? prev.ccReady : true,
       }, ccFieldsFromTags(tags, Object.assign({}, prev, { chesscom: previewUser || prev.chesscom }), keepPreview)));
@@ -774,7 +816,9 @@
         to: tagVal(tags, '+to') || prev.to,
         capW: tagVal(tags, '+cap-w') || prev.capW,
         capB: tagVal(tags, '+cap-b') || prev.capB,
-        sans: tagVal(tags, '+sans') || prev.sans,
+        sans: tagVal(tags, '+sans') || (ev === 'move' && tagVal(tags, '+san-fr')
+          ? (prev.sans ? prev.sans + ',' + tagVal(tags, '+san-fr') : tagVal(tags, '+san-fr'))
+          : prev.sans),
         ucis: tagVal(tags, '+ucis') || (ev === 'move' && tagVal(tags, '+uci')
           ? (prev.ucis ? prev.ucis + ',' + tagVal(tags, '+uci') : tagVal(tags, '+uci'))
           : prev.ucis),
@@ -892,31 +936,18 @@
       return;
     }
 
-    if (ev === 'archive_moves') {
-      if (!eventForMe(tags) || !archiveGame) return;
-      if (gid && archiveGame.gid && String(gid) !== String(archiveGame.gid)) return;
+    if (ev === 'archive_moves' || ev === 'hist_chunk') {
       var start = Math.max(1, Number(tagVal(tags, '+from')) || 1);
-      var ucis = splitUcis(archiveGame.ucis);
-      var sans = String(archiveGame.sans || '').split(',').filter(Boolean);
       var addU = splitUcis(tagVal(tags, '+ucis'));
       var addS = String(tagVal(tags, '+sans') || '').split(',').filter(Boolean);
-      addU.forEach(function (uci, i) {
-        ucis[start - 1 + i] = uci;
-        if (addS[i]) sans[start - 1 + i] = addS[i];
-      });
-      var lastU = ucis[ucis.length - 1] || '';
-      var joined = ucis.filter(Boolean).join(',');
-      archiveGame = Object.assign({}, archiveGame, {
-        ucis: joined,
-        sans: sans.filter(Boolean).join(','),
-        ply: ucis.filter(Boolean).length,
-        lastUci: lastU,
-        lastSan: sans.filter(Boolean)[sans.filter(Boolean).length - 1] || '',
-        from: lastU.slice(0, 2),
-        to: lastU.slice(2, 4),
-        fen: fenAtPly({ ucis: joined }, -1),
-      });
-      bump();
+      if (ev === 'archive_moves') {
+        if (!eventForMe(tags) || !archiveGame) return;
+        if (gid && archiveGame.gid && String(gid) !== String(archiveGame.gid)) return;
+        archiveGame = Object.assign({}, archiveGame, mergeMoveChunk(archiveGame, start, addU, addS));
+        bump();
+        return;
+      }
+      patchState(channel, mergeMoveChunk(prev, start, addU, addS));
       return;
     }
 
@@ -1166,6 +1197,15 @@
       '.oec-sq--sel,.oec-sq--drag{box-shadow:inset 0 0 0 3px #14532d}',
       '.oec-sq--pre{box-shadow:inset 0 0 0 100px rgba(220,38,38,.34)}',
       '.oec-sq--pre.oec-sq--sel{box-shadow:inset 0 0 0 100px rgba(220,38,38,.34),inset 0 0 0 3px #7f1d1d}',
+      '.oec-sq__mark{position:absolute;top:3px;right:3px;min-width:1.05rem;height:1.05rem;padding:0 .18rem;border-radius:999px;font-size:.52rem;font-weight:800;display:grid;place-items:center;z-index:3;pointer-events:none;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.35)}',
+      '.oec-sq__mark--br{background:#06b6d4;color:#042f2e}',
+      '.oec-sq__mark--gr{background:#14b8a6;color:#042f2e}',
+      '.oec-sq__mark--bs,.oec-sq__mark--ex{background:#22c55e;color:#052e16}',
+      '.oec-sq__mark--gd{background:#a3e635;color:#1a2e05}',
+      '.oec-sq__mark--in{background:#facc15;color:#422006}',
+      '.oec-sq__mark--mi{background:#fb923c;color:#431407}',
+      '.oec-sq__mark--bl,.oec-sq__mark--ms{background:#ef4444;color:#fff}',
+      '.oec-sq__mark--bk{background:#78716c;color:#fff}',
       '.oec-sq--over{outline:3px solid #facc15;outline-offset:-3px}',
       '.oec-piece{width:88%;height:88%;max-width:100%;max-height:100%;filter:drop-shadow(0 1px 0 rgba(255,255,255,.28)) drop-shadow(0 3px 4px rgba(0,0,0,.38));pointer-events:none}',
       '.oec-piece--mini{width:18px;height:18px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}',
@@ -1241,7 +1281,7 @@
       '.oec-badge--mi{background:#fb923c;color:#431407}',
       '.oec-badge--bl{background:#ef4444;color:#fff}',
       '.oec-badge--ms{background:#f97316;color:#fff}',
-      '.oec-moves{display:grid;grid-template-columns:1.4rem 1fr 1fr;gap:.12rem .3rem;max-height:9.5rem;overflow:auto;font-size:.75rem;line-height:1.35;margin:.2rem 0}',
+      '.oec-moves{display:grid;grid-template-columns:1.4rem 1fr 1fr;gap:.12rem .3rem;max-height:min(40vh,16rem);overflow:auto;font-size:.75rem;line-height:1.35;margin:.2rem 0}',
       '.oec-moves button{border:0;background:transparent;color:inherit;text-align:left;padding:.12rem .25rem;border-radius:6px;cursor:pointer;font-weight:700}',
       '.oec-moves button.is-on{background:rgba(255,255,255,.16)}',
       '.oec-moves small{display:block;font-size:.58rem;font-weight:800;opacity:.85;text-transform:uppercase;letter-spacing:.02em}',
@@ -1285,7 +1325,8 @@
       '.oec-cc__box{position:relative}',
       '.oec-cc__box.is-loading .oec-cc__stats{opacity:.4}',
       '.oec-cc__spinner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.76rem;font-weight:800;color:#14532d}',
-      '.oec-cc-err{margin:.35rem 0 0;color:#b91c1c;font-size:.78rem;font-weight:800}',
+      '.oec-cc__token{margin:.35rem 0;padding:.45rem .5rem;border-radius:10px;background:#14532d;color:#bbf7d0;font-size:1.35rem;font-weight:800;letter-spacing:.12em;text-align:center}',
+      '.oec-review__sum{margin:.15rem 0;font-size:.78rem;line-height:1.35}',
       '.oec-cc-preview{margin:0 0 .3rem;font-size:.78rem;line-height:1.35;color:#7c2d12}',
       '.oec-card--ok .oec-cc-preview{color:#14532d}',
       '.oec-cc__id{display:flex;flex-direction:column;gap:.08rem;margin:0 0 .32rem}',
@@ -1403,6 +1444,10 @@
         if (showRank) html += '<span class="oec-sq__coord oec-sq__coord--rank">' + (rank + 1) + '</span>';
         if (piece) html += pieceSvg(piece);
         if (preGhost[name]) html += pieceSvg(preGhost[name], 'oec-piece oec-piece--pre');
+        if (game.status === 'ended' && name === lastTo && game._revClass) {
+          html += '<span class="oec-sq__mark oec-sq__mark--' + game._revClass + '">' +
+            escHtml(revGlyph(game._revClass)) + '</span>';
+        }
         html += '</div>';
       });
     });
@@ -1507,12 +1552,12 @@
     if (!ui.settings) return '';
     var on = !game.ccOptout;
     var busy = !!ui.ccBusy;
-    var preview = game.ccPrompt === 'preview' || game.ccPrompt === 'found';
+    var preview = game.ccPrompt === 'preview' || game.ccPrompt === 'found' || game.ccPrompt === 'verify';
     var extra = '';
     if (!on) {
       extra = '<p>Le bloc Chess.com est masqué. Coche la case pour le réafficher.</p>';
     } else if (preview) {
-      extra = renderCcConfirm(game);
+      extra = game.ccPrompt === 'verify' ? renderCcVerify(game) : renderCcConfirm(game);
     } else {
       extra = '<label class="oec-field"><span>Pseudo Chess.com</span>' +
         '<span class="oec-field__row">' +
@@ -1538,7 +1583,9 @@
 
   function playerStatsLine(p, nickFallback) {
     var nick = (p && p.nick) || nickFallback || '';
-    if (!nick || nick === 'IA') return '<i class="oec-pl__line">IA</i>';
+    if (!nick || nick === 'IA') {
+      return '<i class="oec-pl__line">IA' + (p && p.elo ? ' (' + escHtml(p.elo) + ')' : '') + '</i>';
+    }
     var bits = [];
     if (p && p.elo) bits.push('EN <b>' + escHtml(p.elo) + '</b>');
     if (p && (p.blitz || p.rapid || p.bullet || p.cc)) {
@@ -1551,6 +1598,17 @@
     return bits.length
       ? '<i class="oec-pl__line">' + bits.join(' · ') + '</i>'
       : '<i class="oec-pl__line">EN —</i>';
+  }
+
+  function renderCcVerify(game) {
+    return '<p class="oec-cc-preview">Pour prouver que <b>' + escHtml(game.chesscom || '') +
+      '</b> est à toi, colle ce code dans <b>Localisation</b> de ton profil Chess.com (Paramètres → Profil).</p>' +
+      '<p class="oec-cc__token">' + escHtml(game.ccToken || '…') + '</p>' +
+      (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
+      '<div class="oec-actions" style="margin-top:.3rem">' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">J’ai collé le code</button>' +
+      '<button type="button" class="oec-btn" data-act="lier-non">Autre pseudo</button>' +
+      '<button type="button" class="oec-btn" data-act="lier-skip">Ne pas utiliser</button></div>';
   }
 
   function renderCcConfirm(game) {
@@ -1575,7 +1633,8 @@
     if (loading) armCcBoot(orbit.state && orbit.state.active ? orbit.state.active() : '');
     var prompt = game.ccPrompt || '';
     var preview = prompt === 'preview' || prompt === 'found';
-    var missing = prompt === 'missing' || (game.ccReady && !prompt && !game.ccOptout && !preview && prompt !== 'linked');
+    var verify = prompt === 'verify';
+    var missing = prompt === 'missing' || (game.ccReady && !prompt && !game.ccOptout && !preview && !verify && prompt !== 'linked');
     var linked = prompt === 'linked';
     var showCc = !game.ccOptout;
     var elo = game.elo || (loading ? '—' : '1200');
@@ -1590,18 +1649,21 @@
     var ccCard = '';
     if (showCc) {
       var ccTitle = loading ? 'Classement Chess.com'
+        : verify ? 'Preuve Chess.com'
         : preview ? 'Confirmer le compte Chess.com'
         : (busy && missing) ? 'Recherche Chess.com'
         : missing ? 'Compte Chess.com'
         : linked ? 'Classement Chess.com'
         : 'Chess.com';
       var ccCls = 'oec-card' + (loading ? ' oec-card--load' : '') +
-        (!loading && (preview || missing) ? ' oec-card--ask' : '') +
+        (!loading && (preview || verify || missing) ? ' oec-card--ask' : '') +
         (linked ? ' oec-card--ok' : '');
       var ccBody = '';
       if (loading) {
         ccBody = '<p class="oec-cc-preview" style="color:#5c564c">Recherche d’un compte Chess.com…</p>' +
           ccStatsGrid(game, true);
+      } else if (verify) {
+        ccBody = renderCcVerify(game);
       } else if (preview) {
         ccBody = '<p class="oec-cc-preview">Un compte a été trouvé. Confirme s’il s’agit bien du tien avant affichage.</p>' +
           ccHandle(game) + ccStatsGrid(game) +
@@ -1714,19 +1776,26 @@
     })[code] || '';
   }
 
-  function revTip(code, bestSan) {
-    var best = bestSan ? ' Meilleur coup : ' + bestSan + '.' : '';
+  function revGlyph(code) {
     return ({
-      bk: 'Coup d’ouverture théorique.',
-      br: 'Sacrifice brillant — le meilleur coup.',
-      gr: 'Seul coup vraiment bon dans cette position.',
-      bs: 'Le meilleur coup selon Stockfish.',
-      ex: 'Presque parfait.',
-      gd: 'Bon coup, un léger mieux existait.' + best,
-      in: 'Imprécision.' + best,
-      mi: 'Erreur qui cède un avantage.' + best,
-      bl: 'Gaffe : la position bascule.' + best,
-      ms: 'Gain manqué.' + best,
+      bk: 'liv', br: '!!', gr: '!', bs: '•', ex: '!', gd: '+',
+      in: '?!', mi: '?', bl: '??', ms: 'X',
+    })[code] || '';
+  }
+
+  function revTip(code, bestSan) {
+    var best = bestSan ? ' → ' + bestSan : '';
+    return ({
+      bk: 'Livre',
+      br: 'Brillant',
+      gr: 'Seul bon coup',
+      bs: 'Meilleur coup',
+      ex: 'Excellent',
+      gd: 'Bon' + best,
+      in: 'Imprécision' + best,
+      mi: 'Erreur' + best,
+      bl: 'Gaffe' + best,
+      ms: 'Gain manqué' + best,
     })[code] || '';
   }
 
@@ -1738,29 +1807,18 @@
   }
 
   function renderReview(game) {
-    var dur = Number(game.duration) || 0;
-    var mm = Math.floor(dur / 60);
-    var ss = dur % 60;
-    var durStr = mm + ' min ' + (ss < 10 ? '0' : '') + ss + ' s';
-    var eloBit = '';
-    if (game.eloW || game.eloB) {
-      eloBit = '<dt>ELO</dt><dd>' + escHtml(game.white) + ' ' + escHtml(game.eloW || '—') +
-        ' · ' + escHtml(game.black) + ' ' + escHtml(game.eloB || '—') +
-        (game.eloDw ? ' (' + (Number(game.eloDw) > 0 ? '+' : '') + escHtml(game.eloDw) + ' Blancs)</dd>' : '</dd>');
-    }
     var rev = game.review || emptyReview();
-    var html = '<div class="oec-review"><h3>Bilan de la partie</h3><dl>' +
-      '<dt>Résultat</dt><dd>' + escHtml(game.result || '') +
-      (game.reason ? ' — ' + escHtml(reasonFr(game.reason)) : '') + '</dd>' +
-      '<dt>Ouverture</dt><dd>' + (openingHtml(game) || 'Hors livre') + '</dd>' +
-      '<dt>Coups</dt><dd>' + escHtml(String(game.ply || 0)) + '</dd>' +
-      '<dt>Cadence</dt><dd>' + escHtml(tcLabel(game.tc || 'casual')) +
-      (game.skill ? ' · IA ' + escHtml(game.skill) : '') + '</dd>' +
-      '<dt>Durée</dt><dd>' + durStr + '</dd>' +
-      eloBit +
-      '</dl>';
+    var html = '<div class="oec-review">';
+    html += '<p class="oec-review__sum"><b>' + escHtml(game.result || '') + '</b> · ' +
+      escHtml(String(splitUcis(game.ucis).length)) + ' coups · ' + escHtml(tcLabel(game.tc || 'casual')) +
+      (game.skill ? ' · IA ' + escHtml(game.skill) : '') + '</p>';
+    if (game.eloW || game.eloB) {
+      html += '<p class="oec-review__sum">ELO ' + escHtml(game.white) + ' ' + escHtml(String(game.eloW || '—')) +
+        ' · ' + escHtml(game.black) + ' ' + escHtml(String(game.eloB || '—')) +
+        (game.eloDw ? ' (' + (Number(game.eloDw) > 0 ? '+' : '') + escHtml(String(game.eloDw)) + ')</p>' : '</p>');
+    }
     if (rev.status === 'run') {
-      html += '<p class="oec-wait"><span class="oec-spin" aria-hidden="true"></span>Analyse Stockfish…</p>';
+      html += '<p class="oec-wait"><span class="oec-spin" aria-hidden="true"></span>Analyse…</p>';
     } else if (rev.status === 'err') {
       html += '<p class="oec-wait">' + escHtml(rev.err || 'Analyse indisponible') + '</p>';
     }
@@ -1770,37 +1828,25 @@
         '<div class="oec-acc">' + accRing(rev.accB) + '<div><b>' + escHtml(game.black || 'Noirs') + '</b><small>Précision</small></div></div>' +
         '</div>';
       html += '<div class="oec-rev-counts">' +
-        countChip('Brillants', (rev.wBr || 0) + (rev.bBr || 0), 'br', true) +
-        countChip('Superbes', (rev.wGr || 0) + (rev.bGr || 0), 'gr', true) +
-        countChip('Excellents', (rev.wEx || 0) + (rev.bEx || 0), 'ex', true) +
-        countChip('Bons', (rev.wGd || 0) + (rev.bGd || 0), 'gd', true) +
-        countChip('Imprécisions', (rev.wIn || 0) + (rev.bIn || 0), 'in', true) +
-        countChip('Erreurs', (rev.wMi || 0) + (rev.bMi || 0), 'mi', true) +
-        countChip('Gaffes', (rev.wBl || 0) + (rev.bBl || 0), 'bl', true) +
-        countChip('Gains manqués', (rev.wMs || 0) + (rev.bMs || 0), 'ms', true) +
+        countChip('!!', (rev.wBr || 0) + (rev.bBr || 0), 'br') +
+        countChip('!', (rev.wGr || 0) + (rev.bGr || 0), 'gr') +
+        countChip('?!', (rev.wIn || 0) + (rev.bIn || 0), 'in') +
+        countChip('?', (rev.wMi || 0) + (rev.bMi || 0), 'mi') +
+        countChip('??', (rev.wBl || 0) + (rev.bBl || 0), 'bl') +
         '</div>';
     }
     var view = viewingGame(game);
-    html += '<p class="oec-eval-hint">Barre d’analyse : plus elle est noire, plus les Noirs sont mieux — plus elle est claire, plus les Blancs sont mieux.</p>';
-    html += coachCard(view);
     html += renderMoveList(game, view._ply);
     html += '</div>';
     return html;
   }
 
   function coachCard(view) {
-    if (!view || !view.lastSan) {
-      return '<div class="oec-tip">Clique un coup dans la liste pour voir le conseil de l’entraîneur.</div>';
-    }
-    if (!view._revClass) {
-      return '<div class="oec-tip"><b>' + escHtml(view.lastSan) + '</b>Analyse de ce coup en cours…</div>';
-    }
-    var best = view._revBestSan
-      ? '<span class="oec-tip__best">Conseil : joue ' + escHtml(view._revBestSan) + '.</span>'
-      : '';
-    return '<div class="oec-tip"><b><span class="oec-badge oec-badge--' + view._revClass + '">' +
-      escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan || '') + '</b>' +
-      escHtml(revTip(view._revClass, '')) + best + '</div>';
+    if (!view || !view.lastSan) return '';
+    if (!view._revClass) return '<div class="oec-tip">Analyse de ' + escHtml(view.lastSan) + '…</div>';
+    return '<div class="oec-tip"><span class="oec-badge oec-badge--' + view._revClass + '">' +
+      escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan) +
+      ' — ' + escHtml(revTip(view._revClass, view._revBestSan)) + '</div>';
   }
 
   function countChip(label, n, code, always) {
@@ -1833,7 +1879,7 @@
     var tint = code ? ' oec-mv--' + code : '';
     return '<button type="button" class="' + on + tint + '" data-act="nav-ply" data-val="' + ply +
       '" title="' + escHtml(revLabel(code) || 'Coup') + '">' +
-      escHtml(san) + (code ? ' <small>' + escHtml(revLabel(code)) + '</small>' : '') + '</button>';
+      escHtml(san) + '</button>';
   }
 
   function renderPanel(orbit, root, buffer) {
@@ -1866,8 +1912,9 @@
         '<span class="' + (wTurn ? 'is-turn' : '') + '"><span class="oec-clock__top">Blancs <b>' +
         escHtml(game.white || '—') + '</b> <span class="oec-clock__time">' + liveClock(game, 'white') +
         '</span></span>' + playerStatsLine(game.pWhite, game.white) + '</span></div>';
-      if (!game._archive && (game.ccPrompt === 'preview' || game.ccPrompt === 'found')) {
-        body += '<div class="oec-cc-banner">' + renderCcConfirm(game) + '</div>';
+      if (!game._archive && (game.ccPrompt === 'preview' || game.ccPrompt === 'found' || game.ccPrompt === 'verify')) {
+        body += '<div class="oec-cc-banner">' +
+          (game.ccPrompt === 'verify' ? renderCcVerify(game) : renderCcConfirm(game)) + '</div>';
       }
       if (game.opening || game.openingVar) body += '<p class="oec-opening">' + openingHtml(game) + '</p>';
       if (game.status === 'waiting') {
@@ -1881,6 +1928,7 @@
           : '';
         body += '<p class="oec-turn">' + pick({ fr: 'Coup', en: 'Move' }) + ' ' +
           escHtml(view.lastSan) + mark + '</p>';
+        if (game.status === 'ended') body += coachCard(view);
       }
       body += renderNav(game);
       if (game.capW || game.capB) {
