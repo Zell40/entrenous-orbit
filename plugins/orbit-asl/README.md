@@ -27,4 +27,8 @@ Sans ce plugin dans `plugins`, les options `"asl"` de `config.json` sont ignoré
 | `requireCity` | Connexion impossible sans ville |
 | `minAge` | Âge minimum, 10 ans comme WordPress (un âge vide est aussi refusé) |
 
+`deploy.sh` copie vers `plugins/third/orbit-asl/`. Sans ce fichier sur le
+serveur, le navigateur charge une 404 HTML et Firefox affiche
+`NS_ERROR_CORRUPTED_CONTENT`.
+
 La connexion via bouncer n’est pas bloquée (le profil vient du compte).

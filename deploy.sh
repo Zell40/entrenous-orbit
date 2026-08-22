@@ -184,6 +184,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-echecs/" \
   --exclude="/plugins/third/orbit-harrypotter/" \
   --exclude="/plugins/third/orbit-callerid/" \
+  --exclude="/plugins/third/orbit-asl/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
@@ -272,6 +273,12 @@ CALLERID_DIR="plugins/third/orbit-callerid"
 mkdir -p "$WEBROOT/$CALLERID_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-callerid/orbit-callerid.js" \
       "$WEBROOT/$CALLERID_DIR/"
+
+# ASL gate (âge / genre / ville sur l’écran de connexion)
+ASL_DIR="plugins/third/orbit-asl"
+mkdir -p "$WEBROOT/$ASL_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-asl/orbit-asl.js" \
+      "$WEBROOT/$ASL_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
