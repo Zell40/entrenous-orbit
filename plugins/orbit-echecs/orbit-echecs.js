@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 39;
+  var OEC_VER = 41;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -38,6 +38,8 @@
   var archiveGame = null;
   var ccBusyTimer = 0;
   var ccBootTimer = 0;
+  var chatUnread = 0;
+  var chatBadgeArmed = false;
   var HOME_IMG = '/app/plugins/third/orbit-echecs/assets/echecs-home.jpg';
 
   function subscribe(cb) { store.listeners.add(cb); return function () { store.listeners.delete(cb); }; }
@@ -417,6 +419,25 @@
     return String((orbit && orbit.state && orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
   }
 
+  function isServiceNick(nick) {
+    var n = String(nick || '').toLowerCase();
+    return n === 'capechecs' || n === 'jeuechecs' || n === 'botserv' ||
+      n === 'chanserv' || n === 'nickserv' || n === 'hostserv' || n === 'operserv';
+  }
+
+  function noteIncomingChat(orbit, msg) {
+    if (!chatBadgeArmed) return;
+    if (getViewMode(orbit) !== VIEW_FULL) return;
+    var target = (msg.params && msg.params[0]) || (msg.args && msg.args[0]) || '';
+    if (!isChannelName(target) || !isChessChannel(orbit, target)) return;
+    var nick = String(msg.nick || '').toLowerCase();
+    if (!nick || nick === myNick(orbit) || isServiceNick(nick)) return;
+    var text = String((msg.params && msg.params[1]) || (msg.args && msg.args[1]) || '');
+    if (text.charAt(0) === '\x01' && text.indexOf('ACTION ') !== 0) return;
+    chatUnread = Math.min(99, chatUnread + 1);
+    bump();
+  }
+
   function eventForMe(tags) {
     var who = String(tagVal(tags, '+nick') || '').toLowerCase();
     if (!who) return true;
@@ -645,7 +666,7 @@
       fifty: 'Règle des 50 coups', threefold: 'Triple répétition', resign: 'Abandon',
       abort: 'Partie annulée', timeout: 'Délai dépassé', inactivity: 'Inactivité',
       agree: 'Nulle acceptée', quit: 'Déconnexion', part: 'Départ',
-      flag: 'Temps écoulé', engine: 'Erreur moteur',
+      flag: 'Temps écoulé', engine: 'Erreur moteur', crash: 'Erreur technique',
     };
     return map[code] || code || '';
   }
@@ -914,10 +935,14 @@
       var endUcis = tagVal(tags, '+ucis') || prev.ucis;
       var endPly = Number(tagVal(tags, '+ply')) || splitUcis(endUcis).length;
       ui.navPly = endPly;
+      var why = tagVal(tags, '+reason');
+      var crashMsg = why === 'crash'
+        ? 'La partie a été arrêtée à cause d’une erreur technique. Relance depuis l’accueil.'
+        : '';
       patchState(channel, {
         status: 'ended', waiting: false, fen: tagVal(tags, '+fen') || prev.fen,
-        result: tagVal(tags, '+result'), reason: tagVal(tags, '+reason'),
-        winner: tagVal(tags, '+winner'), flash: '', gid: gid || prev.gid,
+        result: tagVal(tags, '+result'), reason: why,
+        winner: tagVal(tags, '+winner'), flash: crashMsg, gid: gid || prev.gid,
         sans: tagVal(tags, '+sans') || prev.sans,
         ucis: endUcis,
         opening: tagVal(tags, '+opening') || prev.opening,
@@ -1251,6 +1276,9 @@
     document.body.classList.toggle('oec-split', mode === VIEW_SPLIT);
     if (!root) return;
     root.classList.remove('oec-panel--full', 'oec-panel--split', 'oec-panel--chat');
+    if (mode === VIEW_CHAT || mode === VIEW_SPLIT) {
+      if (chatUnread) chatUnread = 0;
+    }
     if (mode === VIEW_CHAT) {
       root.classList.add('oec-panel--chat');
       root.style.display = '';
@@ -1293,7 +1321,8 @@
       '.oec-head__title{font-weight:800;font-size:.88rem}',
       '.oec-head__badge{font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(255,255,255,.18)}',
       '.oec-head__actions{margin-left:auto;display:flex;gap:.28rem}',
-      '.oec-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:34px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
+      '.oec-head__btn{position:relative;border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:34px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
+      '.oec-head__unread{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1.15rem;text-align:center;box-shadow:0 0 0 2px #14532d}',
       '.oec-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.oec-head__btn--on{background:rgba(255,255,255,.34)}',
       '.oec-head__btn svg{width:18px;height:18px;display:block}',
@@ -1688,7 +1717,10 @@
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
-        '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) + '</button>' +
+        '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) +
+        (mode !== VIEW_CHAT && chatUnread ? '<span class="oec-head__unread">' +
+          (chatUnread > 99 ? '99+' : String(chatUnread)) + '</span>' : '') +
+        '</button>' +
       '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
         '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
         iconSvg('settings') + '</button>' +
@@ -2539,6 +2571,7 @@
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
       (ui.ccBusy ? '1' : '0') + '|' + (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
+      'u' + chatUnread + '|' +
       (ui.setup.vs || '') + (ui.setup.skill || '') + (ui.setup.tc || '') + (ui.setup.duo || '') + '|' +
       (archiveGame ? archiveGame.gid : '') + '|' +
       (ui.premoves || []).map(function (p) { return p.from + p.to + (p.promo || ''); }).join(',');
@@ -2552,6 +2585,7 @@
     viewMode = getViewMode(orbit);
     injectStyles();
     console.info('[orbit-echecs] loaded v' + OEC_VER);
+    setTimeout(function () { chatBadgeArmed = true; }, 800);
     if (orbit.requireVisualDisplay) {
       orbit.requireVisualDisplay({
         label: 'Échecs',
@@ -2573,6 +2607,10 @@
 
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '').toUpperCase();
+      if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
+        noteIncomingChat(orbit, msg);
+        return;
+      }
       if (cmd !== 'TAGMSG') return;
       var tags = msg.tags || {};
       if (tagVal(tags, EC) !== 'v1') return;
