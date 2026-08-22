@@ -91,29 +91,37 @@ CONFERENCE_DIR="plugins/third/orbit-conference"
 FILEHOST_UPLOAD_NAME="filehost-upload.php"
 FILEHOST_FILES_DIR="files"
 
-# --- pull both repos ---
-log "sync orbit repo"
-cd "$ORBIT_REPO"
-git fetch --quiet origin "$ORBIT_BRANCH"
-git checkout "$ORBIT_BRANCH" --quiet
-git pull --ff-only --quiet origin "$ORBIT_BRANCH"
-git branch --set-upstream-to="origin/$ORBIT_BRANCH" "$ORBIT_BRANCH" >/dev/null 2>&1 || true
-ORBIT_HEAD=$(git rev-parse HEAD)
+# --- pull both repos (once). If git pull replaced this script, re-exec the
+# new file but skip a second fetch/pull — the first one is already current.
+script_hash() {
+  sha256sum "$PLUGINS_REPO/deploy.sh" 2>/dev/null | awk '{print $1}'
+}
 
-log "sync entrenous repo"
-cd "$PLUGINS_REPO"
-git fetch --quiet origin "$PLUGINS_BRANCH"
-git checkout "$PLUGINS_BRANCH" --quiet
-git pull --ff-only --quiet origin "$PLUGINS_BRANCH"
-git branch --set-upstream-to="origin/$PLUGINS_BRANCH" "$PLUGINS_BRANCH" >/dev/null 2>&1 || true
-PLUGINS_HEAD=$(git rev-parse HEAD)
+if [ "${ENTRENOUS_DEPLOY_SKIP_SYNC:-}" != 1 ] && [ "${ENTRENOUS_DEPLOY_REEXEC:-}" != 1 ]; then
+  BEFORE_SCRIPT=$(script_hash)
+  log "sync orbit repo"
+  cd "$ORBIT_REPO"
+  git fetch --quiet origin "$ORBIT_BRANCH"
+  git checkout "$ORBIT_BRANCH" --quiet
+  git pull --ff-only --quiet origin "$ORBIT_BRANCH"
+  git branch --set-upstream-to="origin/$ORBIT_BRANCH" "$ORBIT_BRANCH" >/dev/null 2>&1 || true
 
-# git pull may have replaced this script on disk; the current shell still runs
-# the version that was loaded at startup — re-exec once so new deploy steps apply.
-if [ "${ENTRENOUS_DEPLOY_REEXEC:-}" != 1 ]; then
-  export ENTRENOUS_DEPLOY_REEXEC=1
-  exec bash "$PLUGINS_REPO/deploy.sh" "$@"
+  log "sync entrenous repo"
+  cd "$PLUGINS_REPO"
+  git fetch --quiet origin "$PLUGINS_BRANCH"
+  git checkout "$PLUGINS_BRANCH" --quiet
+  git pull --ff-only --quiet origin "$PLUGINS_BRANCH"
+  git branch --set-upstream-to="origin/$PLUGINS_BRANCH" "$PLUGINS_BRANCH" >/dev/null 2>&1 || true
+
+  AFTER_SCRIPT=$(script_hash)
+  if [ -n "$BEFORE_SCRIPT" ] && [ "$BEFORE_SCRIPT" != "$AFTER_SCRIPT" ]; then
+    export ENTRENOUS_DEPLOY_SKIP_SYNC=1
+    exec bash "$PLUGINS_REPO/deploy.sh" "$@"
+  fi
 fi
+
+ORBIT_HEAD=$(git -C "$ORBIT_REPO" rev-parse HEAD)
+PLUGINS_HEAD=$(git -C "$PLUGINS_REPO" rev-parse HEAD)
 
 COMBO="${ORBIT_HEAD}+${PLUGINS_HEAD}"
 LAST=""
