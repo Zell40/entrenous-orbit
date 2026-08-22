@@ -5,12 +5,15 @@
 # Layout on the server (recommended):
 #   /home/chat/irc/sources/orbit              ← clean Orbit (matches GitHub name)
 #   /home/chat/irc/sources/entrenous-orbit   ← THIS repo
-#   /home/chat/irc/webchat-new               ← live web root
+#   /home/chat/irc/webchat-new               ← test (webapp2.entrenous.chat)
+#   /home/chat/irc/webchat                   ← prod (webapp.entrenous.chat)
 #
-#   ./deploy.sh          # deploy if Orbit or this repo moved since last publish
-#   ./deploy.sh --force  # rebuild + publish anyway
+#   ./deploy.sh                 # test, if Orbit or this repo moved
+#   ./deploy.sh --force         # rebuild + publish test anyway
+#   ./deploy.sh --prod          # same overlay → webchat (manuel only)
+#   ./deploy.sh --prod --force
 #
-# Cron example:
+# Cron = test only. Never add --prod to cron, or every test commit goes live:
 #   */5 * * * * /home/chat/irc/sources/entrenous-orbit/deploy.sh >> /var/log/orbit-deploy.log 2>&1
 set -euo pipefail
 
@@ -18,16 +21,65 @@ log() {
   echo "$(date -Is) $*"
 }
 
+usage() {
+  cat <<'EOF'
+Usage: deploy.sh [--force] [--prod]
+
+  (default)  Publish to /home/chat/irc/webchat-new (webapp2)
+  --prod     Publish to /home/chat/irc/webchat (webapp) — manuel only, never cron
+  --force    Rebuild even if both repos are unchanged
+EOF
+}
+
+DEPLOY_PROD=0
+DEPLOY_FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    --prod) DEPLOY_PROD=1 ;;
+    --force) DEPLOY_FORCE=1 ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 trap 'echo "$(date -Is) ERROR line $LINENO: $BASH_COMMAND" >&2' ERR
 
 ORBIT_REPO="/home/chat/irc/sources/orbit"
 PLUGINS_REPO="/home/chat/irc/sources/entrenous-orbit"
-WEBROOT="/home/chat/irc/webchat-new"
 ORBIT_BRANCH="main"          # upstream Orbit default branch
 PLUGINS_BRANCH="master"
 
+WEBROOT="/home/chat/irc/webchat-new"
 # Marker records BOTH commit hashes so a change in either repo triggers a deploy.
+# Prod uses a separate file so a test publish does not skip a later --prod.
 DEPLOYED_MARKER="$PLUGINS_REPO/.last-deployed-commits"
+if [ "$DEPLOY_PROD" = 1 ]; then
+  WEBROOT="/home/chat/irc/webchat"
+  DEPLOYED_MARKER="$PLUGINS_REPO/.last-deployed-commits-prod"
+fi
+
+# Refuse rsync --delete over a live Kiwi tree (index/static layout).
+webroot_looks_like_kiwi() {
+  local root="$1"
+  [ -d "$root" ] || return 1
+  if [ -f "$root/index.html" ] && grep -qiE 'kiwiirc|kiwi-irc' "$root/index.html"; then
+    return 0
+  fi
+  if [ -d "$root/static" ] && [ ! -d "$root/assets" ]; then
+    return 0
+  fi
+  if [ -f "$root/kiwi.json" ] || [ -f "$root/static/js/kiwiirc.js" ]; then
+    return 0
+  fi
+  return 1
+}
 
 # Gallery plugin bundle (JS + room-images.php + uploads)
 GALLERY_DIR="plugins/third/orbit-room-gallery"
@@ -67,12 +119,26 @@ COMBO="${ORBIT_HEAD}+${PLUGINS_HEAD}"
 LAST=""
 [ -f "$DEPLOYED_MARKER" ] && LAST=$(cat "$DEPLOYED_MARKER")
 
-if [ "$LAST" = "$COMBO" ] && [ "${1:-}" != "--force" ]; then
-  echo "$(date -Is) already deployed orbit=${ORBIT_HEAD:0:8} plugins=${PLUGINS_HEAD:0:8}"
+if [ "$LAST" = "$COMBO" ] && [ "$DEPLOY_FORCE" != 1 ]; then
+  echo "$(date -Is) already deployed orbit=${ORBIT_HEAD:0:8} plugins=${PLUGINS_HEAD:0:8} -> $WEBROOT"
   exit 0
 fi
 
-log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8}"
+if [ "$DEPLOY_PROD" = 1 ] && webroot_looks_like_kiwi "$WEBROOT"; then
+  log "ERROR: $WEBROOT ressemble encore à Kiwi — refus d'écraser (rsync --delete)."
+  log "Backup d'abord :"
+  log "  mv $WEBROOT ${WEBROOT}-kiwi-\$(date +%Y%m%d) && mkdir -p $WEBROOT"
+  log "puis : $PLUGINS_REPO/deploy.sh --prod"
+  exit 1
+fi
+
+if [ "$DEPLOY_PROD" = 1 ]; then
+  log "cible PROD $WEBROOT"
+else
+  log "cible TEST $WEBROOT"
+fi
+
+log "deploying orbit ${ORBIT_HEAD:0:8} + plugins ${PLUGINS_HEAD:0:8} -> $WEBROOT"
 
 log "build orbit"
 cd "$ORBIT_REPO"
@@ -358,4 +424,4 @@ if ! grep -q 'orbit-harrypotter' "$WEBROOT/config.json"; then
 fi
 log "verified orbit-harrypotter (plugin file + config.json entry)"
 
-log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD)"
+log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD) webroot=$WEBROOT"

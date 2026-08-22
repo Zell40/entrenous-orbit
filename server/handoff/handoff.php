@@ -59,7 +59,7 @@ if ($bouncer) {
 if ($target === '' || !preg_match('#^https?://#i', $target)) {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $target = $scheme . '://' . $host . '/?nick=' . rawurlencode($nick);
+    $target = $scheme . '://' . $host . '/app/?nick=' . rawurlencode($nick);
     if ($channel !== '') {
         $target .= '&channel=' . rawurlencode($channel);
     }

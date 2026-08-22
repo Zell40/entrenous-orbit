@@ -2,6 +2,10 @@
 *.local.php
 *.local
 
+# Server-side deploy markers (test + prod)
+.last-deployed-commits
+.last-deployed-commits-prod
+
 # OS / editor
 .DS_Store
 .idea

@@ -47,4 +47,4 @@ Côté WordPress, constantes dans `functions.php` :
 
 - `ENTRENOUS_ORBIT_BASE` — ex. `https://webchat.entrenous.chat`
 - `ENTRENOUS_ORBIT_HANDOFF` — `…/handoff.php`
-- `ENTRENOUS_ORBIT_APP` — URL de l’app Orbit
+- `ENTRENOUS_ORBIT_APP` — URL de l’app Orbit (`…/app/`, pas la racine Apache)

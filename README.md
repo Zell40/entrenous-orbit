@@ -16,14 +16,15 @@ Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 | `server/avatars/` | Bridge avatars WP → `POST /accounts/api/avatars/` |
 | `config/config.json` | Config EntreNous (branding, plugins, IRC…) |
 | `config/.htaccess` | Rewrites Apache (`/upload`, `/accounts/api/avatars/`) |
-| `deploy.sh` | Build Orbit amont + overlay de ce dépôt |
+| `deploy.sh` | Build Orbit amont + overlay (`./deploy.sh` = test, `--prod` = manuel) |
 
 ## Sur le serveur
 
 ```
 /home/chat/irc/sources/orbit               # clone propre d’Orbit (même nom que GitHub)
 /home/chat/irc/sources/entrenous-orbit     # ce dépôt
-/home/chat/irc/webchat-new                 # web root live
+/home/chat/irc/webchat-new                 # test (webapp2.entrenous.chat)
+/home/chat/irc/webchat                     # prod (webapp.entrenous.chat)
 ```
 
 Après deploy, le web root contient notamment :
@@ -51,10 +52,12 @@ chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh
 Puis :
 
 ```bash
-/home/chat/irc/sources/entrenous-orbit/deploy.sh
-# ou
+/home/chat/irc/sources/entrenous-orbit/deploy.sh          # test → webchat-new (cron OK)
 /home/chat/irc/sources/entrenous-orbit/deploy.sh --force
+/home/chat/irc/sources/entrenous-orbit/deploy.sh --prod   # prod → webchat (manuel only)
 ```
+
+Le cron ne doit **jamais** passer `--prod`. Premier `--prod` : Kiwi doit déjà être déplacé (`mv webchat webchat-kiwi-DATE`), sinon le script refuse d’écraser. Copier les `*.local.php` depuis `webchat-new/` vers `webchat/` une fois, puis adapter `$PUBLIC_ORIGIN` s’il est figé sur webapp2.
 
 Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés. `deploy.sh` crée les dossiers d’upload s’ils manquent, migre l’ancien layout racine vers le dossier plugin, puis **supprime** les copies obsolètes à la racine (`/room-images.php`, etc.) une fois le plugin en place.
 

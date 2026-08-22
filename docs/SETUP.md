@@ -36,10 +36,12 @@ git clone -b main https://github.com/Zell40/orbit.git /home/chat/irc/sources/orb
 git clone https://github.com/Zell40/entrenous-orbit.git /home/chat/irc/sources/entrenous-orbit
 chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh
 
-# Pointer le cron vers le NOUVEAU deploy.sh :
+# Pointer le cron vers le NOUVEAU deploy.sh (test only, jamais --prod) :
 #   /home/chat/irc/sources/entrenous-orbit/deploy.sh
 
 /home/chat/irc/sources/entrenous-orbit/deploy.sh --force
+# Prod (après backup Kiwi + vhost webapp calqué sur webapp2) :
+# /home/chat/irc/sources/entrenous-orbit/deploy.sh --prod
 ```
 
 Les `*.local.php` et dossiers d’upload dans `webchat-new/` restent en place.
