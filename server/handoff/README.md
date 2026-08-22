@@ -39,7 +39,8 @@ Le champ POST `listen` (`cp` ou `reg`, défaut `reg`) pose le cookie HttpOnly
 le websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`).
 
 Le champ POST `bouncer=1` + `znc_pass` (mot de passe ZNC) pose
-`orbit_handoff.bouncer` et un `PASS user:motdepasse` (user = `account` NickServ).
+`orbit_handoff.bouncer` et un `PASS user:motdepasse`. `user` vient de `znc_user`
+(sensible à la casse) ; à défaut `account` NickServ, puis le nick.
 Orbit se connecte alors à `config.server.bouncerUrl` au lieu du websocket IRC.
 Pas de cookie JWT de reprise (ZNC ne doit pas être auto-reconnecté).
 

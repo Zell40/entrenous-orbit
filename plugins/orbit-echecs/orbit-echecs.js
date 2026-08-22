@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 43;
+  var OEC_VER = 44;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -430,6 +430,96 @@
     var n = String(nick || '').toLowerCase();
     return n === 'capechecs' || n === 'jeuechecs' || n === 'botserv' ||
       n === 'chanserv' || n === 'nickserv' || n === 'hostserv' || n === 'operserv';
+  }
+
+  function findIrcBuffer(orbit, bufferKey) {
+    var st = (orbit && orbit.state && orbit.state.get && orbit.state.get()) || {};
+    var buffers = st.buffers || {};
+    if (buffers[bufferKey]) return buffers[bufferKey];
+    var want = normChan(resolveChannelName(orbit, bufferKey) || bufferKey);
+    var keys = Object.keys(buffers);
+    for (var i = 0; i < keys.length; i++) {
+      var b = buffers[keys[i]];
+      if (b && normChan(b.name || keys[i]) === want) return b;
+    }
+    return null;
+  }
+
+  function inviteCandidates(orbit, bufferKey) {
+    var me = myNick(orbit);
+    var st = (orbit && orbit.state && orbit.state.get && orbit.state.get()) || {};
+    var byLow = Object.create(null);
+    function add(nick, flags) {
+      var raw = String(nick || '').replace(/^[@+%~&]/, '').trim();
+      if (!raw) return;
+      var low = raw.toLowerCase();
+      if (!low || low === me || isServiceNick(low)) return;
+      var cur = byLow[low];
+      if (!cur) {
+        byLow[low] = { nick: raw, inChan: !!flags.inChan, friend: !!flags.friend };
+        return;
+      }
+      if (flags.inChan) { cur.inChan = true; cur.nick = raw; }
+      if (flags.friend) cur.friend = true;
+    }
+    var buf = findIrcBuffer(orbit, bufferKey);
+    var members = (buf && buf.members) || {};
+    Object.keys(members).forEach(function (k) {
+      var m = members[k];
+      add((m && m.nick) || k, { inChan: true });
+    });
+    (st.friends || []).forEach(function (n) { add(n, { friend: true }); });
+    var list = Object.keys(byLow).map(function (k) { return byLow[k]; });
+    list.sort(function (a, b) {
+      if (a.inChan !== b.inChan) return a.inChan ? -1 : 1;
+      if (a.friend !== b.friend) return a.friend ? -1 : 1;
+      return a.nick.toLowerCase().localeCompare(b.nick.toLowerCase(), 'fr');
+    });
+    return list;
+  }
+
+  function applyInviteFilter(root) {
+    if (!root) return;
+    var input = root.querySelector('#oec-invite');
+    var list = root.querySelector('#oec-invite-list');
+    if (!input || !list) return;
+    var q = String(input.value || '').trim().toLowerCase();
+    var nicks = list.querySelectorAll('.oec-invite__nick');
+    var shown = 0;
+    for (var i = 0; i < nicks.length; i++) {
+      var nick = String(nicks[i].getAttribute('data-val') || '').toLowerCase();
+      var ok = !q || nick.indexOf(q) >= 0;
+      nicks[i].classList.toggle('is-hide', !ok);
+      nicks[i].classList.toggle('is-on', !!q && nick === q);
+      if (ok) shown++;
+    }
+    var empty = list.querySelector('.oec-invite__empty');
+    if (empty) {
+      if (!nicks.length) empty.classList.remove('is-hide');
+      else empty.classList.toggle('is-hide', shown > 0);
+    }
+  }
+
+  function renderInvitePicker(orbit, buffer) {
+    var q = String(ui.setup.invite || '');
+    var rows = inviteCandidates(orbit, buffer);
+    var html = '<div class="oec-invite">' +
+      '<input id="oec-invite" type="text" maxlength="32" autocomplete="off" spellcheck="false" ' +
+      'placeholder="Cherche un pseudo…" value="' + escHtml(q) + '">' +
+      '<div class="oec-invite__list" id="oec-invite-list" role="listbox">';
+    rows.forEach(function (row) {
+      var tags = '';
+      if (row.inChan) tags += '<span class="oec-invite__tag">salon</span>';
+      if (row.friend) tags += '<span class="oec-invite__tag oec-invite__tag--ami">ami</span>';
+      html += '<button type="button" class="oec-invite__nick" data-act="invite-pick" data-val="' +
+        escHtml(row.nick) + '" role="option"><b>' + escHtml(row.nick) + '</b>' + tags + '</button>';
+    });
+    html += '<p class="oec-invite__empty' + (rows.length ? ' is-hide' : '') + '">' +
+      (rows.length
+        ? 'Aucun résultat — tu peux quand même lancer avec ce pseudo.'
+        : 'Personne d’autre dans le salon. Tape un pseudo.') +
+      '</p></div></div>';
+    return html;
   }
 
   function noteIncomingChat(orbit, msg) {
@@ -1574,6 +1664,18 @@
       '.oec-elo b{color:#14532d}',
       '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
+      '.oec-invite{display:flex;flex-direction:column;gap:.28rem;margin-top:.35rem}',
+      '.oec-invite input{width:100%;box-sizing:border-box;border:1px solid #d7ccb8;border-radius:10px;padding:.36rem .55rem;font-size:.8rem;font-weight:700;background:#fff;color:#3f3a32}',
+      '.oec-invite input:focus{outline:0;border-color:#166534;box-shadow:0 0 0 2px rgba(22,101,52,.18)}',
+      '.oec-invite__list{max-height:9.6rem;overflow:auto;border:1px solid #e4d9c5;border-radius:10px;background:#faf6ee;display:flex;flex-direction:column;padding:.12rem}',
+      '.oec-invite__nick{display:flex;align-items:center;gap:.35rem;border:0;background:transparent;text-align:left;padding:.3rem .42rem;border-radius:8px;cursor:pointer;font-size:.78rem;color:#3f3a32}',
+      '.oec-invite__nick:hover,.oec-invite__nick.is-on{background:#e8f5e9}',
+      '.oec-invite__nick.is-hide{display:none!important}',
+      '.oec-invite__nick b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.oec-invite__tag{font-size:.58rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;padding:.08rem .32rem;border-radius:999px;background:#e8dcc4;color:#5c564c;flex:0 0 auto}',
+      '.oec-invite__tag--ami{background:#dcfce7;color:#166534}',
+      '.oec-invite__empty{margin:.3rem .4rem;font-size:.72rem;color:#7c7468}',
+      '.oec-invite__empty.is-hide{display:none}',
       '.oec-game-actions{flex:0 0 auto;z-index:5;display:flex;flex-wrap:wrap;gap:.35rem;margin:0;padding:.4rem .7rem .55rem;background:#141613;border-top:1px solid rgba(255,255,255,.1)}',
       '.oec-game-actions .oec-btn{flex:1 1 auto;min-width:6.5rem}',
       '.oec-home-actions{flex:0 0 auto;z-index:4;margin:0;padding:.45rem .7rem .65rem;background:#f6f1e7;border-top:1px solid #e4d9c5}',
@@ -1978,8 +2080,7 @@
           pill('setup-duo', 'friend', 'Un ami précis', s.duo || 'open') +
           '</div>' +
           ((s.duo || 'open') === 'friend'
-            ? '<div class="oec-link" style="margin-top:.35rem"><input id="oec-invite" type="text" maxlength="32" placeholder="Pseudo IRC de ton ami" value="' +
-              escHtml(s.invite || '') + '"></div>'
+            ? renderInvitePicker(orbit, (orbit.state && orbit.state.active && orbit.state.active()) || '')
             : '<p class="oec-home-lead" style="margin-top:.3rem">N’importe qui dans le salon peut rejoindre.</p>') +
           '</div>') +
       '<div class="oec-card oec-card--wide"><h3>Cadence (Chess.com)</h3><div class="oec-pills">' +
@@ -2265,6 +2366,7 @@
     var meta2 = root.querySelector('.oec-meta');
     if (stage2) stage2.scrollTop = scrollY;
     if (meta2) meta2.scrollTop = metaY;
+    applyInviteFilter(root);
     fitPanelToViewport();
   }
 
@@ -2463,6 +2565,11 @@
       bump();
       return;
     }
+    if (act === 'invite-pick') {
+      ui.setup.invite = val || '';
+      bump();
+      return;
+    }
     if (act === 'view-full') { setViewMode(orbit, VIEW_FULL); return; }
     if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
@@ -2622,7 +2729,10 @@
       bindBoardPointer(root, orbit);
       root.addEventListener('input', function (ev) {
         if (ev.target && ev.target.id === 'oec-cc') ui.ccUser = ev.target.value;
-        if (ev.target && ev.target.id === 'oec-invite') ui.setup.invite = ev.target.value;
+        if (ev.target && ev.target.id === 'oec-invite') {
+          ui.setup.invite = ev.target.value;
+          applyInviteFilter(root);
+        }
       });
       root.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Enter' || !ev.target || ev.target.id !== 'oec-cc') return;

@@ -38,6 +38,7 @@ if ($listen !== 'cp') {
 }
 $bouncer = isset($_POST['bouncer']) && (string) $_POST['bouncer'] === '1';
 $znc_pass = isset($_POST['znc_pass']) ? (string) $_POST['znc_pass'] : '';
+$znc_user = isset($_POST['znc_user']) ? trim((string) $_POST['znc_user']) : '';
 
 if ($nick === '') {
     http_response_code(400);
@@ -88,7 +89,8 @@ $payload = [
     't' => (int) round(microtime(true) * 1000),
 ];
 if ($bouncer) {
-    $zncUser = $account !== '' ? $account : $nick;
+    // ZNC usernames are case-sensitive (zell ≠ Zell). Prefer the explicit field.
+    $zncUser = $znc_user !== '' ? $znc_user : ($account !== '' ? $account : $nick);
     $payload['bouncer'] = true;
     $payload['password'] = $zncUser . ':' . $znc_pass;
 } else {
