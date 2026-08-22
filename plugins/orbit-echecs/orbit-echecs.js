@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 29;
+  var OEC_VER = 31;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -687,7 +687,8 @@
 
   function reviewSink(gid, prev) {
     if (archiveGame && (!gid || String(archiveGame.gid) === String(gid))) return 'archive';
-    if (prev && prev.status === 'ended' && (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
+    if (prev && (prev.status === 'ended' || prev.status === 'playing') && (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
+    if (prev && prev.status === 'ended') return 'state';
     return '';
   }
 
@@ -1056,6 +1057,7 @@
       if (tagVal(tags, '+nick') && !eventForMe(tags)) return;
       var err = tagVal(tags, '+text');
       if (err === 'idle') {
+        if (prev.status === 'idle') return;
         ui.sel = '';
         ui.promo = null;
         ui.navPly = -1;
@@ -1224,14 +1226,14 @@
       'body.oec-split .oec-board-wrap{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
       'body.oec-split .oec-meta{max-width:none;width:100%;flex:0 0 auto}',
       '.oec-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
-      '.oec-sq{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden;cursor:pointer}',
+      '.oec-sq{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:100%;height:100%;overflow:visible;cursor:pointer}',
       '.oec-sq--light{background:#eed7ac}',
       '.oec-sq--dark{background:#b58863}',
       '.oec-sq--last{box-shadow:inset 0 0 0 100px rgba(205,210,106,.42)}',
       '.oec-sq--sel,.oec-sq--drag{box-shadow:inset 0 0 0 3px #14532d}',
       '.oec-sq--pre{box-shadow:inset 0 0 0 100px rgba(220,38,38,.34)}',
       '.oec-sq--pre.oec-sq--sel{box-shadow:inset 0 0 0 100px rgba(220,38,38,.34),inset 0 0 0 3px #7f1d1d}',
-      '.oec-sq__mark{position:absolute;top:3px;right:3px;min-width:1.05rem;height:1.05rem;padding:0 .18rem;border-radius:999px;font-size:.52rem;font-weight:800;display:grid;place-items:center;z-index:3;pointer-events:none;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.35)}',
+      '.oec-sq__mark{position:absolute;top:2px;right:2px;min-width:1.4rem;height:1.4rem;padding:0 .2rem;border-radius:999px;font-size:.68rem;font-weight:800;display:grid;place-items:center;z-index:8;pointer-events:none;line-height:1;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45)}',
       '.oec-sq__mark--br{background:#06b6d4;color:#042f2e}',
       '.oec-sq__mark--gr{background:#14b8a6;color:#042f2e}',
       '.oec-sq__mark--bs,.oec-sq__mark--ex{background:#22c55e;color:#052e16}',
@@ -1300,7 +1302,8 @@
       '.oec-acc small{opacity:.75;font-size:.68rem}',
       '.oec-rev-counts{display:flex;flex-wrap:wrap;gap:.25rem;margin:.2rem 0 .45rem}',
       '.oec-rev-counts span{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .45rem;background:rgba(255,255,255,.1)}',
-      '.oec-tip{margin:.35rem 0 .45rem;padding:.5rem .55rem;border-radius:10px;background:rgba(0,0,0,.22);font-size:.78rem;line-height:1.4}',
+      '.oec-tip{margin:.35rem 0 .45rem;padding:.55rem .6rem;border-radius:10px;background:rgba(0,0,0,.28);font-size:.82rem;line-height:1.4}',
+      '.oec-tip .oec-badge{margin-right:.25rem}',
       '.oec-tip b{display:block;margin-bottom:.15rem}',
       '.oec-tip__best{display:block;margin-top:.2rem;color:#67e8f9;font-weight:700}',
       '.oec-eval-hint{margin:.15rem 0 .35rem;font-size:.68rem;opacity:.8}',
@@ -1487,7 +1490,7 @@
         if (showRank) html += '<span class="oec-sq__coord oec-sq__coord--rank">' + (rank + 1) + '</span>';
         if (piece) html += pieceSvg(piece);
         if (preGhost[name]) html += pieceSvg(preGhost[name], 'oec-piece oec-piece--pre');
-        if (game.status === 'ended' && name === lastTo && game._revClass) {
+        if (name === lastTo && game._revClass) {
           html += '<span class="oec-sq__mark oec-sq__mark--' + game._revClass + '">' +
             escHtml(revGlyph(game._revClass)) + '</span>';
         }
@@ -1584,7 +1587,6 @@
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
         '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) + '</button>' +
-      '<button type="button" class="oec-head__btn" data-act="sync" title="Sync">↻</button>' +
       '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
         '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
         iconSvg('settings') + '</button>' +
@@ -1913,10 +1915,16 @@
 
   function coachCard(view) {
     if (!view || !view.lastSan) return '';
-    if (!view._revClass) return '<div class="oec-tip">Analyse de ' + escHtml(view.lastSan) + '…</div>';
+    if (!view._revClass) {
+      return '<div class="oec-tip"><span class="oec-spin" aria-hidden="true"></span> Analyse de ' +
+        escHtml(view.lastSan) + '…</div>';
+    }
+    var best = view._revBestSan
+      ? '<span class="oec-tip__best">Meilleur : ' + escHtml(view._revBestSan) + '</span>'
+      : '';
     return '<div class="oec-tip"><span class="oec-badge oec-badge--' + view._revClass + '">' +
       escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan) +
-      ' — ' + escHtml(revTip(view._revClass, view._revBestSan)) + '</div>';
+      ' — ' + escHtml(revTip(view._revClass, view._revBestSan)) + best + '</div>';
   }
 
   function countChip(label, n, code, always) {
@@ -2271,7 +2279,6 @@
       }
       return;
     }
-    if (act === 'sync') { sent('sync'); return; }
     if (act === 'start-setup') {
       if (ui.setup.vs === 'duo' && ui.setup.duo === 'friend' && !String(ui.setup.invite || '').trim()) {
         patchState(buffer, { flash: 'Indique le pseudo de ton ami.' });
@@ -2319,8 +2326,22 @@
       var prev = getState(buffer);
       ui.navPly = -1;
       archiveGame = null;
-      patchState(buffer, Object.assign(defaultState(), keepProfile(prev)));
+      var kept = keepProfile(prev);
+      var me = myNick(orbit);
+      if (prev.status === 'ended' && !prev._archive && me) {
+        var mineW = String(prev.white || '').toLowerCase() === me;
+        var mineB = String(prev.black || '').toLowerCase() === me;
+        var nextElo = mineW ? prev.eloW : (mineB ? prev.eloB : '');
+        if (nextElo && String(nextElo) !== 'IA') {
+          if (String(kept.elo) !== String(nextElo)) {
+            kept.eloGames = String((Number(kept.eloGames) || 0) + 1);
+          }
+          kept.elo = String(nextElo);
+        }
+      }
+      patchState(buffer, Object.assign(defaultState(), kept));
       sent('historique');
+      sent('elo');
       return;
     }
     if (act === 'revoir') {
