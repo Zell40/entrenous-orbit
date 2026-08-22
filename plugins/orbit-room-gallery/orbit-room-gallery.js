@@ -121,6 +121,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       }
     } catch (e) { log('room-images fetch failed', e); }
     mapLoaded = true;
+    try { window.__orbitRoomImagesReady = true; } catch (e) { /* ignore */ }
+    try { orbit.emit('room-images-ready'); } catch (e) { /* ignore */ }
     mapListeners.forEach((f) => f());
     return imageMap;
   }

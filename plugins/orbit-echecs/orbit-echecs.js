@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 33;
+  var OEC_VER = 34;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1152,6 +1152,24 @@
     return normalizeViewMode(viewMode);
   }
 
+  function chromeBottom() {
+    var vv = window.visualViewport;
+    var vh = (vv && vv.height) || window.innerHeight || 0;
+    var extra = 0;
+    var nodes = document.querySelectorAll(
+      'body > nav, #app nav, .app-nav, .orbit-navbar, #orbit-navbar, [class*="navbar"], [class*="tabbar"]'
+    );
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || el.closest && el.closest('#oec-dom-panel')) continue;
+      var r = el.getBoundingClientRect();
+      if (r.height >= 36 && r.height <= 140 && r.top > vh * 0.55 && r.bottom >= vh - 12) {
+        extra = Math.max(extra, Math.ceil(vh - r.top));
+      }
+    }
+    return extra;
+  }
+
   function fitPanelToViewport() {
     var root = document.getElementById('oec-dom-panel');
     var main = document.querySelector('.main');
@@ -1161,6 +1179,8 @@
     if (!full && !split) {
       root.style.height = '';
       root.style.maxHeight = '';
+      root.style.removeProperty('height');
+      root.style.removeProperty('max-height');
       if (main) {
         main.style.height = '';
         main.style.maxHeight = '';
@@ -1174,17 +1194,24 @@
     var vv = window.visualViewport;
     var vh = (vv && vv.height) || window.innerHeight || 0;
     if (vv) top -= vv.offsetTop || 0;
+    var bottom = chromeBottom();
     if (full && main) {
       main.style.height = Math.round(vh) + 'px';
       main.style.maxHeight = Math.round(vh) + 'px';
     }
-    var h = Math.floor(vh - Math.max(0, top));
+    var h = Math.floor(vh - Math.max(0, top) - bottom);
     if (split && window.matchMedia('(max-width:999px)').matches) {
       h = Math.min(h, Math.floor(vh * 0.58));
     }
+    var wide = window.matchMedia('(min-width:880px)').matches;
     if (h > 80) {
-      root.style.height = h + 'px';
-      root.style.maxHeight = h + 'px';
+      if (wide) {
+        root.style.setProperty('height', h + 'px', 'important');
+        root.style.setProperty('max-height', h + 'px', 'important');
+      } else {
+        root.style.height = h + 'px';
+        root.style.maxHeight = h + 'px';
+      }
     }
   }
 
@@ -1233,8 +1260,10 @@
       'body.oec-full,body.oec-full html{overflow:hidden}',
       'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;height:100svh;max-height:100dvh}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
-      'body.oec-full #oec-dom-panel{flex:1 1 auto;min-height:0;height:auto!important;max-height:none}',
-      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;height:auto!important;max-height:calc(100dvh - 9.25rem)!important;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
+      'body.oec-full #oec-dom-panel{flex:1 1 auto;min-height:0}',
+      '@media(max-width:879px){body.oec-full #oec-dom-panel{height:auto!important;max-height:none}}',
+      '@media(min-width:880px){body.oec-full #oec-dom-panel{flex:1 1 0;min-height:0;max-height:none;overflow:hidden;display:flex;flex-direction:column}}',
+      '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column;overflow:hidden}body.oec-split #oec-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
       '.oec-head{position:relative;display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto;overflow:visible;z-index:30}',
       '.oec-head__title{font-weight:800;font-size:.88rem}',
@@ -1438,6 +1467,8 @@
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
       '.oec-home-actions{flex:0 0 auto;z-index:4;margin:0;padding:.45rem .7rem .65rem;background:#f6f1e7;border-top:1px solid #e4d9c5}',
       '.oec-home-actions .oec-btn--pri{width:100%;min-height:34px}',
+      '.oec-home-actions--inflow{display:none;grid-column:1/-1;margin:0;padding:.1rem 0 .15rem;background:transparent;border:0}',
+      '@media(min-width:880px){.oec-home-actions--inflow{display:flex}.oec-panel>.oec-home-actions{display:none!important}.oec-home-actions--inflow .oec-btn--pri{min-height:42px;font-size:.88rem}}',
       '.oec-panel--home .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
       '.oec-panel--home .oec-btn:hover{border-color:#166534;color:#14532d}',
       '.oec-panel--home .oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
@@ -1838,6 +1869,7 @@
       pill('setup-tc', 'rapide', 'Rapide 10+0', s.tc) +
       pill('setup-tc', 'rapide15', 'Rapide 15+10', s.tc) +
       '</div></div>' +
+      renderHomeLaunch(game, 'oec-home-actions--inflow') +
       enCard + ccCard +
       renderHistory(game) +
       '</div>' +
@@ -1845,9 +1877,9 @@
       '</div>';
   }
 
-  function renderHomeLaunch(game) {
+  function renderHomeLaunch(game, extraClass) {
     var s = ui.setup;
-    return '<div class="oec-actions oec-home-actions">' +
+    return '<div class="oec-actions oec-home-actions' + (extraClass ? ' ' + extraClass : '') + '">' +
       '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">' +
       ((s.vs === 'duo' && s.duo === 'friend') ? 'Défier' : 'Lancer la partie') +
       '</button></div>';
