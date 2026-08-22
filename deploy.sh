@@ -178,13 +178,15 @@ log "build orbit ok"
 
 # --- publish Orbit dist, preserving runtime upload data + secrets ---
 # IMPORTANT: any WEBROOT file not in dist/ is deleted by --delete unless
-# excluded below. Operator secrets (*.local.php) must always be excluded.
+# excluded below. Operator secrets (*.local.php) and gallery uploads must
+# never be deleted or replaced — exclude the whole plugin dirs, then overlay
+# recopies only the JS/PHP (never .local.php, never room-images-uploads/).
 log "publish orbit dist to webroot"
 rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
-  --exclude="/$GALLERY_DIR/room-images.local.php" \
-  --exclude="/$GALLERY_DIR/room-images.json" \
-  --exclude="/$ROOM_IMAGES_UPLOADS_DIR" \
-  --exclude="/$CONFERENCE_DIR/visio-jwt.local.php" \
+  --exclude='*.local.php' \
+  --filter='P *.local.php' \
+  --filter="P /$GALLERY_DIR/" \
+  --exclude="/$GALLERY_DIR/" \
   --exclude="/$CONFERENCE_DIR/" \
   --exclude="/plugins/third/orbit-helpserv-welcome/" \
   --exclude="/plugins/third/orbit-petitbac/" \
@@ -194,14 +196,10 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-callerid/" \
   --exclude="/plugins/third/orbit-asl/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
-  --exclude="/filehost-upload.local.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
-  --exclude="/chat-resume.local.php" \
-  --exclude="/avatars.local.php" \
   --exclude="/handoff.php" \
   --exclude="/chat-resume.php" \
   --exclude="/room-images.php" \
-  --exclude="/room-images.local.php" \
   --exclude="/room-images.json" \
   --exclude="/room-images-uploads" \
   --exclude="/.user.ini" \
@@ -209,7 +207,8 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
 
 # --- overlay EntreNous extras from THIS repo ---
 log "overlay entrenous files"
-mkdir -p "$WEBROOT/$GALLERY_DIR"
+mkdir -p "$WEBROOT/$GALLERY_DIR" "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR"
+# Code only — never cp room-images.local.php nor room-images-uploads/.
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/orbit-room-gallery.js" \
       "$WEBROOT/$GALLERY_DIR/"
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/room-images.php" \
@@ -219,6 +218,12 @@ cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.user.ini" \
       "$WEBROOT/$GALLERY_DIR/.user.ini"
 cp -f "$PLUGINS_REPO/plugins/orbit-room-gallery/.htaccess" \
       "$WEBROOT/$GALLERY_DIR/.htaccess"
+if [ -f "$WEBROOT/$GALLERY_DIR/room-images.local.php" ]; then
+  log "keep $WEBROOT/$GALLERY_DIR/room-images.local.php (secrets preserved)"
+fi
+if [ -d "$WEBROOT/$ROOM_IMAGES_UPLOADS_DIR" ]; then
+  log "keep $WEBROOT/$ROOM_IMAGES_UPLOADS_DIR (room pictures preserved)"
+fi
 
 # HelpServ welcome (AideMoi / SignalMoi query intro)
 HELPSERV_WELCOME_DIR="plugins/third/orbit-helpserv-welcome"
@@ -383,19 +388,24 @@ if [ -f "$MAP" ] \
   echo "$(date -Is) rewrote legacy room-images URLs in room-images.json"
 fi
 
-# Drop obsolete web-root gallery copies once the plugin bundle is in place.
-# (rsync --exclude kept them forever; the JS only talks to $GALLERY_DIR/.)
+# Drop obsolete web-root gallery *code* once the plugin bundle is in place.
+# Never delete a root room-images.local.php unless the gallery copy already
+# exists (the operator may have restored secrets at the old path).
 if [ -f "$WEBROOT/$GALLERY_DIR/room-images.php" ]; then
-  for stale in \
-    "$WEBROOT/room-images.php" \
-    "$WEBROOT/room-images.local.php" \
-    "$WEBROOT/room-images.json"
-  do
+  for stale in "$WEBROOT/room-images.php" "$WEBROOT/room-images.json"; do
     if [ -e "$stale" ]; then
       rm -f "$stale"
       echo "$(date -Is) removed obsolete $(basename "$stale") from WEBROOT (use $GALLERY_DIR/)"
     fi
   done
+  if [ -f "$WEBROOT/room-images.local.php" ]; then
+    if [ -f "$WEBROOT/$GALLERY_DIR/room-images.local.php" ]; then
+      rm -f "$WEBROOT/room-images.local.php"
+      echo "$(date -Is) removed obsolete room-images.local.php from WEBROOT (gallery copy kept)"
+    else
+      echo "$(date -Is) NOTE: WEBROOT/room-images.local.php left in place — copy it to $GALLERY_DIR/ then delete the root file"
+    fi
+  fi
   # Empty leftover uploads dir only — never delete if it still has files.
   if [ -d "$WEBROOT/room-images-uploads" ] \
     && [ -z "$(find "$WEBROOT/room-images-uploads" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)" ]; then

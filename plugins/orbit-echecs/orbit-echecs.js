@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 34;
+  var OEC_VER = 36;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1002,7 +1002,7 @@
       var rev = Object.assign(emptyReview(), base || {});
       var fromPly = Math.max(1, Number(tagVal(tags, '+from')) || 1);
       var cls = String(tagVal(tags, '+cls') || '').split(',');
-      var evs = String(tagVal(tags, '+ev') || '').split(',');
+      var evs = String(tagVal(tags, '+cps') || tagVal(tags, '+cp') || '').split(',');
       var bps = String(tagVal(tags, '+bp') || '').split(',');
       var bss = String(tagVal(tags, '+bs') || '').split(',');
       rev.cls = (rev.cls || []).slice();
@@ -1156,17 +1156,30 @@
     var vv = window.visualViewport;
     var vh = (vv && vv.height) || window.innerHeight || 0;
     var extra = 0;
-    var nodes = document.querySelectorAll(
-      'body > nav, #app nav, .app-nav, .orbit-navbar, #orbit-navbar, [class*="navbar"], [class*="tabbar"]'
-    );
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      if (!el || el.closest && el.closest('#oec-dom-panel')) continue;
+    function consider(el) {
+      if (!el || (el.closest && el.closest('#oec-dom-panel'))) return;
+      var st = window.getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return;
       var r = el.getBoundingClientRect();
-      if (r.height >= 36 && r.height <= 140 && r.top > vh * 0.55 && r.bottom >= vh - 12) {
+      if (r.height >= 32 && r.height <= 160 && r.width > 80 && r.top > vh * 0.45 && r.bottom >= vh - 20) {
         extra = Math.max(extra, Math.ceil(vh - r.top));
       }
     }
+    var nodes = document.querySelectorAll(
+      'nav, footer, [role="navigation"], [role="tablist"], [class*="nav"], [class*="tabbar"], [class*="tab-bar"], [class*="dock"], [id*="nav"]'
+    );
+    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
+    var roots = [document.body];
+    var app = document.getElementById('app') || document.querySelector('.app, #orbit, .orbit');
+    if (app) roots.push(app);
+    roots.forEach(function (root) {
+      if (!root || !root.children) return;
+      for (var j = 0; j < root.children.length; j++) {
+        var child = root.children[j];
+        var pos = window.getComputedStyle(child).position;
+        if (pos === 'fixed' || pos === 'sticky') consider(child);
+      }
+    });
     return extra;
   }
 
@@ -1215,16 +1228,34 @@
     }
   }
 
+  function clearShellLayout() {
+    document.body.classList.remove('oec-full', 'oec-split');
+    var root = document.getElementById('oec-dom-panel');
+    var main = document.querySelector('.main');
+    if (root) {
+      root.style.display = 'none';
+      root.style.removeProperty('height');
+      root.style.removeProperty('max-height');
+    }
+    if (main) {
+      main.style.removeProperty('height');
+      main.style.removeProperty('max-height');
+    }
+  }
+
   function applyViewMode(orbit, mode) {
     mode = normalizeViewMode(mode);
     viewMode = mode;
     var on = !!(orbit && isChessChannel(orbit, orbit.state.active()));
+    if (!on) {
+      clearShellLayout();
+      return;
+    }
     var root = document.getElementById('oec-dom-panel');
-    document.body.classList.toggle('oec-full', on && mode === VIEW_FULL);
-    document.body.classList.toggle('oec-split', on && mode === VIEW_SPLIT);
+    document.body.classList.toggle('oec-full', mode === VIEW_FULL);
+    document.body.classList.toggle('oec-split', mode === VIEW_SPLIT);
     if (!root) return;
     root.classList.remove('oec-panel--full', 'oec-panel--split', 'oec-panel--chat');
-    if (!on) return;
     if (mode === VIEW_CHAT) {
       root.classList.add('oec-panel--chat');
       root.style.display = '';
@@ -1256,7 +1287,7 @@
       '.oec-panel--full{flex:1 1 auto;min-height:0;max-height:100%;border-bottom:0}',
       '.oec-panel--split{flex:1 1 auto;min-height:0;max-height:100%}',
       '.oec-panel--chat{flex:0 0 auto;min-height:0;height:auto!important;max-height:none!important}',
-      '.oec-panel--chat .oec-stage,.oec-panel--chat .oec-home-actions{display:none!important}',
+      '.oec-panel--chat .oec-stage,.oec-panel--chat .oec-home-actions,.oec-panel--chat .oec-game-actions{display:none!important}',
       'body.oec-full,body.oec-full html{overflow:hidden}',
       'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;height:100svh;max-height:100dvh}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
@@ -1286,13 +1317,13 @@
       '.oec-spin{width:16px;height:16px;border:2px solid #d7ccb8;border-top-color:#166534;border-radius:50%;animation:oec-spin .7s linear infinite;flex:0 0 auto}',
       '@keyframes oec-spin{to{transform:rotate(360deg)}}',
       '.oec-panel--menu{overflow:visible}',
-      '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:1.1rem;padding:.55rem .7rem .65rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#166534 rgba(22,101,52,.15)}',
+      '.oec-stage{flex:1 1 auto;min-height:0;display:flex;align-items:flex-start;justify-content:flex-start;gap:1.1rem;padding:.55rem .7rem .65rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#166534 rgba(22,101,52,.15)}',
       '.oec-stage::-webkit-scrollbar{width:8px}',
       '.oec-stage::-webkit-scrollbar-thumb{background:rgba(22,101,52,.35);border-radius:999px}',
       '.oec-panel--home .oec-stage{align-items:stretch;justify-content:flex-start;flex-direction:column;flex:1 1 auto;min-height:0}',
       'body.oec-split .oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.65rem}',
       'body.oec-split .oec-board-wrap{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
-      'body.oec-split .oec-meta{max-width:none;width:100%;flex:0 0 auto}',
+      'body.oec-split .oec-meta{max-width:none;width:100%;flex:1 1 auto;min-height:0;overflow:auto}',
       '.oec-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));width:100%;aspect-ratio:1/1;height:auto;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.08);touch-action:none;user-select:none}',
       '.oec-sq{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:100%;height:100%;overflow:visible;cursor:pointer}',
       '.oec-sq--light{background:#eed7ac}',
@@ -1327,7 +1358,7 @@
       '.oec-sq__coord--rank{left:3px;top:3px}',
       '.oec-sq--dark .oec-sq__coord{color:#f5e6cc}',
       '.oec-sq--light .oec-sq__coord{color:#6b4f34}',
-      '.oec-meta{flex:0 1 16rem;min-width:12rem;max-width:18rem}',
+      '.oec-meta{flex:1 1 16rem;min-width:12rem;max-width:22rem;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}',
       '.oec-players{margin:0 0 .5rem;font-size:.86rem;line-height:1.5}',
       '.oec-clock{display:flex;flex-direction:column;gap:.28rem;margin:0 0 .7rem}',
       '.oec-clock > span{display:flex;flex-direction:column;gap:.12rem;background:rgba(255,255,255,.06);border-radius:10px;padding:.4rem .55rem;font-weight:700}',
@@ -1355,7 +1386,7 @@
       '.oec-board-col{display:flex;align-items:stretch;gap:.4rem;width:min(100%,calc(100dvh - 7.2rem));max-width:min(72dvh,100%);flex:0 0 auto}',
       '.oec-board-col .oec-board-wrap{width:100%;max-width:none;flex:1 1 auto}',
       'body.oec-split .oec-board-col{width:min(100%,calc(100dvh - 9.5rem));max-width:100%;margin:0 auto}',
-      '.oec-eval{position:relative;flex:0 0 18px;width:18px;border-radius:9px;overflow:hidden;background:#0c0a09;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
+      '.oec-eval{position:relative;flex:0 0 18px;width:18px;align-self:stretch;min-height:12rem;border-radius:9px;overflow:hidden;background:#0c0a09;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
       '.oec-eval__fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#fff7ed,#f5f0e6);transition:height .25s ease}',
       '.oec-eval__lab{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:.52rem;font-weight:800;color:#fde68a;writing-mode:vertical-rl;pointer-events:none;text-shadow:0 0 4px #000}',
       '.oec-eval__b,.oec-eval__w{position:absolute;left:0;right:0;text-align:center;font-size:.48rem;font-weight:800;pointer-events:none;z-index:1}',
@@ -1465,6 +1496,8 @@
       '.oec-elo b{color:#14532d}',
       '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
+      '.oec-game-actions{flex:0 0 auto;z-index:5;display:flex;flex-wrap:wrap;gap:.35rem;margin:0;padding:.4rem .7rem .55rem;background:#141613;border-top:1px solid rgba(255,255,255,.1)}',
+      '.oec-game-actions .oec-btn{flex:1 1 auto;min-width:6.5rem}',
       '.oec-home-actions{flex:0 0 auto;z-index:4;margin:0;padding:.45rem .7rem .65rem;background:#f6f1e7;border-top:1px solid #e4d9c5}',
       '.oec-home-actions .oec-btn--pri{width:100%;min-height:34px}',
       '.oec-home-actions--inflow{display:none;grid-column:1/-1;margin:0;padding:.1rem 0 .15rem;background:transparent;border:0}',
@@ -1475,7 +1508,8 @@
       '@media(max-width:640px){.oec-home-grid{grid-template-columns:1fr}.oec-hero{min-height:clamp(4.8rem,12vh,8rem);max-height:8rem}.oec-hero__label{font-size:.95rem}}',
       '.oec-promo{display:flex;gap:.35rem;margin:.45rem 0}',
       '.oec-promo button{width:2.6rem;height:2.6rem;border-radius:10px;border:1px solid #166534;background:#fff;cursor:pointer;padding:.2rem}',
-      '@media(max-width:720px){.oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap,.oec-board-col{width:min(100%,calc(100vw - 1.4rem));max-width:min(100%,42svh)}}',
+      '@media(min-width:721px){.oec-panel:not(.oec-panel--home) .oec-stage{align-items:stretch;overflow:hidden}.oec-panel:not(.oec-panel--home) .oec-board-col,.oec-panel:not(.oec-panel--home) .oec-board-wrap{align-self:center}.oec-panel:not(.oec-panel--home) .oec-meta{max-height:100%}}',
+      '@media(max-width:720px){.oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto}.oec-meta{max-width:none;width:100%;overflow:visible}.oec-board-wrap,.oec-board-col{width:min(100%,calc(100vw - 1.4rem));max-width:min(100%,42svh)}}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -1499,15 +1533,16 @@
     }
     var rev = game.review || emptyReview();
     var idx = (view._ply || 0) - 1;
+    view._revEval = 0;
+    view._hasEval = false;
     if (idx >= 0) {
       if (rev.cls && rev.cls[idx]) view._revClass = rev.cls[idx];
       if (rev.ev && rev.ev.length > idx && rev.ev[idx] != null && rev.ev[idx] !== '') {
-        view._revEval = rev.ev[idx];
+        view._revEval = Number(rev.ev[idx]);
+        view._hasEval = !isNaN(view._revEval);
       }
       view._revBest = (rev.bp && rev.bp[idx]) || '';
       view._revBestSan = (rev.bs && rev.bs[idx]) || '';
-    } else {
-      view._revEval = 0;
     }
     return view;
   }
@@ -1571,16 +1606,20 @@
       (ui.pendingMove ? '<div class="oec-board-wait"><span class="oec-spin" aria-hidden="true"></span></div>' : '') +
       '</div>';
     if (game.status === 'ended') {
-      var cp = Number(game._revEval);
-      if (isNaN(cp)) cp = 0;
-      var pct = Math.max(4, Math.min(96, evalWinPct(cp)));
+      var hasEval = !!game._hasEval;
+      var cp = hasEval ? Number(game._revEval) : 0;
+      if (isNaN(cp)) { cp = 0; hasEval = false; }
+      var whitePct = Math.max(4, Math.min(96, evalWinPct(cp)));
+      var fillPos = flip ? 'top:0;bottom:auto;' : 'bottom:0;top:auto;';
+      var topLab = flip ? 'B' : 'N';
+      var botLab = flip ? 'N' : 'B';
       html = '<div class="oec-board-col">' +
-        '<div class="oec-eval" title="Plus la barre est noire, plus les Noirs sont mieux. Plus elle est claire, plus les Blancs sont mieux. ' +
-        escHtml(fmtEval(cp)) + '">' +
-        '<span class="oec-eval__b">N</span>' +
-        '<div class="oec-eval__fill" style="height:' + pct.toFixed(1) + '%"></div>' +
-        '<span class="oec-eval__w">B</span>' +
-        '<span class="oec-eval__lab">' + escHtml(fmtEval(cp)) + '</span></div>' +
+        '<div class="oec-eval" title="Barre d’évaluation (POV Blancs). La zone claire est l’avantage des Blancs. ' +
+        (hasEval ? escHtml(fmtEval(cp)) : 'Analyse en cours') + '">' +
+        '<span class="oec-eval__b">' + topLab + '</span>' +
+        '<div class="oec-eval__fill" style="' + fillPos + 'height:' + whitePct.toFixed(1) + '%"></div>' +
+        '<span class="oec-eval__w">' + botLab + '</span>' +
+        '<span class="oec-eval__lab">' + (hasEval ? escHtml(fmtEval(cp)) : '…') + '</span></div>' +
         html + '</div>';
     }
     return html;
@@ -1885,6 +1924,29 @@
       '</button></div>';
   }
 
+  function renderGameFooter(orbit, game) {
+    var html = '<div class="oec-actions oec-game-actions">';
+    if (game._archive) {
+      html += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
+    } else if (game.status === 'waiting') {
+      var me = myNick(orbit);
+      var invited = String(game.invited || '').toLowerCase();
+      var creator = String(game.creator || '').toLowerCase();
+      var canJoin = invited ? invited === me : creator && creator !== me;
+      if (canJoin) html += '<button type="button" class="oec-btn oec-btn--pri" data-act="join">Rejoindre</button>';
+      if (creator === me) html += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
+    } else if (game.status === 'playing') {
+      html += '<button type="button" class="oec-btn" data-act="draw">Nulle</button>';
+      html += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
+      html += '<button type="button" class="oec-btn oec-btn--danger" data-act="resign">Abandonner</button>';
+    } else if (game.status === 'ended') {
+      html += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
+      html += '<button type="button" class="oec-btn" data-act="start-setup">Rejouer</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderHistory(game) {
     var rows = game.history || [];
     var html = '<div class="oec-card oec-card--wide"><h3>Tes parties</h3>';
@@ -2047,7 +2109,9 @@
     if (game._archive) badge = 'Relecture';
     if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + tcLabel(game.tc);
     var stage = root.querySelector('.oec-stage');
+    var meta = root.querySelector('.oec-meta');
     var scrollY = stage ? stage.scrollTop : 0;
+    var metaY = meta ? meta.scrollTop : 0;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
       renderSettings(game) + '</div>';
@@ -2103,31 +2167,16 @@
           '<button type="button" data-promo="b" title="Fou">' + pieceSvg('B') + '</button>' +
           '<button type="button" data-promo="n" title="Cavalier">' + pieceSvg('N') + '</button></div>';
       }
-      body += '<div class="oec-actions">';
-      if (game._archive) {
-        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
-      } else if (game.status === 'waiting') {
-        var me = myNick(orbit);
-        var invited = String(game.invited || '').toLowerCase();
-        var creator = String(game.creator || '').toLowerCase();
-        var canJoin = invited ? invited === me : creator && creator !== me;
-        if (canJoin) body += '<button type="button" class="oec-btn oec-btn--pri" data-act="join">Rejoindre</button>';
-        if (creator === me) body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
-      } else if (game.status === 'playing') {
-        body += '<button type="button" class="oec-btn" data-act="draw">Nulle</button>';
-        body += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
-        body += '<button type="button" class="oec-btn oec-btn--danger" data-act="resign">Abandonner</button>';
-      } else if (game.status === 'ended') {
-        body += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
-        body += '<button type="button" class="oec-btn" data-act="start-setup">Rejouer</button>';
-      }
-      body += '</div></div></div>';
+      body += '</div></div>' + renderGameFooter(orbit, game);
     }
     root.innerHTML = head + body;
     root.classList.toggle('oec-panel--home', game.status === 'idle');
     root.classList.toggle('oec-panel--menu', !!ui.settings);
     var stage2 = root.querySelector('.oec-stage');
+    var meta2 = root.querySelector('.oec-meta');
     if (stage2) stage2.scrollTop = scrollY;
+    if (meta2) meta2.scrollTop = metaY;
+    fitPanelToViewport();
   }
 
   function tryMove(orbit, buffer, from, to, promo) {
@@ -2464,12 +2513,7 @@
     var main = document.querySelector('.main');
     var topbar = main && main.querySelector('.topbar');
     if (!on || isBouncerSession(orbit)) {
-      document.body.classList.remove('oec-full', 'oec-split');
-      if (root) {
-        root.style.display = 'none';
-        root.style.height = '';
-        root.style.maxHeight = '';
-      }
+      clearShellLayout();
       bumpView();
       return;
     }
