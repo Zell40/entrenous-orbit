@@ -3,7 +3,7 @@
     "url": "https://irc.entrenous.chat/",
     "guestIdent": "ENuser",
     "bouncerUrl": "wss://bnc.reseau-entrenous.fr/webirc/websocket/",
-    "bouncerHost": "bnc.reseau-entrenous.fr:+8066"
+    "bouncerHost": "bnc.entrenous.chat:+8066"
   },
   "startup": {
     "channels": [
