@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 53;
+  var PBAC_VER = 54;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -137,6 +137,13 @@
 
   function channelEnabled(orbit, channelKey) {
     return isBacChannel(orbit, channelKey);
+  }
+
+  function isBouncerSession(orbit) {
+    try {
+      if (orbit.state.viaBouncer) return !!orbit.state.viaBouncer();
+      return !!(orbit.state.get() || {}).viaBouncer;
+    } catch (e) { return false; }
   }
 
   function stripIrc(text) {
@@ -5074,7 +5081,7 @@
   function mountDomPanel(orbit) {
     var onBac = isBacChannel(orbit, orbit.state.active());
     var root = document.getElementById('opbac-dom-panel');
-    if (!onBac) {
+    if (!onBac || isBouncerSession(orbit)) {
       hideBacPanel(root);
       return;
     }
@@ -5098,6 +5105,12 @@
     pluginOrbit = orbit;
     injectStyles();
     console.info('[orbit-petitbac] loaded v' + PBAC_VER);
+    if (orbit.requireVisualDisplay) {
+      orbit.requireVisualDisplay({
+        label: 'Petit Bac',
+        inChannel: function (ch) { return channelEnabled(orbit, ch); },
+      });
+    }
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-petitbac] dom panel', e); }

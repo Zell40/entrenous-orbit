@@ -35,6 +35,7 @@
     "subtitle": "Tchat français en direct. Choisissez un pseudo, et vous y êtes.",
     "projectUrl": "https://www.reseau-entrenous.fr/articles/NouveauWebchat",
     "registerUrl": "https://www.reseau-entrenous.fr/register/",
+    "loginUrl": "https://www.reseau-entrenous.fr/mon-entrenous/identite/",
     "links": [],
     "accent": ""
   },
@@ -121,9 +122,9 @@
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=19",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=12",
-    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=53",
-    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=26",
-    "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=2",
+    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=54",
+    "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=28",
+    "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=3",
     "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=16"
   ],
   "builtins": [],

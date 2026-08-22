@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var HP_VER = 2;
+  var HP_VER = 3;
   var HP = '+hp';
   var EV = '+ev';
   var HOUSES = {
@@ -86,6 +86,13 @@
     var c = cfg(orbit);
     if (c.channelsAll) return true;
     return c.channels.indexOf(n) >= 0;
+  }
+
+  function isBouncerSession(orbit) {
+    try {
+      if (orbit.state.viaBouncer) return !!orbit.state.viaBouncer();
+      return !!(orbit.state.get() || {}).viaBouncer;
+    } catch (e) { return false; }
   }
 
   function defaultState() {
@@ -461,7 +468,7 @@
   function mountDomPanel(orbit) {
     var on = isHpChannel(orbit, orbit.state.active());
     var root = document.getElementById('ohp-dom-panel');
-    if (!on) {
+    if (!on || isBouncerSession(orbit)) {
       if (root) {
         root.hidden = true;
         root.innerHTML = '';
@@ -488,6 +495,12 @@
     pluginOrbit = orbit;
     injectStyles();
     console.info('[orbit-harrypotter] loaded v' + HP_VER);
+    if (orbit.requireVisualDisplay) {
+      orbit.requireVisualDisplay({
+        label: 'Harry Potter',
+        inChannel: function (ch) { return isHpChannel(orbit, ch); },
+      });
+    }
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-harrypotter] panel', e); }

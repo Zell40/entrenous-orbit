@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 26;
+  var OEC_VER = 28;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -111,6 +111,13 @@
     return c.channels.indexOf(n) >= 0;
   }
 
+  function isBouncerSession(orbit) {
+    try {
+      if (orbit.state.viaBouncer) return !!orbit.state.viaBouncer();
+      return !!(orbit.state.get() || {}).viaBouncer;
+    } catch (e) { return false; }
+  }
+
   function tagVal(tags, name) {
     if (!tags) return '';
     if (Object.prototype.hasOwnProperty.call(tags, name)) return String(tags[name] || '');
@@ -181,7 +188,7 @@
   }
 
   function emptyPlayer() {
-    return { nick: '', elo: '', games: '', cc: '', rapid: '', blitz: '', bullet: '' };
+    return { nick: '', elo: '', games: '', cc: '', rapid: '', blitz: '', bullet: '', verified: false };
   }
 
   function parseRoster(raw) {
@@ -194,6 +201,7 @@
       rapid: p[4] || '',
       blitz: p[5] || '',
       bullet: p[6] || '',
+      verified: p[7] === '1',
     };
   }
 
@@ -218,7 +226,7 @@
       chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
       ccRapidBest: '', ccBlitzBest: '', ccBulletBest: '',
       ccRapidRec: '', ccBlitzRec: '', ccBulletRec: '',
-      ccLeague: '', ccTac: '',
+      ccLeague: '', ccTac: '', ccVerified: false,
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
       ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false, ccToken: '',
@@ -425,6 +433,7 @@
       ccLeague: prev.ccLeague, ccTac: prev.ccTac,
       ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
       ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr, ccReady: prev.ccReady,
+      ccVerified: prev.ccVerified,
       history: prev.history || [],
     };
   }
@@ -450,7 +459,31 @@
       ccRapidRec: one('+cc-rapid-rec', 'ccRapidRec'),
       ccBlitzRec: one('+cc-blitz-rec', 'ccBlitzRec'),
       ccBulletRec: one('+cc-bullet-rec', 'ccBulletRec'),
+      ccVerified: (function () {
+        if (!keep) return false;
+        var raw = tagVal(tags, '+cc-verified');
+        if (raw !== '') return raw === '1';
+        return prev.ccVerified === true || prev.ccVerified === '1';
+      }()),
     };
+  }
+
+  function isCcVerified(obj) {
+    var v = obj && (obj.ccVerified !== undefined ? obj.ccVerified : obj.verified);
+    return v === true || v === 1 || v === '1';
+  }
+
+  function ccVerifyBadge(verified, prompt) {
+    if (prompt === 'preview' || prompt === 'found') {
+      return '<span class="oec-vbadge oec-vbadge--wait">À confirmer</span>';
+    }
+    if (prompt === 'verify') {
+      return '<span class="oec-vbadge oec-vbadge--wait">Preuve en cours</span>';
+    }
+    if (verified) {
+      return '<span class="oec-vbadge oec-vbadge--ok">✓ Vérifié</span>';
+    }
+    return '<span class="oec-vbadge oec-vbadge--no">Non vérifié</span>';
   }
 
   function fmtRec(rec) {
@@ -479,9 +512,10 @@
     var same = name && user && name.toLowerCase() === user.toLowerCase();
     var real = (!same && name) ? '<span class="oec-cc__real">' + escHtml(name) + '</span>' : '';
     var meta = [game.ccCountry, game.ccLeague].filter(Boolean).join(' · ');
+    var badge = user ? ccVerifyBadge(isCcVerified(game), game.ccPrompt) : '';
     return '<div class="oec-cc__id">' +
-      '<p class="oec-cc__user">' + ident + '</p>' + real +
-      (meta ? '<span>' + escHtml(meta) + '</span>' : '') +
+      '<p class="oec-cc__user">' + ident + (badge ? ' ' + badge : '') + '</p>' + real +
+      (meta ? '<span class="oec-cc__meta">' + escHtml(meta) + '</span>' : '') +
       '</div>';
   }
 
@@ -1233,6 +1267,11 @@
       '.oec-clock__time{font-variant-numeric:tabular-nums;font-size:1.05rem;letter-spacing:.02em}',
       '.oec-pl__line{font-style:normal;font-size:.68rem;font-weight:700;color:#bbf7d0;opacity:.92}',
       '.oec-pl__line b{font-weight:800;color:#ecfdf5}',
+      '.oec-vbadge{display:inline-flex;align-items:center;padding:.08rem .42rem;border-radius:999px;font-size:.58rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;line-height:1.35;white-space:nowrap;vertical-align:middle}',
+      '.oec-vbadge--ok{background:#166534;color:#ecfdf5}',
+      '.oec-vbadge--no{background:#c2410c;color:#fff7ed}',
+      '.oec-vbadge--wait{background:#ea580c;color:#fff}',
+      '.oec-pl__line .oec-vbadge{margin-left:.2rem;opacity:1}',
       '.oec-cc-banner{margin:0 0 .55rem;padding:.45rem .5rem;border-radius:10px;background:#fff7ed;color:#3f3a32;border:1px solid #ea580c}',
       '.oec-cc-banner .oec-cc-preview{color:#7c2d12}',
       '.oec-cc-banner .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
@@ -1332,7 +1371,11 @@
       '.oec-cc__id{display:flex;flex-direction:column;gap:.08rem;margin:0 0 .32rem}',
       '.oec-cc__user{margin:0;font-size:1.05rem;font-weight:800;color:#14532d;line-height:1.15}',
       '.oec-cc__real{font-size:.72rem;font-weight:700;color:#57534e}',
-      '.oec-cc__id span{color:#6b7c4a;font-size:.7rem;font-weight:700}',
+      '.oec-cc__meta{color:#6b7c4a;font-size:.7rem;font-weight:700}',
+      '.oec-cc__id .oec-vbadge{margin-left:.28rem}',
+      '.oec-cc__id .oec-vbadge--ok{color:#ecfdf5}',
+      '.oec-cc__id .oec-vbadge--no{color:#fff7ed}',
+      '.oec-cc__id .oec-vbadge--wait{color:#fff}',
       '.oec-cc__stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.28rem}',
       '.oec-cc__stat{background:#f6f1e7;border-radius:8px;padding:.28rem .25rem .22rem;text-align:center}',
       '.oec-card--ok .oec-cc__stat,.oec-card--ask .oec-cc__stat{background:rgba(255,255,255,.7)}',
@@ -1566,7 +1609,10 @@
         '<button type="button" class="oec-btn oec-btn--pri" data-act="lier"' + (busy ? ' disabled' : '') + '>' +
         (busy ? '…' : 'OK') + '</button></span></label>' +
         (game.chesscom && game.ccPrompt === 'linked'
-          ? '<p>Compte actuel : <b>' + escHtml(game.chesscom) + '</b>. Change-le puis OK pour vérifier.</p>'
+          ? '<p>Compte actuel : <b>' + escHtml(game.chesscom) + '</b> ' +
+            ccVerifyBadge(isCcVerified(game)) +
+            (isCcVerified(game) ? '.' : '. Clique <b>Prouver que c’est moi</b> sur l’accueil pour le code.') +
+            '</p>'
           : '<p>Indique ton pseudo Chess.com pour lier tes classements.</p>');
     }
     return '<div class="oec-settings" role="dialog" aria-label="Paramètres">' +
@@ -1593,7 +1639,8 @@
       if (p.blitz) cc.push('blz ' + p.blitz);
       if (p.rapid) cc.push('rap ' + p.rapid);
       if (p.bullet) cc.push('bul ' + p.bullet);
-      bits.push('CC ' + (cc.length ? cc.join(' · ') : escHtml(p.cc)));
+      bits.push('CC ' + (cc.length ? cc.join(' · ') : escHtml(p.cc)) +
+        (p.cc ? ' ' + ccVerifyBadge(isCcVerified(p)) : ''));
     }
     return bits.length
       ? '<i class="oec-pl__line">' + bits.join(' · ') + '</i>'
@@ -1656,8 +1703,8 @@
         : linked ? 'Classement Chess.com'
         : 'Chess.com';
       var ccCls = 'oec-card' + (loading ? ' oec-card--load' : '') +
-        (!loading && (preview || verify || missing) ? ' oec-card--ask' : '') +
-        (linked ? ' oec-card--ok' : '');
+        (!loading && (preview || verify || missing || (linked && !isCcVerified(game))) ? ' oec-card--ask' : '') +
+        (linked && isCcVerified(game) ? ' oec-card--ok' : '');
       var ccBody = '';
       if (loading) {
         ccBody = '<p class="oec-cc-preview" style="color:#5c564c">Recherche d’un compte Chess.com…</p>' +
@@ -1674,6 +1721,10 @@
           '</div>';
       } else if (linked) {
         ccBody = ccHandle(game) + ccStatsGrid(game);
+        if (!isCcVerified(game)) {
+          ccBody += '<div class="oec-actions" style="margin-top:.3rem">' +
+            '<button type="button" class="oec-btn oec-btn--pri" data-act="lier-oui">Prouver que c’est moi</button></div>';
+        }
       } else {
         ccBody = '<p class="oec-cc-preview">Indique ton pseudo Chess.com, ou désactive cette fonction.</p>' +
           (game.ccErr ? '<p class="oec-cc-err">' + escHtml(game.ccErr) + '</p>' : '') +
@@ -2287,7 +2338,7 @@
     var root = document.getElementById('oec-dom-panel');
     var main = document.querySelector('.main');
     var topbar = main && main.querySelector('.topbar');
-    if (!on) {
+    if (!on || isBouncerSession(orbit)) {
       document.body.classList.remove('oec-full', 'oec-split');
       if (root) root.style.display = 'none';
       bumpView();
@@ -2342,6 +2393,12 @@
     viewMode = getViewMode(orbit);
     injectStyles();
     console.info('[orbit-echecs] loaded v' + OEC_VER);
+    if (orbit.requireVisualDisplay) {
+      orbit.requireVisualDisplay({
+        label: 'Échecs',
+        inChannel: function (ch) { return isChessChannel(orbit, ch); },
+      });
+    }
 
     function syncDom() {
       try { mountDomPanel(orbit); } catch (e) { console.error('[orbit-echecs] panel', e); }
