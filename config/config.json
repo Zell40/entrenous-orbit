@@ -108,6 +108,12 @@
     "defaultCollapsed": false,
     "botNicks": ["Choixpeau", "HarryPotter"]
   },
+  "asl": {
+    "requireAge": true,
+    "requireGender": true,
+    "requireCity": true,
+    "minAge": 18
+  },
   "callerid": {
     "group": "controle-parentale",
     "modes": "+ixIgcRw",
@@ -125,7 +131,8 @@
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=54",
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=31",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=3",
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=16"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=16",
+    "/app/plugins/third/orbit-asl/orbit-asl.js?v=1"
   ],
   "builtins": [],
   "analytics": {
