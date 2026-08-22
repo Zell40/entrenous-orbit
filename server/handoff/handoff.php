@@ -36,8 +36,21 @@ $listen  = isset($_POST['listen'])  ? strtolower(trim((string) $_POST['listen'])
 if ($listen !== 'cp') {
     $listen = 'reg';
 }
+$bouncer = isset($_POST['bouncer']) && (string) $_POST['bouncer'] === '1';
+$znc_pass = isset($_POST['znc_pass']) ? (string) $_POST['znc_pass'] : '';
 
-if ($token === '' || $nick === '') {
+if ($nick === '') {
+    http_response_code(400);
+    echo 'Missing nick';
+    exit;
+}
+if ($bouncer) {
+    if (trim($znc_pass) === '') {
+        http_response_code(400);
+        echo 'Missing znc password';
+        exit;
+    }
+} elseif ($token === '') {
     http_response_code(400);
     echo 'Missing token or nick';
     exit;
@@ -72,9 +85,15 @@ if ($age !== '' && $sexe !== '' && $ville !== '') {
 }
 
 $payload = [
-    'password' => $token,
-    't'        => (int) round(microtime(true) * 1000),
+    't' => (int) round(microtime(true) * 1000),
 ];
+if ($bouncer) {
+    $zncUser = $account !== '' ? $account : $nick;
+    $payload['bouncer'] = true;
+    $payload['password'] = $zncUser . ':' . $znc_pass;
+} else {
+    $payload['password'] = $token;
+}
 if ($account !== '') {
     $payload['account'] = $account;
 }
@@ -112,9 +131,11 @@ $listenOpts = [
 if ($listenDomain !== '') {
     $listenOpts['domain'] = $listenDomain;
 }
-setcookie('orbit_en_listen', $listen, $listenOpts);
+if (!$bouncer) {
+    setcookie('orbit_en_listen', $listen, $listenOpts);
+}
 
-if ($resumeAccount !== '') {
+if (!$bouncer && $resumeAccount !== '') {
     $secret = (string)($cfg['jwt_secret'] ?? '');
     if ($secret !== '' && $secret !== 'CHANGE_ME_SAME_AS_WORDPRESS') {
         // Cookie payload: nick \n account \n exp [ \n realname ] \n sig
