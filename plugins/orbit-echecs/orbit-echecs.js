@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 32;
+  var OEC_VER = 33;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1201,6 +1201,7 @@
     if (mode === VIEW_CHAT) {
       root.classList.add('oec-panel--chat');
       root.style.display = '';
+      fitPanelToViewport();
       return;
     }
     root.style.display = '';
@@ -1227,8 +1228,8 @@
       '.oec-panel--home{background:#f6f1e7;color:#3f3a32}',
       '.oec-panel--full{flex:1 1 auto;min-height:0;max-height:100%;border-bottom:0}',
       '.oec-panel--split{flex:1 1 auto;min-height:0;max-height:100%}',
-      '.oec-panel--chat{flex:0 0 auto;min-height:0}',
-      '.oec-panel--chat .oec-stage{display:none!important}',
+      '.oec-panel--chat{flex:0 0 auto;min-height:0;height:auto!important;max-height:none!important}',
+      '.oec-panel--chat .oec-stage,.oec-panel--chat .oec-home-actions{display:none!important}',
       'body.oec-full,body.oec-full html{overflow:hidden}',
       'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;height:100svh;max-height:100dvh}',
       'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
@@ -1384,7 +1385,7 @@
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
-      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:100%;height:auto;flex:1 1 auto}',
+      '.oec-idle{text-align:left;width:min(58rem,100%);max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;height:auto;flex:0 1 auto}',
       '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 1 auto;min-height:clamp(5.5rem,14vh,9.5rem);max-height:min(16vh,9.5rem);background:#e8dcc4}',
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
       '.oec-hero__label{position:absolute;left:.8rem;bottom:.5rem;margin:0;color:#fff;font-size:clamp(1rem,2vh,1.35rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
@@ -1435,7 +1436,7 @@
       '.oec-elo b{color:#14532d}',
       '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
-      '.oec-home-actions{position:sticky;bottom:0;z-index:2;margin-top:auto;padding:.45rem 0 .55rem;background:linear-gradient(180deg,rgba(246,241,231,0) 0%,#f6f1e7 38%)}',
+      '.oec-home-actions{flex:0 0 auto;z-index:4;margin:0;padding:.45rem .7rem .65rem;background:#f6f1e7;border-top:1px solid #e4d9c5}',
       '.oec-home-actions .oec-btn--pri{width:100%;min-height:34px}',
       '.oec-panel--home .oec-btn{border-color:#cfc3ad;background:#fff;color:#3f3a32}',
       '.oec-panel--home .oec-btn:hover{border-color:#166534;color:#14532d}',
@@ -1443,7 +1444,7 @@
       '@media(max-width:640px){.oec-home-grid{grid-template-columns:1fr}.oec-hero{min-height:clamp(4.8rem,12vh,8rem);max-height:8rem}.oec-hero__label{font-size:.95rem}}',
       '.oec-promo{display:flex;gap:.35rem;margin:.45rem 0}',
       '.oec-promo button{width:2.6rem;height:2.6rem;border-radius:10px;border:1px solid #166534;background:#fff;cursor:pointer;padding:.2rem}',
-      '@media(max-width:720px){.oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap,.oec-board-col{width:min(100%,calc(100vw - 1.4rem));max-width:min(100%,42svh)}.oec-actions{position:sticky;bottom:0;z-index:4;padding:.4rem 0 .55rem;background:linear-gradient(180deg,rgba(26,28,25,0),#1a1c19 32%)}.oec-panel--home .oec-actions{background:linear-gradient(180deg,rgba(246,241,231,0),#f6f1e7 32%)}}',
+      '@media(max-width:720px){.oec-stage{flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto}.oec-meta{max-width:none;width:100%}.oec-board-wrap,.oec-board-col{width:min(100%,calc(100vw - 1.4rem));max-width:min(100%,42svh)}}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -1841,11 +1842,15 @@
       renderHistory(game) +
       '</div>' +
       (game.flash ? '<div class="oec-flash">' + escHtml(game.flash) + '</div>' : '') +
-      '<div class="oec-actions oec-home-actions">' +
+      '</div>';
+  }
+
+  function renderHomeLaunch(game) {
+    var s = ui.setup;
+    return '<div class="oec-actions oec-home-actions">' +
       '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">' +
       ((s.vs === 'duo' && s.duo === 'friend') ? 'Défier' : 'Lancer la partie') +
-      '</button>' +
-      '</div></div>';
+      '</button></div>';
   }
 
   function renderHistory(game) {
@@ -2009,6 +2014,8 @@
       : 'Prêt';
     if (game._archive) badge = 'Relecture';
     if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + tcLabel(game.tc);
+    var stage = root.querySelector('.oec-stage');
+    var scrollY = stage ? stage.scrollTop : 0;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
       renderSettings(game) + '</div>';
@@ -2016,6 +2023,7 @@
     var body = '<div class="oec-stage">';
     if (game.status === 'idle') {
       body += renderHome(orbit, game);
+      body += '</div>' + renderHomeLaunch(game);
     } else {
       body += renderBoard(orbit, view);
       body += '<div class="oec-meta">';
@@ -2081,12 +2089,13 @@
         body += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
         body += '<button type="button" class="oec-btn" data-act="start-setup">Rejouer</button>';
       }
-      body += '</div></div>';
+      body += '</div></div></div>';
     }
-    body += '</div>';
     root.innerHTML = head + body;
     root.classList.toggle('oec-panel--home', game.status === 'idle');
     root.classList.toggle('oec-panel--menu', !!ui.settings);
+    var stage2 = root.querySelector('.oec-stage');
+    if (stage2) stage2.scrollTop = scrollY;
   }
 
   function tryMove(orbit, buffer, from, to, promo) {
