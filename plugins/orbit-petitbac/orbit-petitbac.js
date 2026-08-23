@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 58;
+  var PBAC_VER = 59;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -518,18 +518,10 @@
   function buildInfoHintHtml(word) {
     word = String(word || '').trim();
     if (!word) return '';
-    return '<div class="opbac-info-hint" role="note">' +
-      '<span class="opbac-info-hint__icon" aria-hidden="true">🔍</span>' +
-      '<div class="opbac-info-hint__body">' +
-        '<span class="opbac-info-hint__lbl">' +
-          escHtml(pick({ fr: 'Consulter sur Wikipédia', en: 'Look up on Wikipedia' })) +
-        '</span>' +
-        '<span class="opbac-info-hint__cmd">' + escHtml(word) + '</span>' +
-      '</div>' +
-      '<button type="button" class="opbac-info-hint__btn" data-act="info" data-info-word="' +
-        escHtml(word) + '" title="' + escHtml(pick({ fr: 'Ouvrir la fiche', en: 'Open article' })) + '">' +
-        escHtml(pick({ fr: 'Consulter', en: 'Look up' })) +
-      '</button></div>';
+    return '<button type="button" class="opbac-col__wiki" data-act="info" data-info-word="' +
+      escHtml(word) + '" title="' + escHtml(pick({ fr: 'Ouvrir la fiche Wikipédia', en: 'Open Wikipedia article' })) + '">' +
+      escHtml(pick({ fr: 'Voir Wikipédia', en: 'View Wikipedia' })) +
+      '</button>';
   }
 
   function sendInfo(orbit, buffer, word) {
@@ -1803,7 +1795,8 @@
       '.opbac-arena__scores-rank{flex-shrink:0;font-size:.85rem;line-height:1}',
       '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0;font-weight:800;white-space:nowrap}',
       '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
-      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.7rem .7rem .55rem}.opbac-arena__scores-wrap{display:none!important}.opbac-live{min-height:5rem;max-height:min(36vh,14rem)}.opbac-head{padding:.28rem .4rem;gap:.28rem}.opbac-head__brand{flex-wrap:nowrap;gap:.28rem}.opbac-head__title-full{display:none}.opbac-head__title-short{display:inline}.opbac-head__title{font-size:.82rem}.opbac-head__badge:not(.opbac-head__badge--mode):not(.opbac-head__badge--round){display:none}.opbac-head__caret{display:none}.opbac-head__badge--mode{padding:.18rem .36rem;min-width:32px;min-height:32px;justify-content:center}.opbac-head__logo{width:22px;height:22px;border-radius:6px}.opbac-head__actions{gap:.16rem;flex-shrink:0}.opbac-head__btn{min-width:30px;min-height:30px;border-radius:8px}.opbac-head__btn svg{width:15px;height:15px}}',
+      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.35rem .55rem .2rem;gap:.25rem .55rem}.opbac-arena__scores-wrap{display:none!important}.opbac-arena__letter,.opbac-arena__clock,.opbac-arena__block{min-height:0;gap:.12rem}.opbac-arena__lbl{font-size:.55rem;letter-spacing:.08em}.opbac-letter-xl,.opbac-clock{width:clamp(52px,15vw,68px);height:clamp(52px,15vw,68px)}.opbac-letter-xl{font-size:clamp(1.7rem,6.5vw,2.4rem);box-shadow:0 4px 12px -6px rgba(234,88,12,.4)}.opbac-clock__n{font-size:clamp(1.35rem,5vw,1.9rem)}.opbac-scroll{padding:.28rem .65rem .5rem}.opbac-live{min-height:5rem;max-height:min(36vh,14rem)}.opbac-head{padding:.28rem .4rem;gap:.28rem}.opbac-head__brand{flex-wrap:nowrap;gap:.28rem}.opbac-head__title-full{display:none}.opbac-head__title-short{display:inline}.opbac-head__title{font-size:.82rem}.opbac-head__badge:not(.opbac-head__badge--mode):not(.opbac-head__badge--round){display:none}.opbac-head__caret{display:none}.opbac-head__badge--mode{padding:.18rem .36rem;min-width:32px;min-height:32px;justify-content:center}.opbac-head__logo{width:22px;height:22px;border-radius:6px}.opbac-head__actions{gap:.16rem;flex-shrink:0}.opbac-head__btn{min-width:30px;min-height:30px;border-radius:8px}.opbac-head__btn svg{width:15px;height:15px}}',
+      '@media(max-width:720px){.opbac-col{gap:.22rem;padding:.4rem .38rem}.opbac-col__send{min-height:34px;padding:.32rem .4rem}.opbac-col__input{min-height:38px;padding:.4rem .35rem}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-arena__round{font-size:.68rem;font-weight:800;padding:.12rem .5rem;border-radius:999px;background:color-mix(in srgb,#6366f1 14%,transparent);color:#4338ca;letter-spacing:.02em}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
@@ -1933,6 +1926,7 @@
       '.opbac-info-hint__btn:hover{filter:brightness(1.06)}',
       '.opbac-col__verify{width:100%;border:0;border-radius:8px;padding:.35rem .45rem;font-size:.65rem;font-weight:800;cursor:pointer;background:#fff7ed;color:#c2410c;border:1px solid #fdba74}',
       '.opbac-col__verify--sent{opacity:.6}',
+      '.opbac-col__wiki{width:100%;border:1px solid #93c5fd;border-radius:8px;padding:.3rem .4rem;font-size:.62rem;font-weight:800;cursor:pointer;background:#eff6ff;color:#1d4ed8}',
       '.opbac-sheet__all{grid-column:1/-1;width:100%;margin-top:.1rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ccc));border-radius:10px;padding:.5rem;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:#6366f1;min-height:40px}',
       '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
       '.opbac-help-wrap{padding:0 1.2rem 1.25rem}',
@@ -4784,20 +4778,25 @@
         : pick({ fr: 'Votre mot…', en: 'Your word…' });
       var verifyWord = (rej && rej.word) || val;
       var verifyHtml = '';
-      if (!ok && verifyWord) {
-        verifyHtml =
-          '<button type="button" class="opbac-col__verify' +
-            (rej && rej.verifying ? ' opbac-col__verify--sent' : '') + '" data-verify-cat="' + escHtml(catKey) + '" ' +
-            'data-verify-word="' + escHtml(verifyWord) + '">' +
-            escHtml(rej && rej.verifying
-              ? pick({ fr: 'Envoyé — attente opérateur', en: 'Sent — awaiting operator' })
-              : pick({ fr: 'Vérifier', en: 'Verify' })) +
-          '</button>';
+      var errHtml = '';
+      if (rej && !ok) {
+        if (rej.verifying) {
+          errHtml = '<p class="opbac-col__err">' + escHtml(pick({
+            fr: 'Proposition envoyée – un opérateur examinera votre mot.',
+            en: 'Proposal sent – an operator will review your word.',
+          })) + '</p>';
+        } else {
+          errHtml = '<p class="opbac-col__err">' + escHtml(pick({ fr: 'Mot refusé', en: 'Word refused' })) + '</p>';
+          if (verifyWord) {
+            verifyHtml =
+              '<button type="button" class="opbac-col__verify" data-verify-cat="' + escHtml(catKey) + '" ' +
+                'data-verify-word="' + escHtml(verifyWord) + '">' +
+                escHtml(pick({ fr: 'Vérifier ?', en: 'Verify?' })) +
+              '</button>';
+          }
+        }
       }
-      var errHtml = rej && rej.msg && !ok
-        ? ('<p class="opbac-col__err">' + escHtml(rej.msg) + '</p>')
-        : '';
-      var infoHtml = (rej && rej.suggestInfo && verifyWord && !ok)
+      var infoHtml = (rej && rej.suggestInfo && verifyWord && !ok && !rej.verifying)
         ? buildInfoHintHtml(verifyWord)
         : '';
       return '<div class="' + colClass + '" data-cat="' + escHtml(catKey) + '">' +
@@ -4808,13 +4807,13 @@
             : (ok ? '<span class="opbac-col__award">✓ +' + escHtml(formatPtsShort((award && award.pts) || 1)) + '</span>' : '')) +
         '</span>' +
         errHtml +
+        verifyHtml +
         infoHtml +
         '<input type="text" class="opbac-col__input" data-cat-input="' + escHtml(catKey) + '" ' +
           'value="' + escHtml(val) + '" placeholder="' + escHtml(ph) + '" ' +
           (ok ? 'disabled' : '') + ' autocapitalize="off" autocomplete="off" spellcheck="false" enterkeyhint="send" />' +
         '<button type="button" class="opbac-col__send" data-send-cat="' + escHtml(catKey) + '" ' +
           (ok ? 'disabled' : '') + '>' + escHtml(sendLbl) + '</button>' +
-        verifyHtml +
       '</div>';
     }).join('');
     var allDisabled = game.categories.every(function (cat) {
