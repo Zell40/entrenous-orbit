@@ -28,6 +28,8 @@ mot de passe, bouton Valider. Succès (`anope:identified`) ferme le popup ;
 `anope:forced` ouvre le popup **Pseudo modifié** : le pseudo a été changé
 parce que le compte n’a pas été identifié, avec **Créer un compte**.
 
+Les popups n’apparaissent **qu’après le splash de chargement** (chat visible).
+
 Si la notice est arrivée avant le chargement du plugin, elle est relue dans les buffers.
 
 « Plus tard » est mémorisé **par pseudo** (session), pas pour toute l’onglet.
@@ -41,7 +43,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=4"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=5"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`

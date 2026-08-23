@@ -11,8 +11,10 @@
  * La notice d’entrée arrive parfois AVANT le chargement du plugin (handoff) :
  * on rejoue aussi les NOTICE NickServ déjà dans les buffers.
  *
+ * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
+ *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=4"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=5"]
  */
 (function () {
   'use strict';
@@ -614,8 +616,43 @@
       );
     }
 
-    orbit.addUi('overlay', function () {
+    function splashGone() {
+      return !document.querySelector('.splash');
+    }
+
+    function usePageReady() {
+      var st = useState(splashGone);
+      var ready = st[0];
+      var setReady = st[1];
+      useEffect(function () {
+        if (ready) return undefined;
+        function go() { setReady(true); }
+        function check() {
+          if (splashGone()) { go(); return true; }
+          return false;
+        }
+        if (check()) return undefined;
+        var off = orbit.on('boot:ready', go);
+        var obs = new MutationObserver(check);
+        obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+        var iv = setInterval(check, 150);
+        return function () {
+          if (typeof off === 'function') off();
+          obs.disconnect();
+          clearInterval(iv);
+        };
+      }, [ready]);
+      return ready;
+    }
+
+    function Overlays() {
+      var ready = usePageReady();
+      if (!ready) return null;
       return h(React.Fragment, null, h(GuestPrompt), h(IdentifyPrompt), h(ForcedPrompt));
+    }
+
+    orbit.addUi('overlay', function () {
+      return h(Overlays);
     });
     log('anope notices → anope:unregistered | identified | registered | ghost | denied | enforce | forced');
   });
