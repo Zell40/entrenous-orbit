@@ -4451,7 +4451,7 @@
             ? h('div', { className: 'opbac-scores' },
               h('div', { className: 'opbac-scores__title' },
                 phase === 'game_end'
-                  ? pick({ fr: 'Classement final', en: 'Final ranking' })
+                  ? pick({ fr: 'Classement final de la partie', en: 'Final game ranking' })
                   : pick({ fr: 'Scores', en: 'Scores' })),
               scores.map(function (row, i) {
                 return h('div', { key: row.nick + i, className: 'opbac-score' },
@@ -4661,7 +4661,7 @@
       JSON.stringify(game.scores || {}),
       JSON.stringify(game.roundScores || {}),
       JSON.stringify(game.topGlobal || []),
-      (game.endNotes || []).join('\n'),
+      JSON.stringify(game.serverRecords || []),
     ].join('|');
   }
 
@@ -4895,7 +4895,8 @@
       base += '|' + JSON.stringify(game.finalRanking || []) +
         '|' + JSON.stringify(game.scores || {}) +
         '|' + JSON.stringify(game.roundScores || {}) +
-        '|' + (game.endNotes || []).join('\n');
+        '|' + JSON.stringify(game.serverRecords || []) +
+        '|' + JSON.stringify(game.topGlobal || []);
     }
     return base;
   }
@@ -5282,13 +5283,13 @@
     if (isIdle) root.__opbacDidAutoFull = false;
     if (phase === 'rules') maybeOpenRulesModal(orbit, buffer);
 
-    var headBadge = game.round && game.totalRounds
-      ? ('Manche ' + game.round + '/' + game.totalRounds)
-      : phaseLabel(phase, game.countdown);
+    var headBadge = phaseLabel(phase, game.countdown);
     if (isGameEnd) {
       headBadge = pick({ fr: 'Partie terminée', en: 'Game over' });
     } else if (isRoundEnd) {
       headBadge = pick({ fr: 'Fin de manche', en: 'Round over' });
+    } else if (game.round && game.totalRounds && (isLive || isPrep)) {
+      headBadge = '';
     }
     if (isLive && game.phase === 'paused') {
       headBadge = pick({ fr: '⏸️ Pause', en: '⏸️ Paused' });
@@ -5353,8 +5354,13 @@
     } else {
       var headBadgeEl = root.querySelector('[data-opbac-head-badge]');
       if (headBadgeEl) headBadgeEl.textContent = headBadge;
-      var modeLbl = root.querySelector('[data-opbac-head-mode-lbl]');
-      if (modeLbl) modeLbl.textContent = modeBadge || '';
+      var modeIco = root.querySelector('[data-opbac-head-mode-ico]');
+      if (modeIco) modeIco.textContent = modeBadgeIcon(game.mode);
+      var modeBtn = root.querySelector('[data-act="mode-menu"]');
+      if (modeBtn && modeBadge) {
+        modeBtn.setAttribute('aria-label', modeBadge);
+        modeBtn.setAttribute('title', modeBadge);
+      }
       var modeWrap = root.querySelector('[data-opbac-mode-wrap]');
       if (modeWrap) modeWrap.hidden = !modeBadge;
       syncCollapsedCta(root, collapsedCta);
