@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 54;
+  var PBAC_VER = 55;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -584,7 +584,7 @@
       '<span class="opbac-score-burst__lbl">' +
         escHtml(ia
           ? pick({ fr: 'IA', en: 'AI' })
-          : pick({ fr: 'pt', en: 'pt' })) +
+          : ptsLabel()) +
       '</span>';
     host.appendChild(burst);
     window.setTimeout(function () { if (burst.parentNode) burst.remove(); }, 1450);
@@ -1217,7 +1217,7 @@
       var histCells = hist.map(function (h) {
         var key = findScoreNick(h.scores || {}, p.nick);
         var pts = key ? parsePts(h.scores[key]) : 0;
-        return '<td class="opbac-live__pts">' + (pts || '—') + '</td>';
+        return '<td class="opbac-live__pts">' + (pts ? ptsHtml(pts) : '—') + '</td>';
       }).join('');
       var cells = cats.map(function (cat) {
         var a = p.answers[String(cat).toLowerCase()];
@@ -1233,8 +1233,8 @@
       var total = playerTotalPts(game, p.nick);
       return '<tr class="' + (isMe ? 'opbac-live__me' : '') + (combo ? ' opbac-live__combo' : '') + '">' +
         '<td class="opbac-live__nick">' + escHtml(p.nick) + '</td>' + histCells + cells +
-        '<td class="opbac-live__pts">' + (p.roundPts || 0) + '</td>' +
-        '<td class="opbac-live__pts opbac-live__pts--total">' + total + '</td></tr>';
+        '<td class="opbac-live__pts">' + ptsHtml(p.roundPts || 0) + '</td>' +
+        '<td class="opbac-live__pts opbac-live__pts--total">' + ptsHtml(total) + '</td></tr>';
     }).join('');
     var colCount = Math.max(cats.length, 0) + hist.length + 3;
     return '<section class="opbac-live" data-opbac-live>' + head +
@@ -1643,10 +1643,18 @@
       if (bufCreated) requestModeList(pluginOrbit, bufCreated, true);
       return;
     }
+    if (ev === 'feedback_ok') {
+      applyFeedbackResult(true, tagVal(tags, '+kind') || tagVal(tags, '+name'), 'ok');
+      return;
+    }
     if (ev === 'cmd_err') {
       var errName = tagVal(tags, '+name');
       var errText = tagVal(tags, '+text');
       if (errName === 'manche' && errText === 'idle') return;
+      if (errName === 'bug' || errName === 'suggestion') {
+        applyFeedbackResult(false, errName, errText);
+        return;
+      }
       try {
         if (pluginOrbit) {
           pluginOrbit.notify('Petit Bac', pick({
@@ -1850,7 +1858,7 @@
       '.opbac-rank__nick{font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink,#111)}',
       '.opbac-rank__you{font-size:.62rem;font-weight:800;color:#6366f1;margin-left:.2rem}',
       '.opbac-rank__pts{font-weight:900;font-variant-numeric:tabular-nums;color:#4f46e5;white-space:nowrap}',
-      '.opbac-rank__pts small{font-size:.62rem;font-weight:800;opacity:.72;margin-left:.12rem}',
+      '.opbac-rank__pts small,.opbac-hist__p-pts small,.opbac-hist__p-pts small,.opbac-live__pts small,.opbac-podium__pts small{font-size:.7rem;font-weight:800;opacity:.88;margin-left:.18rem}',
       '.opbac-podium{display:grid;grid-template-columns:1fr 1.2fr 1fr;align-items:end;gap:.4rem;margin:0 0 .85rem}',
       '.opbac-podium--2{grid-template-columns:1fr 1fr}',
       '.opbac-podium__slot{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:.2rem;padding:.5rem .3rem .65rem;border-radius:14px;text-align:center;border:1px solid var(--border,#e5e5e5);min-width:0}',
@@ -1870,7 +1878,7 @@
       '.opbac-hist__p{display:inline-flex;align-items:center;gap:.28rem;padding:.22rem .5rem;border-radius:999px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5));font-size:.72rem;font-weight:800;max-width:100%}',
       '.opbac-hist__p--win{background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#fbbf24}',
       '.opbac-hist__p-nick{max-width:7.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.opbac-hist__p-pts{color:#4f46e5;font-variant-numeric:tabular-nums}',
+      '.opbac-hist__p-pts{color:#4f46e5;font-variant-numeric:tabular-nums;white-space:nowrap}',
       '.opbac-hist__raw{margin:0;font-size:.74rem;font-weight:700;color:var(--muted,#555);line-height:1.35}',
       '.opbac-sheet{display:grid;grid-template-columns:repeat(var(--opbac-cols,3),minmax(0,1fr));gap:.55rem;width:100%;align-items:stretch}',
       '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
@@ -1991,6 +1999,17 @@
       '.opbac-end__empty{font-size:.82rem;color:var(--muted,#666);text-align:center;padding:.65rem;display:flex;align-items:center;justify-content:center;gap:.45rem}',
       '.opbac-end__chat-hint{margin:.85rem 0 0;text-align:center}',
       '.opbac-end__chat-btn{border:0;background:none;color:var(--accent,#6366f1);font-size:.8rem;font-weight:800;cursor:pointer;text-decoration:underline}',
+      '.opbac-feedback{margin:.15rem 0 .85rem;padding:.75rem .8rem;border-radius:14px;background:color-mix(in srgb,#6366f1 7%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#e5e5e5))}',
+      '.opbac-feedback__lead{margin:0 0 .55rem;font-size:.82rem;font-weight:600;color:var(--ink,#222);line-height:1.4}',
+      '.opbac-feedback__acts{display:flex;flex-wrap:wrap;gap:.4rem}',
+      '.opbac-fb-form{display:flex;flex-direction:column;gap:.55rem}',
+      '.opbac-fb-form__hint{margin:0;font-size:.84rem;line-height:1.4;color:var(--ink,#222)}',
+      '.opbac-fb-form textarea{width:100%;min-height:7rem;resize:vertical;border:1px solid var(--border,#ccc);border-radius:10px;padding:.65rem .7rem;font:inherit;font-size:.88rem;background:var(--bg,#fff);color:var(--ink,#111);box-sizing:border-box}',
+      '.opbac-fb-form textarea:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 2px color-mix(in srgb,#6366f1 22%,transparent)}',
+      '.opbac-fb-form__status{margin:0;font-size:.8rem;font-weight:700;line-height:1.35}',
+      '.opbac-fb-form__status--err{color:#b91c1c}',
+      '.opbac-fb-form__status--ok{color:#15803d}',
+      '.opbac-fb-form__row{display:flex;justify-content:flex-end}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-replay__sub{margin:0 0 .45rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
       '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.1rem;padding:.4rem .3rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
@@ -2578,6 +2597,8 @@
         '<button type="button" class="opbac-head__btn" data-act="rules" title="' +
           escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '">' +
           iconSvg('rules') + '</button>' +
+        '<button type="button" class="opbac-head__btn" data-act="bug" title="' +
+          escHtml(pick({ fr: 'Signaler un bug', en: 'Report a bug' })) + '">🐞</button>' +
         (!gameActive
           ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
           escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">▶</button>')
@@ -2666,6 +2687,8 @@
   var playEscHandler = null;
   var dockEscHandler = null;
   var dockKind = '';
+  var feedbackEscHandler = null;
+  var feedbackPending = null;
   var infoLookup = { word: '', waiting: false, buffer: '' };
   var rulesShownFor = Object.create(null);
 
@@ -2698,11 +2721,16 @@
     scores[key] = parsePts(scores[key]) + parsePts(delta);
   }
 
+  function ptsLabel() {
+    return pick({ fr: 'pts', en: 'pts' });
+  }
+
   function formatPtsDisplay(pts) {
-    var n = Number(pts);
-    if (!(n >= 0)) n = 0;
-    var s = Math.abs(n % 1) < 0.001 ? String(Math.round(n)) : String(n);
-    return s + ' ' + pick({ fr: 'pt', en: 'pt' });
+    return formatPtsShort(pts) + ' ' + ptsLabel();
+  }
+
+  function ptsHtml(pts) {
+    return escHtml(formatPtsShort(pts)) + '<small>' + escHtml(ptsLabel()) + '</small>';
   }
 
   function defaultPanelHeight(orbit) {
@@ -2815,6 +2843,16 @@
       var dockDom = document.getElementById('opbac-dock-overlay');
       if (dockDom) dockDom.remove();
       dockKind = '';
+      return;
+    }
+    if (kind === 'feedback') {
+      if (feedbackEscHandler) { document.removeEventListener('keydown', feedbackEscHandler); feedbackEscHandler = null; }
+      var fbDom = document.getElementById('opbac-feedback-overlay');
+      if (fbDom) fbDom.remove();
+      if (feedbackPending && feedbackPending.timer) {
+        try { clearTimeout(feedbackPending.timer); } catch (e1) { /* ignore */ }
+      }
+      feedbackPending = null;
     }
   }
 
@@ -3824,6 +3862,149 @@
     } catch (e) { /* ignore */ }
   }
 
+  function buildFeedbackBlockHtml() {
+    return '<div class="opbac-feedback">' +
+      '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Votre avis', en: 'Your feedback' })) + '</h3>' +
+      '<p class="opbac-feedback__lead">' + escHtml(pick({
+        fr: 'Un bug, une idée, une amélioration ? Dites-le-nous — ça n’apparaît pas dans le tchat.',
+        en: 'A bug, an idea, an improvement? Tell us — it stays out of chat.',
+      })) + '</p>' +
+      '<div class="opbac-feedback__acts">' +
+        '<button type="button" class="opbac-end__btn opbac-end__btn--ghost" data-act="suggest">✏️ ' +
+          escHtml(pick({ fr: 'Proposer une amélioration', en: 'Suggest an improvement' })) + '</button>' +
+        '<button type="button" class="opbac-end__btn opbac-end__btn--ghost" data-act="bug">🐞 ' +
+          escHtml(pick({ fr: 'Signaler un bug', en: 'Report a bug' })) + '</button>' +
+      '</div></div>';
+  }
+
+  function feedbackStatusEl() {
+    var overlay = document.getElementById('opbac-feedback-overlay');
+    return overlay ? overlay.querySelector('[data-opbac-fb-status]') : null;
+  }
+
+  function setFeedbackStatus(text, isErr) {
+    var el = feedbackStatusEl();
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || '';
+    el.className = 'opbac-fb-form__status' + (isErr ? ' opbac-fb-form__status--err' : ' opbac-fb-form__status--ok');
+  }
+
+  function applyFeedbackResult(ok, kind, code) {
+    if (feedbackPending && feedbackPending.timer) {
+      try { clearTimeout(feedbackPending.timer); } catch (e) { /* ignore */ }
+      feedbackPending.timer = null;
+    }
+    var msg;
+    if (ok) {
+      msg = kind === 'bug'
+        ? pick({ fr: 'Merci, le bug a bien été signalé.', en: 'Thanks, the bug has been reported.' })
+        : pick({ fr: 'Merci, ta suggestion a bien été enregistrée.', en: 'Thanks, your suggestion has been saved.' });
+      setFeedbackStatus(msg, false);
+      try { if (pluginOrbit) pluginOrbit.notify('Petit Bac', msg); } catch (e2) { /* ignore */ }
+      setTimeout(function () { closeOverlayModal('feedback'); }, 700);
+      return;
+    }
+    if (code === 'empty') {
+      msg = pick({ fr: 'Écris un message avant d’envoyer.', en: 'Write a message before sending.' });
+    } else if (code === 'need_played') {
+      msg = pick({
+        fr: 'Il faut avoir joué au moins une partie pour envoyer un avis.',
+        en: 'You need to have played at least one game to send feedback.',
+      });
+    } else if (code === 'unknown') {
+      msg = pick({
+        fr: 'Le bot n’a pas reconnu la commande. Recharge le plugin PetitBac, puis réessaie.',
+        en: 'The bot did not recognize the command. Reload the PetitBac plugin, then try again.',
+      });
+    } else {
+      msg = pick({ fr: 'Envoi impossible. Réessaie dans un instant.', en: 'Could not send. Try again in a moment.' });
+    }
+    setFeedbackStatus(msg, true);
+    var sendBtn = document.querySelector('#opbac-feedback-overlay [type="submit"]');
+    if (sendBtn) sendBtn.disabled = false;
+    try { if (pluginOrbit) pluginOrbit.notify('Petit Bac', msg); } catch (e3) { /* ignore */ }
+  }
+
+  function openFeedbackModal(orbit, buffer, kind) {
+    kind = kind === 'bug' ? 'bug' : 'suggestion';
+    if (!orbit || !buffer) return;
+    closeOverlayModal('feedback');
+    var title = kind === 'bug'
+      ? pick({ fr: 'Signaler un bug', en: 'Report a bug' })
+      : pick({ fr: 'Proposer une amélioration', en: 'Suggest an improvement' });
+    var hint = kind === 'bug'
+      ? pick({
+        fr: 'Décris ce qui ne va pas (quand, où, ce que tu attendais). L’équipe le reçoit sans passer par le tchat.',
+        en: 'Describe what went wrong (when, where, what you expected). The team receives it without going through chat.',
+      })
+      : pick({
+        fr: 'Une idée, un avis, une catégorie à ajouter… Ton message est envoyé à l’équipe.',
+        en: 'An idea, some feedback, a category to add… Your message goes to the team.',
+      });
+    var placeholder = kind === 'bug'
+      ? pick({ fr: 'Ex. : le tableau live ne se met pas à jour…', en: 'E.g. the live board does not update…' })
+      : pick({ fr: 'Ex. : ajouter une catégorie Fleurs…', en: 'E.g. add a Flowers category…' });
+    var overlay = document.createElement('div');
+    overlay.id = 'opbac-feedback-overlay';
+    overlay.className = 'opbac-help-overlay';
+    overlay.innerHTML =
+      '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
+        '<div class="opbac-help-dialog__head">' +
+          '<h3>' + imgHtml('logo.svg', '', 'opbac-help-dialog__logo') + escHtml(title) + '</h3>' +
+          '<button type="button" class="opbac-help-dialog__x" data-act="close-overlay" aria-label="' +
+            escHtml(pick({ fr: 'Fermer', en: 'Close' })) + '">✕</button>' +
+        '</div>' +
+        '<div class="opbac-help-dialog__body">' +
+          '<form class="opbac-fb-form" data-opbac-fb>' +
+            '<p class="opbac-fb-form__hint">' + escHtml(hint) + '</p>' +
+            '<textarea name="msg" maxlength="350" rows="5" required placeholder="' + escHtml(placeholder) + '"></textarea>' +
+            '<p class="opbac-fb-form__status" data-opbac-fb-status hidden></p>' +
+            '<div class="opbac-fb-form__row">' +
+              '<button type="submit" class="opbac-end__btn opbac-end__btn--primary">' +
+                escHtml(pick({ fr: 'Envoyer', en: 'Send' })) + '</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>' +
+      '</div>';
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) closeOverlayModal('feedback');
+      var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-overlay"]') : null;
+      if (closeBtn) closeOverlayModal('feedback');
+    });
+    overlay.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var ta = overlay.querySelector('textarea');
+      var text = ta ? String(ta.value || '').trim() : '';
+      if (!text) {
+        setFeedbackStatus(pick({ fr: 'Écris un message avant d’envoyer.', en: 'Write a message before sending.' }), true);
+        return;
+      }
+      var btn = overlay.querySelector('[type="submit"]');
+      if (btn) btn.disabled = true;
+      setFeedbackStatus(pick({ fr: 'Envoi…', en: 'Sending…' }), false);
+      if (feedbackPending && feedbackPending.timer) {
+        try { clearTimeout(feedbackPending.timer); } catch (e4) { /* ignore */ }
+      }
+      feedbackPending = {
+        kind: kind,
+        timer: setTimeout(function () {
+          applyFeedbackResult(false, kind, 'timeout');
+        }, 8000),
+      };
+      sendPbCmd(orbit, buffer, kind, text.slice(0, 350));
+    });
+    feedbackEscHandler = function (ev) {
+      if (ev.key === 'Escape') closeOverlayModal('feedback');
+    };
+    document.addEventListener('keydown', feedbackEscHandler);
+    document.body.appendChild(overlay);
+    var taFocus = overlay.querySelector('textarea');
+    if (taFocus) {
+      try { taFocus.focus(); } catch (e5) { /* ignore */ }
+    }
+  }
+
   function buildReplaySectionHtml(selectedMode) {
     selectedMode = sanitizeModeId(selectedMode);
     return '<div class="opbac-replay" data-opbac-replay>' +
@@ -4259,7 +4440,7 @@
         return '<span class="opbac-hist__p' + (i === 0 ? ' opbac-hist__p--win' : '') + '">' +
           (i === 0 ? '🏆 ' : '') +
           '<span class="opbac-hist__p-nick">' + escHtml(p.nick) + (isMe ? ' ★' : '') + '</span>' +
-          '<span class="opbac-hist__p-pts">' + escHtml(String(p.pts)) + '</span></span>';
+          '<span class="opbac-hist__p-pts">' + ptsHtml(p.pts) + '</span></span>';
       }).join('');
       return '<article class="opbac-hist__card">' +
         (g.when ? '<time class="opbac-hist__when">' + escHtml(g.when) + '</time>' : '') +
@@ -4278,7 +4459,7 @@
         '<span class="opbac-podium__medal">' + rankMedal(i) + '</span>' +
         '<span class="opbac-podium__nick">' + escHtml(row.nick) +
           (isMe ? ' ' + escHtml(pick({ fr: '(vous)', en: '(you)' })) : '') + '</span>' +
-        '<span class="opbac-podium__pts">' + escHtml(formatPtsDisplay(row.pts)) + '</span></div>';
+        '<span class="opbac-podium__pts">' + ptsHtml(row.pts) + '</span></div>';
     }
     return html + '</div>';
   }
@@ -4301,8 +4482,7 @@
         '<span class="opbac-rank__nick">' + escHtml(row.nick) +
           (isMe ? '<span class="opbac-rank__you">' + escHtml(pick({ fr: '(vous)', en: '(you)' })) + '</span>' : '') +
         '</span>' +
-        '<span class="opbac-rank__pts">' + escHtml(String(formatPtsDisplay(row.pts)).replace(/\s*pt$/i, '')) +
-          '<small>' + escHtml(pick({ fr: 'pts', en: 'pts' })) + '</small></span></div>';
+        '<span class="opbac-rank__pts">' + ptsHtml(row.pts) + '</span></div>';
     }).join('');
     return '<div class="opbac-rank">' + body + '</div>';
   }
@@ -4387,12 +4567,9 @@
 
     var notes = game.endNotes || [];
     if (isGameEnd) {
-      if (!notes.length) {
-        notes = [
-          pick({ fr: '✏️ Suggestion : !suggestion <message>', en: '✏️ Suggestion: !suggestion <message>' }),
-          pick({ fr: '🐞 Signaler un bug : !bug <message>', en: '🐞 Report a bug: !bug <message>' }),
-        ];
-      }
+      notes = notes.filter(function (n) {
+        return !/!bug|!suggestion/i.test(String(n || ''));
+      });
       if (notes.length) {
         html += '<div class="opbac-end__block">' +
           '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Infos du bot', en: 'From the bot' })) + '</h3>' +
@@ -4403,6 +4580,7 @@
           '</div></div>';
       }
 
+      html += buildFeedbackBlockHtml();
       html += buildReplaySectionHtml(selectedMode);
       html += '<p class="opbac-end__chat-hint">' +
         '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
@@ -4817,6 +4995,10 @@
       }
       if (act === 'replay') {
         startReplayGame(orbit, buffer, root);
+        return;
+      }
+      if (act === 'bug' || act === 'suggest') {
+        openFeedbackModal(orbit, buffer, act === 'bug' ? 'bug' : 'suggestion');
         return;
       }
       if (act === 'aide') openHelpModal(orbit);
