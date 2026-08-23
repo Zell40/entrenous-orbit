@@ -35,7 +35,7 @@
     "subtitle": "Tchat français en direct. Choisissez un pseudo, et vous y êtes.",
     "projectUrl": "https://www.reseau-entrenous.fr/articles/NouveauWebchat",
     "registerUrl": "https://www.reseau-entrenous.fr/register/",
-    "loginUrl": "https://www.reseau-entrenous.fr/mon-entrenous/identite/",
+    "loginUrl": "https://www.reseau-entrenous.fr/login/",
     "links": [],
     "accent": ""
   },
@@ -86,7 +86,7 @@
     "requireGroups": [],
     "maxParticipantsChannel": 25,
     "maxParticipantsQuery": 2,
-    "publicLinkInInvite": false,
+    "publicLinkInInvite": true,
     "hideInviteForOrbit": true,
     "inviteText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
@@ -106,7 +106,7 @@
     "channels": ["#HarryPotter.chat"],
     "showWhenIdle": true,
     "defaultCollapsed": false,
-    "botNicks": ["Choixpeau", "HarryPotter"]
+    "botNicks": ["Choixpeau"]
   },
   "asl": {
     "requireAge": true,
