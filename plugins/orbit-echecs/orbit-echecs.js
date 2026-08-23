@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 48;
+  var OEC_VER = 49;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -812,7 +812,7 @@
     var map = {
       mate: 'Échec et mat', stalemate: 'Pat', insufficient: 'Matériel insuffisant',
       fifty: 'Règle des 50 coups', threefold: 'Triple répétition', resign: 'Abandon',
-      abort: 'Partie annulée', timeout: 'Délai dépassé', inactivity: 'Inactivité',
+      abort: 'Partie annulée', timeout: 'N’a pas rejoint', inactivity: 'Inactivité',
       agree: 'Nulle acceptée', quit: 'Déconnexion', part: 'Départ',
       flag: 'Temps écoulé', engine: 'Erreur moteur', crash: 'Erreur technique',
     };
@@ -1084,13 +1084,22 @@
       var endPly = Number(tagVal(tags, '+ply')) || splitUcis(endUcis).length;
       ui.navPly = endPly;
       var why = tagVal(tags, '+reason');
+      var invitedEnd = tagVal(tags, '+invited') || prev.invited;
       var crashMsg = why === 'crash'
         ? 'La partie a été arrêtée à cause d’une erreur technique. Relance depuis l’accueil.'
         : '';
+      var timeoutMsg = '';
+      if (why === 'timeout') {
+        timeoutMsg = invitedEnd
+          ? (invitedEnd + ' n’a pas accepté l’invitation.')
+          : 'Personne n’a rejoint la partie.';
+      }
       patchState(channel, {
         status: 'ended', waiting: false, fen: tagVal(tags, '+fen') || prev.fen,
         result: tagVal(tags, '+result'), reason: why,
-        winner: tagVal(tags, '+winner'), flash: crashMsg, gid: gid || prev.gid,
+        winner: tagVal(tags, '+winner'), flash: crashMsg || timeoutMsg, gid: gid || prev.gid,
+        invited: invitedEnd,
+        creator: tagVal(tags, '+creator') || prev.creator,
         sans: tagVal(tags, '+sans') || prev.sans,
         ucis: endUcis,
         opening: tagVal(tags, '+opening') || prev.opening,
@@ -2405,7 +2414,7 @@
     var mode = getViewMode(orbit);
     var badge = game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
       : game.status === 'waiting' ? 'En attente'
-      : game.status === 'ended' ? escHtml(game.result || 'Fin')
+      : game.status === 'ended' ? (game.reason === 'timeout' ? 'Non rejoint' : escHtml(game.result || 'Fin'))
       : 'Prêt';
     if (game._archive) badge = 'Relecture';
     if (game.tc && game.tc !== 'casual' && game.status !== 'idle') badge += ' · ' + tcLabel(game.tc);
@@ -2443,6 +2452,10 @@
           ? ('En attente de ' + game.invited + '…')
           : pick({ fr: 'En attente d’un adversaire…', en: 'Waiting for an opponent…' });
         body += '<p class="oec-turn">' + escHtml(waitTxt) + '</p>';
+      } else if (game.status === 'ended' && game.reason === 'timeout') {
+        body += '<p class="oec-end">' + escHtml(game.flash || (game.invited
+          ? (game.invited + ' n’a pas accepté l’invitation.')
+          : 'Personne n’a rejoint la partie.')) + '</p>';
       } else if (view.lastSan) {
         var mark = view._revClass
           ? ' <span class="oec-badge oec-badge--' + view._revClass + '">' + escHtml(revLabel(view._revClass)) + '</span>'
@@ -2459,8 +2472,10 @@
       if (game.sans && !(game.review && game.review.cls && game.review.cls.length)) {
         body += '<div class="oec-sans">' + escHtml(String(game.sans).replace(/,/g, ' ')) + '</div>';
       }
-      if (game.flash) body += '<div class="oec-flash">' + escHtml(game.flash) + '</div>';
-      if (game.status === 'ended') body += renderReview(game);
+      if (game.flash && !(game.status === 'ended' && game.reason === 'timeout')) {
+        body += '<div class="oec-flash">' + escHtml(game.flash) + '</div>';
+      }
+      if (game.status === 'ended' && game.reason !== 'timeout') body += renderReview(game);
       if (ui.promo) {
         body += '<div class="oec-promo">' +
           '<button type="button" data-promo="q" title="Dame">' + pieceSvg('Q') + '</button>' +

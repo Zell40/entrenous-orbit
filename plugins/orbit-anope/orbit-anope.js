@@ -1,22 +1,21 @@
 /*
  * orbit-anope — NOTICE NickServ/Anope → événements Orbit + CTA invité.
  *
- * Sans NickServ, pas de compte : on ne devine plus l’invité via `account` vide.
- * Anope LineWrappe souvent le message : on fusionne les fragments ~600 ms
- * puis on émet `anope:<kind>` (unregistered, identified, registered, ghost, denied).
+ * Sans NickServ, pas de compte. Anope LineWrappe souvent : on fusionne ~600 ms
+ * puis on émet `anope:<kind>`. `anope:unregistered` ouvre le popup d’enregistrement.
  *
- * `anope:unregistered` ouvre le popup « Pseudo non enregistré » (même UI qu’avant).
+ * La notice d’entrée arrive parfois AVANT le chargement du plugin (handoff) :
+ * on rejoue aussi les NOTICE NickServ déjà dans les buffers.
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=1"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=2"]
  */
 (function () {
   'use strict';
   if (typeof Orbit === 'undefined' || !Orbit.plugin) return;
 
-  var DISMISS_KEY = 'orbit-guest-register-dismissed';
+  var DISMISS_PREFIX = 'orbit-anope:dismissed:';
   var COALESCE_MS = 600;
-  var APOS = "[''\u2018\u2019]";
 
   Orbit.plugin('orbit-anope', function (orbit, log) {
     var React = orbit.React;
@@ -37,32 +36,38 @@
       ui.listeners.forEach(function (l) { l(); });
     }
 
+    function foldNick(n) {
+      return String(n || '').replace(/^[@+%~&]/, '').trim().toLowerCase();
+    }
+    function dismissKey() {
+      return DISMISS_PREFIX + (foldNick(orbit.state.nick()) || '*');
+    }
     function dismissed() {
-      try { return sessionStorage.getItem(DISMISS_KEY) === '1'; } catch (e) { return false; }
+      try { return sessionStorage.getItem(dismissKey()) === '1'; } catch (e) { return false; }
     }
     function markDismissed() {
-      try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch (e) { /* ignore */ }
+      try { sessionStorage.setItem(dismissKey(), '1'); } catch (e) { /* ignore */ }
       shownUnregistered = true;
       setPromptNick('');
     }
 
+    function stripIrc(text) {
+      return String(text || '')
+        .replace(/\x03(\d{1,2}(,\d{1,2})?)?/g, '')
+        .replace(/[\x02\x0f\x16\x1d\x1e\x1f]/g, '');
+    }
+
     function classify(text) {
-      var t = String(text || '').toLowerCase();
+      var t = stripIrc(text).toLowerCase();
       if (!t.trim()) return 'other';
       if (/password accepted|successfully identified|already identified|now recognized|d[eé]j[aà] identifi/.test(t)) {
         return 'identified';
       }
       if (/(is now registered|est maintenant enregistr|has been registered|a (bien )?été enregistr)/.test(t)
-        && !new RegExp('not registered|n' + APOS + '?est pas enregistr', 'i').test(t)) {
+        && !/pas enregistr|not registered|isn['\u2018\u2019]?t registered/.test(t)) {
         return 'registered';
       }
-      if (new RegExp(
-        'n' + APOS + '?est pas enregistr|isn' + APOS + '?t registered|not registered'
-        + '|pour l' + APOS + '?enregistr|to register (it|this|your)|enregistr(er|ez)-?le'
-        + '|reseau-entrenous\\.fr/register|/msg\\s+nickserv\\s+register|/ns\\s+register'
-        + '|^\\s*register\\b',
-        'i'
-      ).test(t)) {
+      if (/pas enregistr|not registered|isn['\u2018\u2019]?t registered|pour l.enregistr|to register (it|this|your)|reseau-entrenous\.fr\/register|\/msg\s+nickserv\s+register|\/ns\s+register/.test(t)) {
         return 'unregistered';
       }
       if (/\bghost\b/.test(t)) return 'ghost';
@@ -77,7 +82,7 @@
     }
 
     function onUnregistered(p) {
-      if (shownUnregistered || dismissed()) return;
+      if (shownUnregistered || ui.nick || dismissed()) return;
       if (orbit.state.account()) return;
       if ((orbit.config().features || {}).register === false) return;
       shownUnregistered = true;
@@ -89,12 +94,7 @@
       setPromptNick('');
     }
 
-    function flush() {
-      coalesceTimer = 0;
-      if (!pending.length) return;
-      var text = pending.join(' ');
-      pending = [];
-      var kind = classify(text);
+    function applyKind(kind, text) {
       var p = payload(kind, text);
       orbit.emit('anope:nickserv', p);
       if (kind !== 'other') orbit.emit('anope:' + kind, p);
@@ -102,27 +102,77 @@
       else if (kind === 'identified' || kind === 'registered') onIdentified();
     }
 
+    function flush() {
+      coalesceTimer = 0;
+      if (!pending.length) return;
+      var text = pending.join('\n');
+      pending = [];
+      applyKind(classify(text), text);
+    }
+
     function onRaw(msg) {
       if (!msg || String(msg.command || '').toUpperCase() !== 'NOTICE') return;
       if (!/^nickserv$/i.test(String(msg.nick || '').trim())) return;
-      var text = (msg.params && msg.params[1]) || '';
-      if (!String(text).trim()) return;
+      var text = stripIrc((msg.params && msg.params[1]) || '');
+      if (!text.trim()) return;
       pending.push(text);
       if (coalesceTimer) clearTimeout(coalesceTimer);
       coalesceTimer = setTimeout(flush, COALESCE_MS);
     }
 
+    function nickServTexts() {
+      var st = orbit.state.get();
+      var out = [];
+      var buffers = (st && st.buffers) || {};
+      Object.keys(buffers).forEach(function (k) {
+        var msgs = (buffers[k] && buffers[k].messages) || [];
+        for (var i = 0; i < msgs.length; i++) {
+          var m = msgs[i];
+          if (!m || m.self) continue;
+          if (!/^nickserv$/i.test(String(m.from || '').trim())) continue;
+          if (m.kind && m.kind !== 'notice') continue;
+          var t = stripIrc(m.text || '');
+          if (t.trim()) out.push(t);
+        }
+      });
+      return out;
+    }
+
+    function scanHistory() {
+      if (shownUnregistered || ui.nick) return;
+      var texts = nickServTexts();
+      if (!texts.length) return;
+      var joined = texts.join('\n');
+      var kind = classify(joined);
+      if (kind === 'other') {
+        for (var i = 0; i < texts.length; i++) {
+          kind = classify(texts[i]);
+          if (kind !== 'other') {
+            joined = texts[i];
+            break;
+          }
+        }
+      }
+      if (kind !== 'other') applyKind(kind, joined);
+    }
+
     orbit.on('raw', onRaw);
+    orbit.on('connected', function () { setTimeout(scanHistory, 50); });
     orbit.on('status', function (s) {
-      if (s === 'registered') return;
+      if (s === 'registered') {
+        setTimeout(scanHistory, 50);
+        return;
+      }
       pending = [];
       if (coalesceTimer) { clearTimeout(coalesceTimer); coalesceTimer = 0; }
       shownUnregistered = false;
       setPromptNick('');
     });
+    setTimeout(scanHistory, 0);
+    setTimeout(scanHistory, 1200);
 
     function GuestPrompt() {
-      var nick = useSyncExternalStore(subscribeUi, uiSnap);
+      var nick = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       if (!nick) return null;
       var cfg = orbit.config() || {};
       var registerUrl = (cfg.branding && cfg.branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';

@@ -16,7 +16,10 @@ puis émet des événements Orbit. L’invité n’est plus déduit d’un compt
 | `anope:denied` | Mauvais mot de passe / accès refusé |
 
 `anope:unregistered` ouvre le popup **Pseudo non enregistré** (Créer mon profil /
-J’ai déjà un compte / Plus tard).
+J’ai déjà un compte / Plus tard). Si la notice est arrivée avant le chargement
+du plugin, elle est relue dans les buffers.
+
+« Plus tard » est mémorisé **par pseudo** (session), pas pour toute l’onglet.
 
 ```js
 Orbit.plugin('autre', function (orbit) {
@@ -27,7 +30,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=1"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=2"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`
