@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 55;
+  var PBAC_VER = 56;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -1713,12 +1713,12 @@
       '.opbac-dock__btn--op{background:#fff7ed;color:#c2410c;border-color:#fdba74}',
       '@media(min-width:880px){.opbac-panel--full .opbac-dock,.opbac-panel--split .opbac-dock{display:flex}}',
       '.opbac-dock-stat{margin:0 0 .45rem;font-size:.88rem;line-height:1.45}',
-      '.opbac-live{width:100%;margin:.15rem 0 0;border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 4%,var(--bg,#fff));flex:1 1 auto;min-height:0;display:flex;flex-direction:column}',
+      '.opbac-live{width:100%;margin:.15rem 0 0;border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 4%,var(--bg,#fff));flex:0 1 auto;min-height:8.5rem;max-height:min(42vh,18rem);display:flex;flex-direction:column}',
       '.opbac-live__head{display:flex;align-items:center;gap:.45rem;padding:.4rem .75rem}',
       '.opbac-live__title{font-weight:800;font-size:.78rem;flex:1}',
       '.opbac-live__tog{border:0;background:var(--bg-soft,rgba(127,127,127,.12));width:28px;height:28px;border-radius:7px;cursor:pointer}',
-      '.opbac-live--collapsed{flex:0 0 auto}',
-      '.opbac-live__wrap{overflow:auto;padding:0 .65rem .45rem;min-height:0}',
+      '.opbac-live--collapsed{flex:0 0 auto;min-height:0;max-height:none}',
+      '.opbac-live__wrap{overflow:auto;padding:0 .65rem .45rem;min-height:5.5rem;flex:1 1 auto}',
       '.opbac-live__grid{width:100%;border-collapse:collapse;font-size:.74rem}',
       '.opbac-live__grid th,.opbac-live__grid td{border:1px solid var(--border,#ddd);padding:.32rem .4rem;text-align:center}',
       '.opbac-live__grid th{background:var(--bg-soft,rgba(127,127,127,.08));font-weight:800}',
@@ -1782,7 +1782,7 @@
       '.opbac-arena__scores-rank{flex-shrink:0;font-size:.85rem;line-height:1}',
       '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0;font-weight:800;white-space:nowrap}',
       '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
-      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.7rem .7rem .55rem}.opbac-arena__scores-wrap{grid-column:1/-1;max-width:none}.opbac-arena__scores{max-height:5.5rem}}',
+      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.7rem .7rem .55rem}.opbac-arena__scores-wrap{display:none!important}.opbac-live{min-height:7.5rem;max-height:min(36vh,14rem)}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
       '.opbac-clock{position:relative;isolation:isolate;overflow:hidden;width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);flex-shrink:0}',
@@ -2594,18 +2594,15 @@
       '<div class="opbac-head__actions">' +
         '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
           escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
+        '<button type="button" class="opbac-head__btn" data-act="bug" title="' +
+          escHtml(pick({ fr: 'Signaler un bug', en: 'Report a bug' })) + '">🐞</button>' +
         '<button type="button" class="opbac-head__btn" data-act="rules" title="' +
           escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '">' +
           iconSvg('rules') + '</button>' +
-        '<button type="button" class="opbac-head__btn" data-act="bug" title="' +
-          escHtml(pick({ fr: 'Signaler un bug', en: 'Report a bug' })) + '">🐞</button>' +
         (!gameActive
           ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
           escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">▶</button>')
           : '') +
-        '<span class="opbac-head__cta-wrap" data-opbac-cta-wrap>' +
-          buildCollapsedCtaHtml(chatOn ? collapsedCta : '') +
-        '</span>' +
         '<button type="button" class="opbac-head__btn' + (!chatOn ? ' opbac-head__btn--on' : '') +
           '" data-act="view-' + layoutTarget + '" title="' +
           escHtml(layoutTarget === VIEW_SPLIT
@@ -5242,6 +5239,21 @@
           restoreFormFocus(root, restoreFocus);
         }
         syncCompleteCelebration(root, buffer, game);
+        var liveEl = root.querySelector('[data-opbac-live]');
+        if (isLive && !isEnd) {
+          var liveSig = JSON.stringify(game.livePlayers || {}) + '|' + JSON.stringify(game.scores || {});
+          if (!liveEl) {
+            var liveHtml = buildLiveBoardHtml(orbit, game, myNick);
+            var scrollEl = root.querySelector('.opbac-scroll');
+            var dockEl = root.querySelector('.opbac-dock');
+            if (scrollEl) scrollEl.insertAdjacentHTML('afterend', liveHtml);
+            else if (dockEl) dockEl.insertAdjacentHTML('beforebegin', liveHtml);
+            root.__opbacLiveSig = liveSig;
+          } else if (root.__opbacLiveSig !== liveSig) {
+            root.__opbacLiveSig = liveSig;
+            liveEl.outerHTML = buildLiveBoardHtml(orbit, game, myNick);
+          }
+        }
       } else if (isPrep) {
         updatePrepDom(root, remaining, game);
       }
