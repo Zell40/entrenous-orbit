@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 49;
+  var OEC_VER = 50;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -234,6 +234,9 @@
       result: '', reason: '', winner: '', flash: '', gid: '', updatedAt: 0,
       opening: '', openingVar: '', skill: '', tc: 'casual', clockW: 0, clockB: 0, clockInc: 0,
       clockAt: 0, rated: false, duration: 0, elo: '', eloGames: '', enName: '',
+      enRapid: '', enBlitz: '', enBullet: '',
+      enRapidBest: '', enBlitzBest: '', enBulletBest: '',
+      enRapidRec: '', enBlitzRec: '', enBulletRec: '',
       chesscom: '', ccRapid: '', ccBlitz: '', ccBullet: '',
       ccRapidBest: '', ccBlitzBest: '', ccBulletBest: '',
       ccRapidRec: '', ccBlitzRec: '', ccBulletRec: '',
@@ -596,6 +599,9 @@
   function keepProfile(prev) {
     return {
       elo: prev.elo, eloGames: prev.eloGames, enName: prev.enName, chesscom: prev.chesscom,
+      enRapid: prev.enRapid, enBlitz: prev.enBlitz, enBullet: prev.enBullet,
+      enRapidBest: prev.enRapidBest, enBlitzBest: prev.enBlitzBest, enBulletBest: prev.enBulletBest,
+      enRapidRec: prev.enRapidRec, enBlitzRec: prev.enBlitzRec, enBulletRec: prev.enBulletRec,
       ccRapid: prev.ccRapid, ccBlitz: prev.ccBlitz, ccBullet: prev.ccBullet,
       ccRapidBest: prev.ccRapidBest, ccBlitzBest: prev.ccBlitzBest, ccBulletBest: prev.ccBulletBest,
       ccRapidRec: prev.ccRapidRec, ccBlitzRec: prev.ccBlitzRec, ccBulletRec: prev.ccBulletRec,
@@ -850,6 +856,8 @@
         result: p[3] || '',
         tc: p[4] || '',
         at: Number(p[5] || 0),
+        eloW: p[6] || '',
+        eloB: p[7] || '',
       };
     }).filter(function (row) { return row.gid; });
   }
@@ -910,6 +918,15 @@
         elo: tagVal(tags, '+elo') || prev.elo,
         eloGames: tagVal(tags, '+games') || prev.eloGames,
         enName: tagVal(tags, '+en-name'),
+        enRapid: tagVal(tags, '+en-rapid'),
+        enBlitz: tagVal(tags, '+en-blitz'),
+        enBullet: tagVal(tags, '+en-bullet'),
+        enRapidBest: tagVal(tags, '+en-rapid-best'),
+        enBlitzBest: tagVal(tags, '+en-blitz-best'),
+        enBulletBest: tagVal(tags, '+en-bullet-best'),
+        enRapidRec: tagVal(tags, '+en-rapid-rec'),
+        enBlitzRec: tagVal(tags, '+en-blitz-rec'),
+        enBulletRec: tagVal(tags, '+en-bullet-rec'),
       };
       if (!prev.ccReady || ui.ccBusy || prev.ccPrompt === 'preview' || prev.ccPrompt === 'found' || prev.ccPrompt === 'verify') {
         patchState(channel, eloPatch);
@@ -1724,7 +1741,9 @@
       '.oec-card--ask h3{color:#c2410c}',
       '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
       '.oec-card--en{background:#f8faf4}',
-      '.oec-en__name{margin:0 0 .12rem;font-size:.82rem;font-weight:800;color:#3f3a32}',
+      '.oec-en__name{margin:0 0 .12rem;font-size:.92rem;font-weight:800;color:#14532d}',
+      '.oec-en__elo{margin:0;font-size:1.7rem;font-weight:800;color:#3f3a32;line-height:1.1}',
+      '.oec-card--en .oec-cc__stats{margin-top:.32rem}',
       '.oec-field{display:flex;flex-direction:column;gap:.28rem;margin:0 0 .65rem;font-size:.72rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6b7c4a}',
       '.oec-field__row{display:flex;gap:.35rem}',
       '.oec-field input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;font-weight:700;text-transform:none;letter-spacing:0;background:#fff;color:#3f3a32}',
@@ -2118,10 +2137,16 @@
     var gamesN = Number(game.eloGames || 0);
     var enMeta = loading && !game.elo
       ? '<span class="oec-spin"></span> Chargement…'
-      : (gamesN ? gamesN + ' partie' + (gamesN > 1 ? 's' : '') : '0 partie · provisoire');
+      : (gamesN ? gamesN + ' partie' + (gamesN > 1 ? 's' : '') + ' classée' + (gamesN > 1 ? 's' : '') : 'Aucune partie classée');
     var enCard = '<div class="oec-card oec-card--en' + (showCc ? '' : ' oec-card--wide') + (loading && !game.elo ? ' is-loading' : '') + '">' +
       '<h3>Classement EntreNous</h3>' +
+      (game.enName ? '<p class="oec-en__name">' + escHtml(game.enName) + '</p>' : '') +
       '<p class="oec-en__elo">' + escHtml(String(elo)) + '</p>' +
+      '<div class="oec-cc__stats">' +
+      ccStatCell('Rapide', game.enRapid, game.enRapidBest, game.enRapidRec, loading && !game.elo) +
+      ccStatCell('Blitz', game.enBlitz, game.enBlitzBest, game.enBlitzRec, loading && !game.elo) +
+      ccStatCell('Bullet', game.enBullet, game.enBulletBest, game.enBulletRec, loading && !game.elo) +
+      '</div>' +
       '<p class="oec-en__meta">' + enMeta + '</p></div>';
     var ccCard = '';
     if (showCc) {
@@ -2265,16 +2290,18 @@
   }
 
   function renderHistory(game) {
-    var rows = game.history || [];
+    var rows = (game.history || []).slice(0, 5);
     var html = '<div class="oec-card oec-card--wide"><h3>Tes parties</h3>';
     if (!rows.length) {
-      html += '<p class="oec-home-lead">Tes parties terminées apparaîtront ici.</p></div>';
+      html += '<p class="oec-home-lead">Tes 5 dernières parties classées apparaîtront ici.</p></div>';
       return html;
     }
     html += '<div class="oec-hist">';
     rows.forEach(function (row) {
+      var white = (row.white || '?') + (row.eloW ? ' (' + row.eloW + ')' : '');
+      var black = (row.black || '?') + (row.eloB ? ' (' + row.eloB + ')' : '');
       html += '<button type="button" data-act="revoir" data-val="' + escHtml(row.gid) + '">' +
-        '<b>' + escHtml(row.white || '?') + ' – ' + escHtml(row.black || '?') +
+        '<b>' + escHtml(white) + ' – ' + escHtml(black) +
         ' · ' + escHtml(row.result || '*') + '</b>' +
         '<span>' + escHtml(tcLabel(row.tc)) + '</span></button>';
     });
