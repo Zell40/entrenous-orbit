@@ -975,7 +975,9 @@
     injectStyles();
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
-    try { loadJitsiApi(cfg.server); } catch (e) { /* ignore */ }
+    // Do not preload external_api.js: Jitsi JSON.parse()s the *parent* page
+    // query string (nick, channel, age…). Guest URLs then spam
+    // "Failed to parse URL parameter value" and can look like a failed IRC connect.
 
     // Warm WHOIS for group ACL (controle parental, etc.)
     try {
