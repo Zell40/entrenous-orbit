@@ -33,7 +33,11 @@ $age     = isset($_POST['age'])     ? trim((string) $_POST['age']) : '';
 $sexe    = isset($_POST['sexe'])    ? trim((string) $_POST['sexe']) : '';
 $ville   = isset($_POST['ville'])   ? trim((string) $_POST['ville']) : '';
 $listen  = isset($_POST['listen'])  ? strtolower(trim((string) $_POST['listen'])) : 'reg';
-if ($listen !== 'cp') {
+$guest   = isset($_POST['guest']) && (string) $_POST['guest'] === '1';
+// Invité WP (âge déjà ≥ 17 côté formulaire) : toujours le listen normal.
+if ($guest) {
+    $listen = 'reg';
+} elseif ($listen !== 'cp') {
     $listen = 'reg';
 }
 $bouncer = isset($_POST['bouncer']) && (string) $_POST['bouncer'] === '1';
@@ -45,16 +49,18 @@ if ($nick === '') {
     echo 'Missing nick';
     exit;
 }
-if ($bouncer) {
-    if (trim($znc_pass) === '') {
+if (!$guest) {
+    if ($bouncer) {
+        if (trim($znc_pass) === '') {
+            http_response_code(400);
+            echo 'Missing znc password';
+            exit;
+        }
+    } elseif ($token === '') {
         http_response_code(400);
-        echo 'Missing znc password';
+        echo 'Missing token or nick';
         exit;
     }
-} elseif ($token === '') {
-    http_response_code(400);
-    echo 'Missing token or nick';
-    exit;
 }
 
 if ($target === '' || !preg_match('#^https?://#i', $target)) {
@@ -135,6 +141,14 @@ if ($listenDomain !== '') {
 }
 if (!$bouncer) {
     setcookie('orbit_en_listen', $listen, $listenOpts);
+}
+
+// Invité : cookie listen seulement. Pas de JWT / sessionStorage (Orbit
+// traiterait un handoff sans mot de passe comme une keycard SASL).
+if ($guest) {
+    header('Cache-Control: no-store');
+    header('Location: ' . $target, true, 302);
+    exit;
 }
 
 if (!$bouncer && $resumeAccount !== '') {

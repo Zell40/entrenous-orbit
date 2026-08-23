@@ -38,6 +38,11 @@ Le champ POST `listen` (`cp` ou `reg`, défaut `reg`) pose le cookie HttpOnly
 (`/etc/apache2/sites-available/kiwiirc.websocket.irc.conf`) le lit et route
 le websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`).
 
+Le champ POST `guest=1` (formulaire invité WordPress, âge ≥ 17) pose
+`orbit_en_listen=reg` **sans** JWT ni `orbit_handoff`, puis redirige vers
+`target` (`/app/?nick=&autoconnect=1`). Sans ça, un cookie CP restant — ou
+un Apache qui défaut vers 8197 — envoie l’invité sur Websocket-CP.
+
 Le champ POST `bouncer=1` + `znc_pass` (mot de passe ZNC) pose
 `orbit_handoff.bouncer` et un `PASS user:motdepasse`. `user` vient de `znc_user`
 (sensible à la casse) ; à défaut `account` NickServ, puis le nick.
