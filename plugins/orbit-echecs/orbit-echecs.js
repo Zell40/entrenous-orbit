@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 44;
+  var OEC_VER = 46;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -24,6 +24,7 @@
   var VIEW_CHAT = 'chat';
   var STORAGE_VIEW = 'oecViewMode';
   var STORAGE_PREMOVE = 'oecPremove';
+  var STORAGE_ONBOARD = 'oecOnboarded';
   var pluginOrbit = null;
   var syncRequestAt = Object.create(null);
   var viewMode = VIEW_FULL;
@@ -34,6 +35,7 @@
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
     ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '', enName: '',
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random', duo: 'open', invite: '' },
+    tour: false,
   };
   var archiveGame = null;
   var ccBusyTimer = 0;
@@ -426,10 +428,59 @@
     return String((orbit && orbit.state && orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
   }
 
+  var SERVICE_NICKS = {
+    capechecs: 1, jeuechecs: 1, petitbac: 1, bac: 1, maitredujeu: 1,
+    choixpeau: 1, harrypotter: 1, aidemoi: 1, signalmoi: 1,
+    botserv: 1, chanserv: 1, nickserv: 1, hostserv: 1, operserv: 1,
+    memoserv: 1, helpserv: 1, statserv: 1, gameserv: 1, global: 1, alis: 1,
+  };
+
   function isServiceNick(nick) {
-    var n = String(nick || '').toLowerCase();
-    return n === 'capechecs' || n === 'jeuechecs' || n === 'botserv' ||
-      n === 'chanserv' || n === 'nickserv' || n === 'hostserv' || n === 'operserv';
+    var n = String(nick || '').toLowerCase().replace(/^[@+%~&]/, '');
+    if (!n) return false;
+    if (SERVICE_NICKS[n]) return true;
+    return n.length > 4 && n.slice(-4) === 'serv';
+  }
+
+  function memberIsBot(m) {
+    return !!(m && (m.bot || m.isBot));
+  }
+
+  function configBotNicks(orbit) {
+    var out = Object.create(null);
+    try {
+      var all = (orbit && orbit.config && orbit.config()) || {};
+      ['echecs', 'petitbac', 'harrypotter'].forEach(function (key) {
+        var arr = (all[key] || {}).botNicks;
+        if (!Array.isArray(arr)) return;
+        arr.forEach(function (n) {
+          var low = String(n || '').toLowerCase();
+          if (low) out[low] = 1;
+        });
+      });
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  function nickIsBot(orbit, nick, member) {
+    var n = String(nick || '').toLowerCase().replace(/^[@+%~&]/, '');
+    if (!n || isServiceNick(n) || memberIsBot(member)) return true;
+    if (configBotNicks(orbit)[n]) return true;
+    var st = (orbit && orbit.state && orbit.state.get && orbit.state.get()) || {};
+    var buffers = st.buffers || {};
+    var keys = Object.keys(buffers);
+    for (var i = 0; i < keys.length; i++) {
+      var members = (buffers[keys[i]] && buffers[keys[i]].members) || {};
+      var direct = members[nick] || members[n];
+      if (memberIsBot(direct)) return true;
+      var mkeys = Object.keys(members);
+      for (var j = 0; j < mkeys.length; j++) {
+        var m = members[mkeys[j]];
+        var mn = String((m && m.nick) || mkeys[j]).replace(/^[@+%~&]/, '').toLowerCase();
+        if (mn === n && memberIsBot(m)) return true;
+      }
+    }
+    return false;
   }
 
   function findIrcBuffer(orbit, bufferKey) {
@@ -449,11 +500,11 @@
     var me = myNick(orbit);
     var st = (orbit && orbit.state && orbit.state.get && orbit.state.get()) || {};
     var byLow = Object.create(null);
-    function add(nick, flags) {
+    function add(nick, flags, member) {
       var raw = String(nick || '').replace(/^[@+%~&]/, '').trim();
       if (!raw) return;
       var low = raw.toLowerCase();
-      if (!low || low === me || isServiceNick(low)) return;
+      if (!low || low === me || nickIsBot(orbit, raw, member)) return;
       var cur = byLow[low];
       if (!cur) {
         byLow[low] = { nick: raw, inChan: !!flags.inChan, friend: !!flags.friend };
@@ -466,7 +517,7 @@
     var members = (buf && buf.members) || {};
     Object.keys(members).forEach(function (k) {
       var m = members[k];
-      add((m && m.nick) || k, { inChan: true });
+      add((m && m.nick) || k, { inChan: true }, m);
     });
     (st.friends || []).forEach(function (n) { add(n, { friend: true }); });
     var list = Object.keys(byLow).map(function (k) { return byLow[k]; });
@@ -1243,6 +1294,9 @@
   }
 
   function iconSvg(name) {
+    if (name === 'menu') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
+    }
     if (name === 'chat') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
     }
@@ -1272,6 +1326,32 @@
       if (orbit) return normalizeViewMode(orbit.storage.get(STORAGE_VIEW, VIEW_FULL));
     } catch (e) { /* ignore */ }
     return normalizeViewMode(viewMode);
+  }
+
+  function hasOnboarded(orbit) {
+    try {
+      return !!orbit.storage.get(STORAGE_ONBOARD, false);
+    } catch (e) { return false; }
+  }
+
+  function markOnboarded(orbit) {
+    try { if (orbit) orbit.storage.set(STORAGE_ONBOARD, true); } catch (e) { /* ignore */ }
+    ui.tour = false;
+  }
+
+  function startTour(orbit) {
+    ui.settings = false;
+    ui.tour = true;
+    if (orbit) setViewMode(orbit, VIEW_FULL);
+    else bump();
+  }
+
+  function maybeFirstVisitGame(orbit) {
+    if (!orbit || hasOnboarded(orbit)) return;
+    if (ui.tour) return;
+    ui.tour = true;
+    viewMode = VIEW_FULL;
+    try { orbit.storage.set(STORAGE_VIEW, VIEW_FULL); } catch (e) { /* ignore */ }
   }
 
   function isNarrowScreen() {
@@ -1482,6 +1562,19 @@
       '.oec-check{display:flex;align-items:center;gap:.55rem;margin:0;cursor:pointer;font-size:.84rem;font-weight:700;color:#3f3a32;user-select:none}',
       '.oec-check input{width:1.1rem;height:1.1rem;accent-color:#166534;flex:0 0 auto}',
       '.oec-settings .oec-check + .oec-check{margin-top:.55rem}',
+      '.oec-settings .oec-tour-again{margin-top:.7rem;width:100%}',
+      '.oec-tour{position:absolute;left:.45rem;right:.45rem;top:calc(100% + 8px);z-index:46;padding:.75rem .8rem .85rem;border-radius:12px;background:#fff;color:#3f3a32;border:1px solid #d7ccb8;box-shadow:0 16px 36px rgba(15,23,42,.28);text-align:left}',
+      '.oec-tour h3{margin:0 0 .2rem;font-size:.92rem;font-weight:800;color:#14532d}',
+      '.oec-tour__lead{margin:0 0 .55rem;font-size:.78rem;line-height:1.4;color:#5c564c}',
+      '.oec-tour__list{margin:0 0 .7rem;padding:0;list-style:none;display:flex;flex-direction:column;gap:.5rem}',
+      '.oec-tour__list li{display:flex;align-items:flex-start;gap:.55rem;font-size:.8rem;line-height:1.4;color:#3f3a32}',
+      '.oec-tour__list b{font-weight:800;color:#14532d}',
+      '.oec-tour__ico{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:.18rem;min-width:2.1rem;height:2.1rem;padding:0 .28rem;border-radius:9px;background:#166534;color:#fff}',
+      '.oec-tour__ico svg{width:16px;height:16px;display:block}',
+      '.oec-tour__ico--btn{min-width:0;height:auto;padding:.28rem .45rem;font-size:.62rem;font-weight:800;letter-spacing:.01em;white-space:nowrap}',
+      '.oec-tour .oec-btn{width:100%}',
+      '.oec-head__btn--hint{animation:oec-hint 1.4s ease-in-out infinite;box-shadow:0 0 0 2px #fde68a}',
+      '@keyframes oec-hint{50%{background:rgba(253,224,71,.55)}}',
       '.oec-spin{width:16px;height:16px;border:2px solid #d7ccb8;border-top-color:#166534;border-radius:50%;animation:oec-spin .7s linear infinite;flex:0 0 auto}',
       '@keyframes oec-spin{to{transform:rotate(360deg)}}',
       '.oec-panel--menu{overflow:visible}',
@@ -1618,9 +1711,10 @@
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
       '.oec-hero__label{position:absolute;left:.8rem;bottom:.5rem;margin:0;color:#fff;font-size:clamp(1rem,2vh,1.35rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
       '.oec-home-lead{margin:0;color:#5c564c;font-size:.74rem;line-height:1.3}',
-      '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.32rem}',
+      '.oec-home-grid{display:grid;grid-template-columns:1fr 1fr;gap:.32rem;align-items:start}',
       '.oec-home-grid .oec-card--wide{grid-column:1/-1}',
       '.oec-card{background:#fff;border:1px solid #e4d9c5;border-radius:12px;padding:.38rem .52rem;margin:0;box-shadow:0 6px 16px rgba(92,70,40,.07)}',
+      '.oec-card--invite{position:relative;z-index:8;overflow:visible}',
       '.oec-card--ask{border-color:#ea580c;background:#fff7ed}',
       '.oec-card--ask h3{color:#c2410c}',
       '.oec-card--ok{border-color:#166534;background:#f0fdf4}',
@@ -1664,10 +1758,10 @@
       '.oec-elo b{color:#14532d}',
       '.oec-link{display:flex;gap:.35rem;margin-top:.4rem}',
       '.oec-link input{flex:1;min-width:0;border:1px solid #d7ccb8;border-radius:10px;padding:.32rem .5rem;font-size:.8rem;background:#fff;color:#3f3a32}',
-      '.oec-invite{display:flex;flex-direction:column;gap:.28rem;margin-top:.35rem}',
+      '.oec-invite{position:relative;z-index:8;display:flex;flex-direction:column;gap:.28rem;margin-top:.35rem}',
       '.oec-invite input{width:100%;box-sizing:border-box;border:1px solid #d7ccb8;border-radius:10px;padding:.36rem .55rem;font-size:.8rem;font-weight:700;background:#fff;color:#3f3a32}',
       '.oec-invite input:focus{outline:0;border-color:#166534;box-shadow:0 0 0 2px rgba(22,101,52,.18)}',
-      '.oec-invite__list{max-height:9.6rem;overflow:auto;border:1px solid #e4d9c5;border-radius:10px;background:#faf6ee;display:flex;flex-direction:column;padding:.12rem}',
+      '.oec-invite__list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:12;max-height:9.6rem;overflow:auto;border:1px solid #e4d9c5;border-radius:10px;background:#fff;display:flex;flex-direction:column;padding:.12rem;box-shadow:0 14px 32px rgba(28,25,23,.22)}',
       '.oec-invite__nick{display:flex;align-items:center;gap:.35rem;border:0;background:transparent;text-align:left;padding:.3rem .42rem;border-radius:8px;cursor:pointer;font-size:.78rem;color:#3f3a32}',
       '.oec-invite__nick:hover,.oec-invite__nick.is-on{background:#e8f5e9}',
       '.oec-invite__nick.is-hide{display:none!important}',
@@ -1875,11 +1969,13 @@
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
+        (ui.tour ? ' oec-head__btn--hint' : '') +
         '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) +
         (mode !== VIEW_CHAT && chatUnread ? '<span class="oec-head__unread">' +
           (chatUnread > 99 ? '99+' : String(chatUnread)) + '</span>' : '') +
         '</button>' +
       '<button type="button" class="oec-head__btn' + (ui.settings ? ' oec-head__btn--on' : '') +
+        (ui.tour ? ' oec-head__btn--hint' : '') +
         '" data-act="settings" title="' + escHtml(pick({ fr: 'Paramètres', en: 'Settings' })) + '">' +
         iconSvg('settings') + '</button>' +
       '</div>';
@@ -1918,7 +2014,25 @@
       '</label>' +
       '<label class="oec-check" data-act="premove-toggle">' +
       '<input type="checkbox"' + (premoveOn(pluginOrbit) ? ' checked' : '') + '>' +
-      '<span>Pré-mouvement</span></label></div>';
+      '<span>Pré-mouvement</span></label>' +
+      '<button type="button" class="oec-btn oec-tour-again" data-act="tour-open">Revoir le guide</button></div>';
+  }
+
+  function renderTour() {
+    if (!ui.tour || ui.settings) return '';
+    return '<div class="oec-tour" role="dialog" aria-label="Guide du salon échecs">' +
+      '<h3>Bienvenue aux échecs</h3>' +
+      '<p class="oec-tour__lead">Trois gestes à retenir pour démarrer :</p>' +
+      '<ul class="oec-tour__list">' +
+      '<li><span class="oec-tour__ico" aria-hidden="true">' + iconSvg('menu') + iconSvg('settings') + '</span>' +
+      '<div><b>Les menus</b> — En haut à gauche, les trois traits ouvrent la liste des salons. ' +
+      'Dans la barre verte, la roue dentée ouvre les paramètres du jeu.</div></li>' +
+      '<li><span class="oec-tour__ico" aria-hidden="true">' + iconSvg('chat') + iconSvg('game') + '</span>' +
+      '<div><b>Tchat ou jeu</b> — Ces icônes, à droite de la barre verte, affichent le tchat du salon ou le plateau.</div></li>' +
+      '<li><span class="oec-tour__ico oec-tour__ico--btn" aria-hidden="true">Lancer la partie</span>' +
+      '<div><b>Nouvelle partie</b> — Choisissez l’adversaire et la cadence, puis touchez ce bouton.</div></li>' +
+      '</ul>' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="tour-done">C’est compris</button></div>';
   }
 
   function playerStatsLine(p, nickFallback) {
@@ -2075,7 +2189,7 @@
           pill('setup-skill', 'difficile', 'Difficile (1800)', s.skill) +
           pill('setup-skill', 'expert', 'Expert (2200)', s.skill) +
           '</div></div>'
-        : '<div class="oec-card oec-card--wide"><h3>Qui défier ?</h3><div class="oec-pills">' +
+        : '<div class="oec-card oec-card--wide oec-card--invite"><h3>Qui défier ?</h3><div class="oec-pills">' +
           pill('setup-duo', 'open', 'Premier arrivé', s.duo || 'open') +
           pill('setup-duo', 'friend', 'Un ami précis', s.duo || 'open') +
           '</div>' +
@@ -2304,7 +2418,7 @@
     var metaY = meta ? meta.scrollTop : 0;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
-      renderSettings(game) + '</div>';
+      renderSettings(game) + renderTour() + '</div>';
 
     var body = '<div class="oec-stage">';
     if (game.status === 'idle') {
@@ -2361,7 +2475,7 @@
     }
     root.innerHTML = head + body;
     root.classList.toggle('oec-panel--home', game.status === 'idle');
-    root.classList.toggle('oec-panel--menu', !!ui.settings);
+    root.classList.toggle('oec-panel--menu', !!(ui.settings || ui.tour));
     var stage2 = root.querySelector('.oec-stage');
     var meta2 = root.querySelector('.oec-meta');
     if (stage2) stage2.scrollTop = scrollY;
@@ -2574,6 +2688,8 @@
     if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
     if (act === 'settings') { ui.settings = !ui.settings; bump(); return; }
+    if (act === 'tour-done') { markOnboarded(orbit); bump(); return; }
+    if (act === 'tour-open') { startTour(orbit); return; }
     if (act === 'premove-toggle') {
       setPremoveOn(orbit, !premoveOn(orbit));
       return;
@@ -2744,6 +2860,7 @@
     if (main && topbar && root.parentNode !== main) {
       topbar.insertAdjacentElement('afterend', root);
     }
+    maybeFirstVisitGame(orbit);
     applyViewMode(orbit, getViewMode(orbit));
     if (ui.drag) return;
     var g = archiveGame || getState(buf);
@@ -2751,6 +2868,7 @@
     var tick = (live.status === 'playing' && live.tc && live.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
+      (ui.tour ? 't' : '0') + '|' +
       (ui.ccBusy ? '1' : '0') + '|' + (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
       'u' + chatUnread + '|' +
       (ui.setup.vs || '') + (ui.setup.skill || '') + (ui.setup.tc || '') + (ui.setup.duo || '') + '|' +
