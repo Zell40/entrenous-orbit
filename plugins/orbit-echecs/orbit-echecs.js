@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 51;
+  var OEC_VER = 52;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -34,11 +34,13 @@
   var ui = {
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
     ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '', enName: '',
+    cmdBusy: '', cmdBusyVal: '',
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random', duo: 'open', invite: '' },
     tour: false,
   };
   var archiveGame = null;
   var ccBusyTimer = 0;
+  var cmdBusyTimer = 0;
   var ccBootTimer = 0;
   var chatUnread = 0;
   var chatBadgeArmed = false;
@@ -66,6 +68,43 @@
         else bump();
       }, Number(ms) > 0 ? Number(ms) : 20000);
     }
+  }
+
+  function clearCmdBusy() {
+    if (cmdBusyTimer) {
+      clearTimeout(cmdBusyTimer);
+      cmdBusyTimer = 0;
+    }
+    ui.cmdBusy = '';
+    ui.cmdBusyVal = '';
+  }
+
+  function setCmdBusy(act, ms, val) {
+    ui.cmdBusy = act || '';
+    ui.cmdBusyVal = val || '';
+    if (cmdBusyTimer) {
+      clearTimeout(cmdBusyTimer);
+      cmdBusyTimer = 0;
+    }
+    if (act) {
+      cmdBusyTimer = setTimeout(function () {
+        cmdBusyTimer = 0;
+        ui.cmdBusy = '';
+        ui.cmdBusyVal = '';
+        bump();
+      }, Number(ms) > 0 ? Number(ms) : 12000);
+    }
+    bump();
+  }
+
+  function cmdBtn(act, label, waitLabel, extraClass) {
+    var busy = ui.cmdBusy === act;
+    var locked = !!ui.cmdBusy;
+    return '<button type="button" class="oec-btn' + (extraClass ? ' ' + extraClass : '') +
+      (busy ? ' is-wait' : '') + '" data-act="' + act + '"' +
+      (locked ? ' disabled aria-busy="true"' : '') + '>' +
+      (busy ? '<span class="oec-spin" aria-hidden="true"></span>' + (waitLabel || 'Chargement…') : label) +
+      '</button>';
   }
 
   function pick(table) {
@@ -883,6 +922,9 @@
     if (tagVal(tags, EC) !== 'v1') return;
     var ev = tagVal(tags, EV);
     if (!ev || ev === 'cmd') return;
+    if (ev === 'waiting' || ev === 'game_start' || ev === 'game_end' || ev === 'draw_offer') {
+      clearCmdBusy();
+    }
     var gid = tagVal(tags, '+gid');
     var prev = getState(channel);
     if (gid && prev.gid && gid !== prev.gid && ev !== 'game_end' && ev !== 'archive' && ev !== 'archive_moves' && ev !== 'review_start' && ev !== 'review_chunk' && ev !== 'review_done') {
@@ -1146,6 +1188,7 @@
 
     if (ev === 'archive') {
       if (!eventForMe(tags)) return;
+      clearCmdBusy();
       archiveGame = Object.assign(defaultState(), {
         status: 'ended',
         _archive: true,
@@ -1254,9 +1297,13 @@
 
     if (ev === 'cmd_err') {
       if (tagVal(tags, '+nick') && !eventForMe(tags)) return;
+      clearCmdBusy();
       var err = tagVal(tags, '+text');
       if (err === 'idle') {
-        if (prev.status === 'idle') return;
+        if (prev.status === 'idle') {
+          bump();
+          return;
+        }
         ui.sel = '';
         ui.promo = null;
         ui.navPly = -1;
@@ -1459,26 +1506,31 @@
       h = Math.min(h, Math.floor(vh * 0.58));
     }
     if (full && isNarrowScreen()) {
+      if (vv) top = Math.round(topbar ? topbar.getBoundingClientRect().bottom : top);
+      top = Math.max(0, top);
+      var kb = 0;
+      if (vv) {
+        var hidden = Math.round((window.innerHeight || 0) - vv.height - (vv.offsetTop || 0));
+        if (hidden > 140) kb = hidden;
+      }
       if (main) {
         main.style.setProperty('padding', '0', 'important');
         main.style.setProperty('margin', '0', 'important');
         main.style.setProperty('width', '100%', 'important');
         main.style.setProperty('max-width', 'none', 'important');
-        main.style.setProperty('height', vh + 'px', 'important');
-        main.style.setProperty('max-height', vh + 'px', 'important');
+        main.style.setProperty('height', '100dvh', 'important');
+        main.style.setProperty('max-height', '100dvh', 'important');
       }
-      if (h > 80) {
-        root.style.setProperty('position', 'fixed', 'important');
-        root.style.setProperty('left', '0', 'important');
-        root.style.setProperty('right', '0', 'important');
-        root.style.setProperty('top', top + 'px', 'important');
-        root.style.setProperty('bottom', bottom + 'px', 'important');
-        root.style.setProperty('height', h + 'px', 'important');
-        root.style.setProperty('max-height', h + 'px', 'important');
-        root.style.setProperty('width', vw + 'px', 'important');
-        root.style.setProperty('margin', '0', 'important');
-        root.style.setProperty('z-index', '15', 'important');
-      }
+      root.style.setProperty('position', 'fixed', 'important');
+      root.style.setProperty('left', '0', 'important');
+      root.style.setProperty('right', '0', 'important');
+      root.style.setProperty('top', top + 'px', 'important');
+      root.style.setProperty('bottom', kb + 'px', 'important');
+      root.style.setProperty('height', 'auto', 'important');
+      root.style.setProperty('max-height', 'none', 'important');
+      root.style.setProperty('width', '100%', 'important');
+      root.style.setProperty('margin', '0', 'important');
+      root.style.setProperty('z-index', '40', 'important');
       return;
     }
     root.style.removeProperty('position');
@@ -1559,11 +1611,12 @@
       '.oec-panel--split{flex:1 1 auto;min-height:0;max-height:100%}',
       '.oec-panel--chat{flex:0 0 auto;min-height:0;height:auto!important;max-height:none!important}',
       '.oec-panel--chat .oec-stage,.oec-panel--chat .oec-home-actions,.oec-panel--chat .oec-game-actions{display:none!important}',
-      'html.oec-full,html.oec-full body,body.oec-full{overflow:hidden;width:100%;max-width:100%;margin:0;padding:0}',
-      'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100dvh;max-height:100dvh}',
-      'body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg{display:none!important}',
-      'body.oec-full #oec-dom-panel{flex:1 1 0;min-height:0;width:100%;max-width:none;margin:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box}',
-      '@media(max-width:880px){body.oec-full .app,body.oec-full #app,body.oec-full .shell,body.oec-full .layout{width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100%!important}body.oec-full .topbar{z-index:60!important;position:relative}body.oec-full .sidebar,body.oec-full .rail,body.oec-full aside.sidebar{z-index:90!important}body.oec-full .nav-backdrop{z-index:80!important}body.oec-full #oec-dom-panel{border-radius:0!important;width:100%!important;max-width:none!important;margin:0!important;left:0!important;right:0!important}body.oec-full .oec-idle{width:100%!important;max-width:none!important;margin:0!important;flex:1 1 auto;min-height:0}body.oec-full .oec-stage{width:100%!important;box-sizing:border-box;padding:.45rem .55rem .5rem}body.oec-full .oec-home-actions,body.oec-full .oec-game-actions{padding-left:.55rem;padding-right:.55rem;padding-bottom:max(.55rem,env(safe-area-inset-bottom,0px))}}',
+      'html.oec-full,html.oec-full body,body.oec-full{overflow:hidden;width:100%;max-width:100%;margin:0;padding:0;height:100%;min-height:100svh;min-height:100dvh}',
+      'body.oec-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100svh!important;height:100dvh!important;max-height:100svh!important;max-height:100dvh!important}',
+      'html.oec-full .chan-hero,html.oec-full .messages,html.oec-full .composer,html.oec-full .main__room-bg,html.oec-full .empty,body.oec-full .chan-hero,body.oec-full .messages,body.oec-full .composer,body.oec-full .main__room-bg,body.oec-full .empty,body.oec-full .composer textarea,body.oec-full form.composer{display:none!important;height:0!important;min-height:0!important;max-height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;margin:0!important;padding:0!important;border:0!important;flex:none!important;resize:none!important}',
+      'body.oec-full #oec-dom-panel{flex:1 1 0;min-height:0;width:100%;max-width:none;margin:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;background:#1a1c19}',
+      'body.oec-full #oec-dom-panel.oec-panel--home{background:#f6f1e7}',
+      '@media(max-width:880px){body.oec-full .app,body.oec-full #app,body.oec-full .shell,body.oec-full .layout{width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100%!important;min-height:100svh!important}body.oec-full .topbar{z-index:60!important;position:relative}body.oec-full .sidebar,body.oec-full .rail,body.oec-full aside.sidebar{z-index:90!important}body.oec-full .nav-backdrop{z-index:80!important}body.oec-full #oec-dom-panel{border-radius:0!important;width:100%!important;max-width:none!important;margin:0!important;left:0!important;right:0!important;bottom:0!important;height:auto!important;max-height:none!important}body.oec-full .oec-idle{width:100%!important;max-width:none!important;margin:0!important;flex:1 1 auto;min-height:0}body.oec-full .oec-stage{width:100%!important;box-sizing:border-box;padding:.45rem .55rem .5rem}body.oec-full .oec-home-actions,body.oec-full .oec-game-actions{padding-left:.55rem;padding-right:.55rem;padding-bottom:max(.55rem,env(safe-area-inset-bottom,0px))}}',
       '@media(min-width:1000px){body.oec-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.oec-split .topbar{grid-column:1/-1;grid-row:1}body.oec-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.oec-split #oec-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(255,255,255,.08)}body.oec-split .chan-hero{grid-column:2;grid-row:2}body.oec-split .messages{grid-column:2;grid-row:3;min-height:0}body.oec-split .composer{grid-column:2;grid-row:4}body.oec-split .main>:not(.topbar):not(#oec-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column;overflow:hidden}body.oec-split #oec-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
       '.oec-head{position:relative;display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto;overflow:visible;z-index:30}',
@@ -1690,7 +1743,7 @@
       '.oec-tip__best{display:block;margin-top:.2rem;color:#67e8f9;font-weight:700}',
       '.oec-eval-hint{margin:.15rem 0 .35rem;font-size:.68rem;opacity:.8}',
       '.oec-hist{display:flex;flex-direction:column;gap:.22rem}',
-      '.oec-hist button{border:1px solid #e4d9c5;background:#faf6ee;color:#3f3a32;border-radius:10px;padding:.32rem .5rem;text-align:left;cursor:pointer;font-size:.74rem}',
+      '.oec-hist button{border:1px solid #e4d9c5;background:#faf6ee;color:#3f3a32;border-radius:10px;padding:.32rem .5rem;text-align:left;cursor:pointer;font-size:.74rem;display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .4rem}',
       '.oec-hist button:hover{border-color:#166534}',
       '.oec-hist b{display:block;font-size:.78rem}',
       '.oec-hist span{opacity:.7;font-size:.68rem}',
@@ -1726,8 +1779,11 @@
       '.oec-actions{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.55rem}',
       '.oec-btn{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#f5f5f4;border-radius:999px;padding:.4rem .75rem;font-size:.76rem;font-weight:800;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:.35rem}',
       '.oec-btn:hover{border-color:#86efac;color:#bbf7d0}',
+      '.oec-btn:disabled,.oec-btn.is-wait{opacity:.82;cursor:wait;pointer-events:none}',
       '.oec-btn--pri{background:#166534;border-color:#166534;color:#fff}',
       '.oec-btn--danger{color:#fecaca;border-color:#7f1d1d}',
+      '.oec-game-actions .oec-spin,.oec-btn--pri .oec-spin,.oec-btn--danger .oec-spin{border-color:rgba(255,255,255,.32);border-top-color:#fff}',
+      '.oec-hist .oec-spin{width:14px;height:14px;border-color:#d7ccb8;border-top-color:#166534}',
       '.oec-idle{text-align:left;width:100%;max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;flex:1 1 auto;box-sizing:border-box}',
       '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 1 auto;min-height:clamp(5.5rem,14vh,9.5rem);max-height:min(16vh,9.5rem);background:#e8dcc4}',
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
@@ -2245,10 +2301,10 @@
 
   function renderHomeLaunch(game, extraClass) {
     var s = ui.setup;
+    var label = (s.vs === 'duo' && s.duo === 'friend') ? 'Défier' : 'Lancer la partie';
     return '<div class="oec-actions oec-home-actions' + (extraClass ? ' ' + extraClass : '') + '">' +
-      '<button type="button" class="oec-btn oec-btn--pri" data-act="start-setup">' +
-      ((s.vs === 'duo' && s.duo === 'friend') ? 'Défier' : 'Lancer la partie') +
-      '</button></div>';
+      cmdBtn('start-setup', label, 'Lancement…', 'oec-btn--pri') +
+      '</div>';
   }
 
   function gamePly(game) {
@@ -2269,21 +2325,21 @@
   function renderGameFooter(orbit, game) {
     var html = '<div class="oec-actions oec-game-actions">';
     if (game._archive) {
-      html += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
+      html += cmdBtn('home', 'Accueil', 'Chargement…', 'oec-btn--pri');
     } else if (game.status === 'waiting') {
       var me = myNick(orbit);
       var invited = String(game.invited || '').toLowerCase();
       var creator = String(game.creator || '').toLowerCase();
       var canJoin = invited ? invited === me : creator && creator !== me;
-      if (canJoin) html += '<button type="button" class="oec-btn oec-btn--pri" data-act="join">Rejoindre</button>';
-      if (creator === me) html += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
+      if (canJoin) html += cmdBtn('join', 'Rejoindre', 'Connexion…', 'oec-btn--pri');
+      if (creator === me) html += cmdBtn('abort', 'Annuler', 'Annulation…');
     } else if (game.status === 'playing') {
-      html += '<button type="button" class="oec-btn" data-act="draw">Nulle</button>';
-      if (canAbort(game)) html += '<button type="button" class="oec-btn" data-act="abort">Annuler</button>';
-      html += '<button type="button" class="oec-btn oec-btn--danger" data-act="resign">Abandonner</button>';
+      html += cmdBtn('draw', 'Nulle', 'Envoi…');
+      if (canAbort(game)) html += cmdBtn('abort', 'Annuler', 'Annulation…');
+      html += cmdBtn('resign', 'Abandonner', 'Abandon…', 'oec-btn--danger');
     } else if (game.status === 'ended') {
-      html += '<button type="button" class="oec-btn oec-btn--pri" data-act="home">Accueil</button>';
-      html += '<button type="button" class="oec-btn" data-act="start-setup">Rejouer</button>';
+      html += cmdBtn('home', 'Accueil', 'Chargement…', 'oec-btn--pri');
+      html += cmdBtn('start-setup', 'Rejouer', 'Lancement…');
     }
     html += '</div>';
     return html;
@@ -2300,7 +2356,10 @@
     rows.forEach(function (row) {
       var white = (row.white || '?') + (row.eloW ? ' (' + row.eloW + ')' : '');
       var black = (row.black || '?') + (row.eloB ? ' (' + row.eloB + ')' : '');
-      html += '<button type="button" data-act="revoir" data-val="' + escHtml(row.gid) + '">' +
+      var wait = ui.cmdBusy === 'revoir' && ui.cmdBusyVal === String(row.gid);
+      html += '<button type="button" data-act="revoir" data-val="' + escHtml(row.gid) + '"' +
+        (ui.cmdBusy ? ' disabled' : '') + (wait ? ' aria-busy="true" class="is-wait"' : '') + '>' +
+        (wait ? '<span class="oec-spin" aria-hidden="true"></span>' : '') +
         '<b>' + escHtml(white) + ' – ' + escHtml(black) +
         ' · ' + escHtml(row.result || '*') + '</b>' +
         '<span>' + escHtml(tcLabel(row.tc)) + '</span></button>';
@@ -2711,6 +2770,17 @@
       if (!ok) patchState(buffer, { flash: pick({ fr: 'Envoi TAGMSG impossible', en: 'TAGMSG send failed' }) });
       return ok;
     }
+    function sentWait(actName, name, arg, extra) {
+      if (ui.cmdBusy) return false;
+      setCmdBusy(actName, 12000, extra);
+      var ok = sent(name, arg);
+      if (!ok) { clearCmdBusy(); bump(); }
+      return ok;
+    }
+    if ({
+      'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
+      join: 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
+    }[act] && ui.cmdBusy) return;
 
     if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc' || act === 'setup-duo') {
       var key = act.replace('setup-', '');
@@ -2772,17 +2842,17 @@
         return;
       }
       archiveGame = null;
-      sent('commencer', startArg());
+      sentWait('start-setup', 'commencer', startArg());
       return;
     }
-    if (act === 'start') { sent('commencer', startArg()); return; }
-    if (act === 'start-w') { sent('commencer', 'blancs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
-    if (act === 'start-b') { sent('commencer', 'noirs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
-    if (act === 'duo') { sent('commencer', 'duo ' + (ui.setup.tc || '')); return; }
-    if (act === 'join') { sent('rejoindre'); return; }
-    if (act === 'draw') { sent('nul'); return; }
-    if (act === 'abort') { sent('annuler'); return; }
-    if (act === 'resign') { sent('abandonner'); return; }
+    if (act === 'start') { sentWait('start', 'commencer', startArg()); return; }
+    if (act === 'start-w') { sentWait('start-w', 'commencer', 'blancs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
+    if (act === 'start-b') { sentWait('start-b', 'commencer', 'noirs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
+    if (act === 'duo') { sentWait('duo', 'commencer', 'duo ' + (ui.setup.tc || '')); return; }
+    if (act === 'join') { sentWait('join', 'rejoindre'); return; }
+    if (act === 'draw') { sentWait('draw', 'nul'); return; }
+    if (act === 'abort') { sentWait('abort', 'annuler'); return; }
+    if (act === 'resign') { sentWait('resign', 'abandonner'); return; }
     if (act === 'elo') { sent('elo'); return; }
     if (act === 'lier-oui') {
       if (ui.ccBusy) return;
@@ -2837,7 +2907,7 @@
         patchState(buffer, { flash: 'Termine ou annule la partie en cours pour revoir une ancienne.' });
         return;
       }
-      sent('revoir', val);
+      sentWait('revoir', 'revoir', val, val);
       return;
     }
     if (act === 'nav-start' || act === 'nav-prev' || act === 'nav-next' || act === 'nav-end' || act === 'nav-ply') {
@@ -2916,7 +2986,8 @@
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
       (ui.tour ? 't' : '0') + '|' +
-      (ui.ccBusy ? '1' : '0') + '|' + (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
+      (ui.ccBusy ? '1' : '0') + '|' + (ui.cmdBusy || '') + (ui.cmdBusyVal || '') + '|' +
+      (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
       'u' + chatUnread + '|' +
       (ui.setup.vs || '') + (ui.setup.skill || '') + (ui.setup.tc || '') + (ui.setup.duo || '') + '|' +
       (archiveGame ? archiveGame.gid : '') + '|' +
