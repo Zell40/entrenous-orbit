@@ -195,6 +195,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-harrypotter/" \
   --exclude="/plugins/third/orbit-callerid/" \
   --exclude="/plugins/third/orbit-asl/" \
+  --exclude="/plugins/third/orbit-anope/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/$FILEHOST_FILES_DIR" \
   --exclude="/handoff.php" \
@@ -292,6 +293,12 @@ ASL_DIR="plugins/third/orbit-asl"
 mkdir -p "$WEBROOT/$ASL_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-asl/orbit-asl.js" \
       "$WEBROOT/$ASL_DIR/"
+
+# NickServ / Anope notices → événements + popup invité
+ANOPE_DIR="plugins/third/orbit-anope"
+mkdir -p "$WEBROOT/$ANOPE_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-anope/orbit-anope.js" \
+      "$WEBROOT/$ANOPE_DIR/"
 
 # Runtime config + Apache rewrite for /upload
 cp -f "$PLUGINS_REPO/config/config.json" "$WEBROOT/config.json"
