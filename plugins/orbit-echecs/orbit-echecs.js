@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 46;
+  var OEC_VER = 48;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1294,9 +1294,6 @@
   }
 
   function iconSvg(name) {
-    if (name === 'menu') {
-      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
-    }
     if (name === 'chat') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
     }
@@ -1562,7 +1559,6 @@
       '.oec-check{display:flex;align-items:center;gap:.55rem;margin:0;cursor:pointer;font-size:.84rem;font-weight:700;color:#3f3a32;user-select:none}',
       '.oec-check input{width:1.1rem;height:1.1rem;accent-color:#166534;flex:0 0 auto}',
       '.oec-settings .oec-check + .oec-check{margin-top:.55rem}',
-      '.oec-settings .oec-tour-again{margin-top:.7rem;width:100%}',
       '.oec-tour{position:absolute;left:.45rem;right:.45rem;top:calc(100% + 8px);z-index:46;padding:.75rem .8rem .85rem;border-radius:12px;background:#fff;color:#3f3a32;border:1px solid #d7ccb8;box-shadow:0 16px 36px rgba(15,23,42,.28);text-align:left}',
       '.oec-tour h3{margin:0 0 .2rem;font-size:.92rem;font-weight:800;color:#14532d}',
       '.oec-tour__lead{margin:0 0 .55rem;font-size:.78rem;line-height:1.4;color:#5c564c}',
@@ -2015,7 +2011,9 @@
       '<label class="oec-check" data-act="premove-toggle">' +
       '<input type="checkbox"' + (premoveOn(pluginOrbit) ? ' checked' : '') + '>' +
       '<span>Pré-mouvement</span></label>' +
-      '<button type="button" class="oec-btn oec-tour-again" data-act="tour-open">Revoir le guide</button></div>';
+      '<label class="oec-check" data-act="tour-toggle">' +
+      '<input type="checkbox"' + ((ui.tour || !hasOnboarded(pluginOrbit)) ? ' checked' : '') + '>' +
+      '<span>Voir le guide</span></label></div>';
   }
 
   function renderTour() {
@@ -2024,9 +2022,8 @@
       '<h3>Bienvenue aux échecs</h3>' +
       '<p class="oec-tour__lead">Trois gestes à retenir pour démarrer :</p>' +
       '<ul class="oec-tour__list">' +
-      '<li><span class="oec-tour__ico" aria-hidden="true">' + iconSvg('menu') + iconSvg('settings') + '</span>' +
-      '<div><b>Les menus</b> — En haut à gauche, les trois traits ouvrent la liste des salons. ' +
-      'Dans la barre verte, la roue dentée ouvre les paramètres du jeu.</div></li>' +
+      '<li><span class="oec-tour__ico" aria-hidden="true">' + iconSvg('settings') + '</span>' +
+      '<div><b>Le menu</b> — À droite de la barre verte, la roue dentée ouvre les paramètres du jeu (Chess.com, pré-mouvement, ce guide).</div></li>' +
       '<li><span class="oec-tour__ico" aria-hidden="true">' + iconSvg('chat') + iconSvg('game') + '</span>' +
       '<div><b>Tchat ou jeu</b> — Ces icônes, à droite de la barre verte, affichent le tchat du salon ou le plateau.</div></li>' +
       '<li><span class="oec-tour__ico oec-tour__ico--btn" aria-hidden="true">Lancer la partie</span>' +
@@ -2689,7 +2686,15 @@
     if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
     if (act === 'settings') { ui.settings = !ui.settings; bump(); return; }
     if (act === 'tour-done') { markOnboarded(orbit); bump(); return; }
-    if (act === 'tour-open') { startTour(orbit); return; }
+    if (act === 'tour-toggle') {
+      if (ui.tour || !hasOnboarded(orbit)) {
+        markOnboarded(orbit);
+        bump();
+      } else {
+        startTour(orbit);
+      }
+      return;
+    }
     if (act === 'premove-toggle') {
       setPremoveOn(orbit, !premoveOn(orbit));
       return;
