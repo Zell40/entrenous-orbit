@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 59;
+  var PBAC_VER = 61;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -1202,7 +1202,7 @@
       '<button type="button" class="opbac-live__tog" data-act="live-toggle">' + (open ? '▴' : '▾') + '</button></div>';
     if (!open) return '<section class="opbac-live opbac-live--collapsed" data-opbac-live>' + head + '</section>';
     var histHead = hist.map(function (h) {
-      return '<th>M' + escHtml(String(h.round)) + '</th>';
+      return '<th class="opbac-live__hist">M' + escHtml(String(h.round)) + '</th>';
     }).join('');
     var headCats = cats.map(function (cat) { return '<th>' + escHtml(cat) + '</th>'; }).join('');
     var rows = players.map(function (p) {
@@ -1212,7 +1212,7 @@
       var histCells = hist.map(function (h) {
         var key = findScoreNick(h.scores || {}, p.nick);
         var pts = key ? parsePts(h.scores[key]) : 0;
-        return '<td class="opbac-live__pts">' + (pts ? ptsHtml(pts) : '—') + '</td>';
+        return '<td class="opbac-live__pts opbac-live__hist">' + (pts ? ptsHtml(pts) : '—') + '</td>';
       }).join('');
       var cells = cats.map(function (cat) {
         var a = p.answers[String(cat).toLowerCase()];
@@ -1237,8 +1237,10 @@
         '<th class="opbac-live__nick">' + escHtml(pick({ fr: 'Joueur', en: 'Player' })) + '</th>' +
         histHead +
         headCats +
-        '<th>' + escHtml(pick({ fr: 'Manche', en: 'Round' })) + '</th>' +
-        '<th>' + escHtml(pick({ fr: 'Total', en: 'Total' })) + '</th>' +
+        '<th class="opbac-live__th-round"><span class="opbac-live__th-full">' +
+          escHtml(pick({ fr: 'Manche', en: 'Round' })) + '</span><span class="opbac-live__th-short">M</span></th>' +
+        '<th class="opbac-live__th-total"><span class="opbac-live__th-full">' +
+          escHtml(pick({ fr: 'Total', en: 'Total' })) + '</span><span class="opbac-live__th-short">T</span></th>' +
       '</tr></thead><tbody>' + (rows || ('<tr><td colspan="' + colCount +
         '" class="opbac-live__empty">' + escHtml(pick({
           fr: 'En attente des premières validations…',
@@ -1703,8 +1705,8 @@
     var el = document.createElement('style');
     el.id = 'orbit-petitbac-css';
     el.textContent = [
-      '.opbac-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;--opbac-h:360px;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
-      '.opbac-panel .opbac-body{height:var(--opbac-h);max-height:var(--opbac-h);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}',
+      '.opbac-panel{position:relative;flex:0 0 auto;width:100%;min-width:0;z-index:20;--opbac-h:360px;border-bottom:1px solid color-mix(in srgb,var(--accent,#6366f1) 18%,var(--border,#ddd));background:var(--bg,#fff);font-family:var(--font,system-ui,sans-serif)}',
+      '.opbac-panel .opbac-body{height:var(--opbac-h);max-height:var(--opbac-h);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;container-type:inline-size;container-name:opbac}',
       '.opbac-panel--playing .opbac-body{display:flex;flex-direction:column}',
       '.opbac-panel--chat .opbac-body{display:none!important;height:auto;max-height:none}',
       '.opbac-panel--chat .opbac-resize{display:none}',
@@ -1723,14 +1725,15 @@
       '.opbac-dock__btn--op{background:#fff7ed;color:#c2410c;border-color:#fdba74}',
       '@media(min-width:880px){.opbac-panel--full .opbac-dock,.opbac-panel--split .opbac-dock{display:flex}}',
       '.opbac-dock-stat{margin:0 0 .45rem;font-size:.88rem;line-height:1.45}',
-      '.opbac-live{width:100%;margin:.15rem 0 0;border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 4%,var(--bg,#fff));flex:0 1 auto;min-height:8.5rem;max-height:min(42vh,18rem);display:flex;flex-direction:column}',
+      '.opbac-live{width:100%;min-width:0;margin:.15rem 0 0;border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 4%,var(--bg,#fff));flex:0 1 auto;min-height:8.5rem;max-height:min(42vh,18rem);display:flex;flex-direction:column;overflow:hidden}',
       '.opbac-live__head{display:flex;align-items:center;gap:.45rem;padding:.4rem .75rem}',
       '.opbac-live__title{font-weight:800;font-size:.78rem;flex:1}',
       '.opbac-live__tog{border:0;background:var(--bg-soft,rgba(127,127,127,.12));width:28px;height:28px;border-radius:7px;cursor:pointer}',
       '.opbac-live--collapsed{flex:0 0 auto;min-height:0;max-height:none}',
-      '.opbac-live__wrap{overflow:auto;padding:0 .65rem .45rem;min-height:5.5rem;flex:1 1 auto}',
-      '.opbac-live__grid{width:100%;border-collapse:collapse;font-size:.74rem}',
+      '.opbac-live__wrap{overflow:auto;padding:0 .65rem .45rem;min-height:5.5rem;flex:1 1 auto;min-width:0}',
+      '.opbac-live__grid{width:100%;max-width:100%;border-collapse:collapse;font-size:.74rem}',
       '.opbac-live__grid th,.opbac-live__grid td{border:1px solid var(--border,#ddd);padding:.32rem .4rem;text-align:center}',
+      '.opbac-live__th-short{display:none}',
       '.opbac-live__grid th{background:var(--bg-soft,rgba(127,127,127,.08));font-weight:800}',
       '.opbac-live__nick{text-align:left!important;min-width:5rem;max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.opbac-live__cell{background:color-mix(in srgb,#22c55e 16%,transparent);font-weight:700}',
@@ -1795,8 +1798,8 @@
       '.opbac-arena__scores-rank{flex-shrink:0;font-size:.85rem;line-height:1}',
       '.opbac-arena__scores-pts{font-variant-numeric:tabular-nums;color:#4f46e5;flex-shrink:0;font-weight:800;white-space:nowrap}',
       '.opbac-arena__scores-empty{margin:0;font-size:.72rem;color:var(--muted,#888);font-weight:600}',
-      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.35rem .55rem .2rem;gap:.25rem .55rem}.opbac-arena__scores-wrap{display:none!important}.opbac-arena__letter,.opbac-arena__clock,.opbac-arena__block{min-height:0;gap:.12rem}.opbac-arena__lbl{font-size:.55rem;letter-spacing:.08em}.opbac-letter-xl,.opbac-clock{width:clamp(52px,15vw,68px);height:clamp(52px,15vw,68px)}.opbac-letter-xl{font-size:clamp(1.7rem,6.5vw,2.4rem);box-shadow:0 4px 12px -6px rgba(234,88,12,.4)}.opbac-clock__n{font-size:clamp(1.35rem,5vw,1.9rem)}.opbac-scroll{padding:.28rem .65rem .5rem}.opbac-live{min-height:5rem;max-height:min(36vh,14rem)}.opbac-head{padding:.28rem .4rem;gap:.28rem}.opbac-head__brand{flex-wrap:nowrap;gap:.28rem}.opbac-head__title-full{display:none}.opbac-head__title-short{display:inline}.opbac-head__title{font-size:.82rem}.opbac-head__badge:not(.opbac-head__badge--mode):not(.opbac-head__badge--round){display:none}.opbac-head__caret{display:none}.opbac-head__badge--mode{padding:.18rem .36rem;min-width:32px;min-height:32px;justify-content:center}.opbac-head__logo{width:22px;height:22px;border-radius:6px}.opbac-head__actions{gap:.16rem;flex-shrink:0}.opbac-head__btn{min-width:30px;min-height:30px;border-radius:8px}.opbac-head__btn svg{width:15px;height:15px}}',
-      '@media(max-width:720px){.opbac-col{gap:.22rem;padding:.4rem .38rem}.opbac-col__send{min-height:34px;padding:.32rem .4rem}.opbac-col__input{min-height:38px;padding:.4rem .35rem}}',
+      '@media(max-width:720px){.opbac-arena{grid-template-columns:1fr 1fr;min-height:0;padding:.35rem .55rem .2rem;gap:.25rem .55rem}.opbac-arena__scores-wrap{display:none!important}.opbac-arena__letter,.opbac-arena__clock,.opbac-arena__block{min-height:0;gap:.12rem}.opbac-arena__lbl{font-size:.55rem;letter-spacing:.08em}.opbac-letter-xl,.opbac-clock{width:clamp(52px,15vw,68px);height:clamp(52px,15vw,68px)}.opbac-letter-xl{font-size:clamp(1.7rem,6.5vw,2.4rem);box-shadow:0 4px 12px -6px rgba(234,88,12,.4)}.opbac-clock__n{font-size:clamp(1.35rem,5vw,1.9rem)}.opbac-scroll{padding:.28rem .28rem .5rem}.opbac-live{min-height:5rem;max-height:min(36vh,14rem)}.opbac-head{padding:.28rem .4rem;gap:.28rem}.opbac-head__brand{flex-wrap:nowrap;gap:.28rem}.opbac-head__title-full{display:none}.opbac-head__title-short{display:inline}.opbac-head__title{font-size:.82rem}.opbac-head__badge:not(.opbac-head__badge--mode):not(.opbac-head__badge--round){display:none}.opbac-head__caret{display:none}.opbac-head__badge--mode{padding:.18rem .36rem;min-width:32px;min-height:32px;justify-content:center}.opbac-head__logo{width:22px;height:22px;border-radius:6px}.opbac-head__actions{gap:.16rem;flex-shrink:0}.opbac-head__btn{min-width:30px;min-height:30px;border-radius:8px}.opbac-head__btn svg{width:15px;height:15px}}',
+      '@media(max-width:720px){.opbac-scroll{padding-left:.28rem;padding-right:.28rem}.opbac-col{gap:.28rem;padding:.5rem .55rem}.opbac-col__send{min-height:40px;padding:.4rem .55rem}.opbac-col__input{min-height:42px;padding:.45rem .55rem}}',
       '.opbac-arena__lbl{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted,#888)}',
       '.opbac-arena__round{font-size:.68rem;font-weight:800;padding:.12rem .5rem;border-radius:999px;background:color-mix(in srgb,#6366f1 14%,transparent);color:#4338ca;letter-spacing:.02em}',
       '.opbac-letter-xl{width:clamp(72px,18vw,96px);height:clamp(72px,18vw,96px);border-radius:50%;display:grid;place-items:center;font-size:clamp(2.4rem,9vw,3.6rem);font-weight:900;color:#fff;background:linear-gradient(145deg,#fb923c,#ea580c);box-shadow:0 8px 24px -8px rgba(234,88,12,.45)}',
@@ -1899,7 +1902,8 @@
       '.opbac-hist__p-pts{color:#4f46e5;font-variant-numeric:tabular-nums;white-space:nowrap}',
       '.opbac-hist__raw{margin:0;font-size:.74rem;font-weight:700;color:var(--muted,#555);line-height:1.35}',
       '.opbac-sheet{display:grid;grid-template-columns:repeat(var(--opbac-cols,3),minmax(0,1fr));gap:.55rem;width:100%;align-items:stretch}',
-      '@media(max-width:720px){.opbac-sheet{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}}',
+      '@media(max-width:960px){.opbac-scroll{overflow-x:hidden;min-width:0}.opbac-sheet{grid-template-columns:1fr!important;width:100%;max-width:none;gap:.45rem}.opbac-live{min-width:0}.opbac-live__wrap{overflow-x:hidden;padding-left:.2rem;padding-right:.2rem}.opbac-live__grid{table-layout:fixed;width:100%;font-size:.62rem}.opbac-live__grid th,.opbac-live__grid td{padding:.2rem .1rem;overflow:hidden;text-overflow:ellipsis;word-break:break-word}.opbac-live__grid th:not(.opbac-live__nick),.opbac-live__grid td:not(.opbac-live__nick){max-width:0}.opbac-live__nick{min-width:0;max-width:none;width:22%}.opbac-live__grid th{font-size:.58rem;line-height:1.15;white-space:normal}.opbac-live__th-full{display:none}.opbac-live__th-short{display:inline}.opbac-live__hist{display:none}.opbac-live__cell-pts{font-size:.52rem}}',
+      '@container opbac (max-width:640px){.opbac-sheet{grid-template-columns:1fr!important;width:100%;max-width:none;gap:.45rem}.opbac-live{min-width:0}.opbac-live__wrap{overflow-x:hidden;padding-left:.2rem;padding-right:.2rem}.opbac-live__grid{table-layout:fixed;width:100%;font-size:.62rem}.opbac-live__grid th,.opbac-live__grid td{padding:.2rem .1rem;overflow:hidden;text-overflow:ellipsis;word-break:break-word}.opbac-live__grid th:not(.opbac-live__nick),.opbac-live__grid td:not(.opbac-live__nick){max-width:0}.opbac-live__nick{min-width:0;max-width:none;width:22%}.opbac-live__grid th{font-size:.58rem;line-height:1.15;white-space:normal}.opbac-live__th-full{display:none}.opbac-live__th-short{display:inline}.opbac-live__hist{display:none}.opbac-live__cell-pts{font-size:.52rem}}',
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
       '.opbac-col--ok{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff))}',
       '.opbac-col--ia{border-color:#67e8f9;background:color-mix(in srgb,#06b6d4 8%,var(--bg,#fff))}',
@@ -4764,6 +4768,9 @@
     var letter = game.letter || '';
     var sendLbl = pick({ fr: 'Envoyer', en: 'Send' });
     var cols = game.categories.length;
+    try {
+      if (window.matchMedia && window.matchMedia('(max-width: 960px)').matches) cols = 1;
+    } catch (e) { /* ignore */ }
     var rows = game.categories.map(function (cat) {
       var catKey = cat.toLowerCase();
       var val = draft.drafts[catKey] || draft.drafts[cat] || '';
