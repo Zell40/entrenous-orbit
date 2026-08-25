@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 61;
+  var PBAC_VER = 62;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -510,6 +510,11 @@
         return pick({ fr: 'Mot invalide pour cette catégorie.', en: 'Word invalid for this category.' });
       case 'excluded':
         return pick({ fr: 'Mot exclu du jeu.', en: 'Word excluded from the game.' });
+      case 'multi_word':
+        return pick({
+          fr: 'Un seul mot par message. Les composés enregistrés (espaces ou tirets) sont acceptés.',
+          en: 'Only one word per message. Registered compound words (spaces or hyphens) are accepted.',
+        });
       default:
         return pick({ fr: 'Mot non accepté.', en: 'Word not accepted.' });
     }
@@ -552,6 +557,11 @@
       verifying: false,
     };
     if (catKey) delete draft.pending[catKey];
+    Object.keys(draft.pending || {}).forEach(function (k) {
+      if (word && String(draft.pending[k] || '').toLowerCase() === String(word).toLowerCase()) {
+        delete draft.pending[k];
+      }
+    });
     bumpStore();
   }
 
@@ -582,8 +592,37 @@
     window.setTimeout(function () { if (burst.parentNode) burst.remove(); }, 1450);
   }
 
+  function rejectCompoundNotice(plain) {
+    if (!/Un seul mot par message/i.test(plain) &&
+        !(/seul mot/i.test(plain) && /compos/i.test(plain))) {
+      return false;
+    }
+    var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
+      ? pluginOrbit.state.active()
+      : '';
+    if (!buf) return false;
+    var game = getChannelState(buf) || defaultState();
+    var draft = getDraft(buf, game);
+    var keys = Object.keys(draft.pending || {});
+    if (!keys.length) return true;
+    var catKey = keys[0];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      if (/\s|-/.test(String(draft.pending[keys[i]] || ''))) {
+        catKey = keys[i];
+        break;
+      }
+    }
+    markRejected(buf, catKey, draft.pending[catKey], rejectMessageForCode('multi_word', draft.pending[catKey]), {
+      code: 'multi_word',
+    });
+    return true;
+  }
+
   function handlePlayerFeedback(channel, plain, myNick) {
-    if (!myNick || !plain) return;
+    if (!plain) return;
+    if (rejectCompoundNotice(plain)) return;
+    if (!myNick) return;
     var game = getChannelState(channel) || defaultState();
     var draft = getDraft(channel, game);
 
@@ -3619,6 +3658,7 @@
     if (!plain) return;
     var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     if (n !== 'bac' && n !== 'maitredujeu') return;
+    if (rejectCompoundNotice(plain)) return;
     if (handleLobbyNotice(plain)) return;
     handleModeListLine(plain);
   }
