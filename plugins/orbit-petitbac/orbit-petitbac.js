@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 62;
+  var PBAC_VER = 63;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -398,6 +398,19 @@
     if (!(n >= 0)) n = 0;
     if (Math.abs(n % 1) < 0.001) return String(Math.round(n));
     return String(Math.round(n * 10) / 10).replace('.', ',');
+  }
+
+  function iaReviewIconHtml() {
+    var title = pick({
+      fr: 'Mot reconnu par l’IA — en cours de vérification',
+      en: 'AI-detected word — pending review',
+    });
+    return '<span class="opbac-ia-review" title="' + escHtml(title) + '" role="img" aria-label="' +
+      escHtml(title) + '"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+      '<circle cx="6.6" cy="6.6" r="4" fill="none" stroke="currentColor" stroke-width="1.55"/>' +
+      '<path d="M9.6 9.6L13.2 13.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+      '<path d="M6.6 4.8v1.8l1.2.8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg></span>';
   }
 
   function catAward(draft, catKey, cat) {
@@ -1260,9 +1273,10 @@
           ? 'opbac-live__cell opbac-live__cell--bonus'
           : (a.ia || isIaAward(a.pts) ? 'opbac-live__cell opbac-live__cell--ia' : 'opbac-live__cell');
         var ptsLbl = '+' + formatPtsShort(a.pts);
-        return '<td class="' + cls + '" title="' + escHtml(ptsLbl + (a.ia || isIaAward(a.pts) ? ' IA' : '')) + '">' +
+        return '<td class="' + cls + '" title="' + escHtml(ptsLbl + (a.ia || isIaAward(a.pts) ? ' IA — vérification' : '')) + '">' +
           (a.ia || isIaAward(a.pts) ? '🤖 ' : '') +
-          escHtml(a.word) + '<small class="opbac-live__cell-pts">' + ptsLbl + '</small></td>';
+          escHtml(a.word) + '<small class="opbac-live__cell-pts">' + ptsLbl +
+          (a.ia || isIaAward(a.pts) ? iaReviewIconHtml() : '') + '</small></td>';
       }).join('');
       var total = playerTotalPts(game, p.nick);
       return '<tr class="' + (isMe ? 'opbac-live__me' : '') + (combo ? ' opbac-live__combo' : '') + '">' +
@@ -1946,8 +1960,13 @@
       '.opbac-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;padding:.55rem .5rem;border-radius:12px;background:var(--bg-soft,rgba(127,127,127,.05));border:1px solid var(--border,#e5e5e5)}',
       '.opbac-col--ok{border-color:#86efac;background:color-mix(in srgb,#22c55e 7%,var(--bg,#fff))}',
       '.opbac-col--ia{border-color:#67e8f9;background:color-mix(in srgb,#06b6d4 8%,var(--bg,#fff))}',
-      '.opbac-col__award{display:inline-flex;align-items:center;margin-left:.25rem;font-size:.68rem;font-weight:800;color:#15803d;white-space:nowrap}',
+      '.opbac-col__award{display:inline-flex;align-items:center;margin-left:.25rem;font-size:.68rem;font-weight:800;color:#15803d;white-space:nowrap;gap:.12rem}',
       '.opbac-col--ia .opbac-col__award{color:#0e7490}',
+      '.opbac-ia-review{display:inline-flex;width:.95rem;height:.95rem;color:#0e7490;flex-shrink:0;vertical-align:middle}',
+      '.opbac-ia-review svg{width:100%;height:100%;display:block}',
+      '@media(prefers-reduced-motion:no-preference){.opbac-ia-review{animation:opbacIaPulse 1.7s ease-in-out infinite}}',
+      '@keyframes opbacIaPulse{0%,100%{opacity:1}50%{opacity:.4}}',
+      '.opbac-live__cell-pts .opbac-ia-review{width:.72rem;height:.72rem;margin-left:.15rem}',
       '.opbac-col--pending{border-color:#fcd34d;background:color-mix(in srgb,#fbbf24 6%,var(--bg,#fff))}',
       '.opbac-col__pending{display:inline-block;width:.85rem;height:.85rem;border-width:1.5px;vertical-align:middle;margin-left:.15rem}',
       '.opbac-col--reject{border-color:#fca5a5;background:color-mix(in srgb,#ef4444 5%,var(--bg,#fff))}',
@@ -4850,7 +4869,8 @@
         '<span class="opbac-col__cat">' + categoryIconHtml(cat) + escHtml(cat) +
           (pending && !ok ? refreshSpinnerHtml('opbac-col__pending') : '') +
           (ok && award && award.ia
-            ? '<span class="opbac-col__award">🤖 +' + escHtml(formatPtsShort(award.pts)) + '</span>'
+            ? '<span class="opbac-col__award">🤖 +' + escHtml(formatPtsShort(award.pts)) +
+              iaReviewIconHtml() + '</span>'
             : (ok ? '<span class="opbac-col__award">✓ +' + escHtml(formatPtsShort((award && award.pts) || 1)) + '</span>' : '')) +
         '</span>' +
         errHtml +
