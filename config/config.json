@@ -2,6 +2,7 @@
   "server": {
     "url": "https://irc.entrenous.chat/",
     "guestIdent": "ENuser",
+    "guestIdentFromNick": false,
     "bouncerUrl": "wss://bnc.reseau-entrenous.fr/webirc/websocket/",
     "bouncerHost": "bnc.entrenous.chat:+8066"
   },
