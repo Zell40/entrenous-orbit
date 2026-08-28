@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 69;
+  var PBAC_VER = 70;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -861,7 +861,12 @@
       || body.match(/manche\s*:\s*(\d+)(?:\s*\/\s*(\d+))?/i);
     if (manche) {
       var stMan = getChannelState(channel) || defaultState();
-      if (stMan.phase === 'paused') {
+      if (stMan.phase === 'paused' || stMan.phase === 'round_end' || stMan.phase === 'game_end') {
+        patchChannel(channel, {
+          round: Number(manche[1]) || stMan.round || 0,
+          totalRounds: Number(manche[2]) || stMan.totalRounds || 0,
+        });
+      } else if (isPlayingClock(stMan)) {
         patchChannel(channel, {
           round: Number(manche[1]) || stMan.round || 0,
           totalRounds: Number(manche[2]) || stMan.totalRounds || 0,
@@ -890,6 +895,13 @@
         return;
       }
       var durLc = stLc.duration || 60;
+      if (stLc.phase === 'round_end' || isPlayingClock(stLc)) {
+        patchChannel(channel, {
+          letter: lc[1].trim().charAt(0).toUpperCase(),
+          categories: parseCategories(lc[2]),
+        });
+        return;
+      }
       patchChannel(channel, {
         phase: 'playing',
         letter: lc[1].trim().charAt(0).toUpperCase(),
@@ -905,7 +917,7 @@
       || body.match(/lettre(?:\s+actuelle)?\s*:\s*(\S)/i);
     if (letterOnly) {
       var stLet = getChannelState(channel) || defaultState();
-      if (stLet.phase === 'paused' || isPrepPhase(stLet.phase)) {
+      if (stLet.phase === 'paused' || stLet.phase === 'round_end' || isPrepPhase(stLet.phase) || isPlayingClock(stLet)) {
         patchChannel(channel, { letter: letterOnly[1].trim().charAt(0).toUpperCase() });
         return;
       }
@@ -919,7 +931,7 @@
     var catsOnly = body.match(/(?:📚\s*)?cat[ée]gories(?:\s+actuelles)?\s*:\s*(.+)$/i);
     if (catsOnly && !/par manche|actuelles/i.test(body)) {
       var stCat = getChannelState(channel) || defaultState();
-      if (stCat.phase === 'paused' || isPrepPhase(stCat.phase)) {
+      if (stCat.phase === 'paused' || stCat.phase === 'round_end' || isPrepPhase(stCat.phase) || isPlayingClock(stCat)) {
         patchChannel(channel, { categories: parseCategories(catsOnly[1]) });
         return;
       }
@@ -966,17 +978,12 @@
       }
 
       var dur = body.match(/(\d+)\s+secondes/i);
-      if (dur && /manche|partie|tour/i.test(body)) {
+      if (dur && /(durée|duree)\s+\d+\s+secondes|manche\s+de\s+\d+\s+secondes/i.test(body)) {
         patchChannel(channel, { duration: Number(dur[1]) || 60 });
       }
       var left = body.match(/il reste\s+(\d+)\s+secondes/i);
-      if (left && (getChannelState(channel) || {}).phase !== 'paused') {
-        patchChannel(channel, {
-          phase: 'playing',
-          countdown: Number(left[1]) || 0,
-          countdownAt: Date.now(),
-          duration: (getChannelState(channel) || {}).duration || Number(left[1]) || 60,
-        });
+      if (left && (getChannelState(channel) || {}).phase === 'playing') {
+        syncPlayingClock(channel, left[1]);
       }
 
       var gameSt = getChannelState(channel) || defaultState();
@@ -993,8 +1000,10 @@
       }
 
       if (/Fin de manche|fin de la manche|🏁\s*Fin de manche/i.test(body) && !/FIN DE LA PARTIE/i.test(body)) {
-        patchChannel(channel, { phase: 'round_end', roundStartAt: 0 });
-        gameSt = getChannelState(channel) || defaultState();
+        if (gameSt.phase !== 'playing' && gameSt.phase !== 'game_end') {
+          patchChannel(channel, { phase: 'round_end', roundStartAt: 0 });
+          gameSt = getChannelState(channel) || defaultState();
+        }
       }
 
       if (/Partie termin[eé]e|FIN DE LA PARTIE/i.test(body) && /classement/i.test(body)) {
@@ -1081,7 +1090,11 @@
       if (roundRes) {
         var rs = Object.assign({}, gameSt.roundScores || {});
         assignScore(rs, roundRes[1], parsePts(roundRes[2]));
-        patchChannel(channel, { phase: 'round_end', roundScores: rs, roundStartAt: 0 });
+        if (gameSt.phase !== 'playing' && gameSt.phase !== 'game_end') {
+          patchChannel(channel, { phase: 'round_end', roundScores: rs, roundStartAt: 0 });
+        } else {
+          patchChannel(channel, { roundScores: rs });
+        }
         gameSt = getChannelState(channel) || defaultState();
       }
 
@@ -1091,7 +1104,7 @@
         gameSt = getChannelState(channel) || defaultState();
       }
 
-      if (/manche termin[eé]e/i.test(body)) {
+      if (/manche termin[eé]e/i.test(body) && gameSt.phase !== 'playing' && gameSt.phase !== 'game_end') {
         patchChannel(channel, { phase: 'round_end' });
       }
     }
@@ -1115,6 +1128,7 @@
       roundStartAt: 0,
       countdown: 0,
       countdownAt: 0,
+      roundBreakUntil: 0,
       scores: {},
       roundScores: {},
       fullComboNick: '',
@@ -1500,29 +1514,18 @@
         fullComboNick: '',
         fullComboRound: '',
         livePlayers: {},
+        roundBreakUntil: 0,
       });
       return;
     }
 
     if (ev === 'round_countdown') {
-      var curCd = getChannelState(channel);
-      if (curCd && curCd.phase === 'paused') return;
-      patchChannel(channel, {
-        phase: 'playing',
-        countdown: Number(tagVal(tags, '+seconds')) || 0,
-        countdownAt: Date.now(),
-      });
+      syncPlayingClock(channel, tagVal(tags, '+seconds'));
       return;
     }
 
     if (ev === 'round_tick') {
-      var curTick = getChannelState(channel);
-      if (curTick && curTick.phase === 'paused') return;
-      patchChannel(channel, {
-        phase: 'playing',
-        countdown: Number(tagVal(tags, '+seconds_left')) || 0,
-        countdownAt: Date.now(),
-      });
+      syncPlayingClock(channel, tagVal(tags, '+seconds_left'));
       return;
     }
 
@@ -1603,7 +1606,10 @@
         mode: tagVal(tags, '+mode') || prevS.mode || '',
         countdown: leftS,
         countdownAt: Date.now(),
-        roundStartAt: syncPhase === 'paused' ? 0 : (Date.now() - Math.max(0, (durS - leftS) * 1000)),
+        roundStartAt: (syncPhase === 'paused' || syncPhase === 'round_end' || syncPhase === 'game_end')
+          ? 0
+          : (Date.now() - Math.max(0, (durS - leftS) * 1000)),
+        roundBreakUntil: syncPhase === 'round_end' ? (prevS.roundBreakUntil || 0) : 0,
       });
       return;
     }
@@ -1711,6 +1717,7 @@
       if (!hist.some(function (h) { return Number(h.round) === rndN; })) {
         hist.push({ round: rndN, scores: rs });
       }
+      var nextIn = Number(tagVal(tags, '+next_in')) || 0;
       patchChannel(channel, {
         phase: 'round_end',
         round: rndN,
@@ -1718,6 +1725,7 @@
         scores: merged,
         mancheHistory: hist,
         roundStartAt: 0,
+        roundBreakUntil: nextIn > 0 ? (Date.now() + nextIn * 1000) : 0,
       });
       return;
     }
@@ -1730,6 +1738,7 @@
         phase: 'game_end',
         finalRanking: ranking,
         roundStartAt: 0,
+        roundBreakUntil: 0,
         letter: '',
         categories: [],
         scores: scoresFromRanking(ranking),
@@ -2275,6 +2284,41 @@
       '@keyframes opbacSpark{0%{opacity:0;transform:translate(0,0) scale(.4)}18%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}',
     ].join('');
     document.head.appendChild(el);
+  }
+
+  function isPlayingClock(game) {
+    return !!(game && game.phase === 'playing' && game.roundStartAt);
+  }
+
+  function roundBreakLeft(game) {
+    if (!game || !game.roundBreakUntil) return 0;
+    return Math.max(0, Math.ceil((game.roundBreakUntil - Date.now()) / 1000));
+  }
+
+  function roundBreakWaitText(game) {
+    var left = roundBreakLeft(game);
+    if (left > 0) {
+      return pick({
+        fr: 'Manche suivante dans ' + left + ' s…',
+        en: 'Next round in ' + left + ' s…',
+      });
+    }
+    return pick({
+      fr: 'Préparation de la manche suivante…',
+      en: 'Preparing the next round…',
+    });
+  }
+
+  function syncPlayingClock(channel, secondsLeft) {
+    var cur = getChannelState(channel) || defaultState();
+    if (cur.phase !== 'playing') return;
+    var dur = cur.duration || 60;
+    var left = Math.max(0, Number(secondsLeft) || 0);
+    patchChannel(channel, {
+      countdown: left,
+      countdownAt: Date.now(),
+      roundStartAt: Date.now() - Math.max(0, (dur - left) * 1000),
+    });
   }
 
   function computeRemaining(game) {
@@ -5191,15 +5235,10 @@
         '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
           escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
         '</button></p>';
-    } else if (game.round && game.totalRounds && game.round < game.totalRounds) {
+    } else {
       html += '<div class="opbac-end__wait" role="status" aria-live="polite">' +
         refreshSpinnerHtml() +
-        '<p class="opbac-end__wait-txt">' +
-          escHtml(pick({
-            fr: 'Préparation de la manche suivante…',
-            en: 'Preparing the next round…',
-          })) +
-        '</p></div>';
+        '<p class="opbac-end__wait-txt">' + escHtml(roundBreakWaitText(game)) + '</p></div>';
     }
 
     html += '</div>';
@@ -5323,6 +5362,12 @@
       clockEl.classList.toggle('opbac-clock--urgent', remaining > 0 && remaining <= 5);
       clockEl.classList.toggle('opbac-clock--paused', !!paused);
     }
+  }
+
+  function updateRoundBreakDom(root, game) {
+    if (!root || !game || game.phase !== 'round_end') return;
+    var el = root.querySelector('.opbac-end__wait-txt');
+    if (el) el.textContent = roundBreakWaitText(game);
   }
 
   function draftSignature(channel, game) {
@@ -5904,6 +5949,7 @@
 
     if (!rebuild && isLive && !isEnd) updateClockDom(root, remaining, progress, game.phase === 'paused');
     if (!rebuild && isPrep && !isEnd) updatePrepDom(root, remaining, game);
+    if (isRoundEnd) updateRoundBreakDom(root, game);
     if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
   }
 
