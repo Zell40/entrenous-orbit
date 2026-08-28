@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 72;
+  var PBAC_VER = 73;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -261,6 +261,36 @@
     return !!(game && game.letter && game.categories && game.categories.length);
   }
 
+  function isActivePlayPhase(phase) {
+    return phase === 'playing' || phase === 'paused' || phase === 'round_end' || phase === 'game_end';
+  }
+
+  function promoteStartedRound(channel, game) {
+    if (!game || !hasPlayableGrid(game)) return game;
+    var phase = game.phase || '';
+    if (phase !== 'go' && phase !== 'starting' && phase !== 'countdown' && phase !== 'rules') return game;
+    if (phase === 'countdown' && game.countdown > 0) return game;
+    var dur = game.duration || 60;
+    patchChannel(channel, {
+      phase: 'playing',
+      duration: dur,
+      countdown: game.countdown > 0 ? game.countdown : dur,
+      countdownAt: game.countdownAt || Date.now(),
+      roundStartAt: game.roundStartAt || Date.now(),
+    });
+    return getChannelState(channel) || game;
+  }
+
+  function applyGameGo(channel) {
+    var cur = getChannelState(channel) || defaultState();
+    if (isActivePlayPhase(cur.phase) || isPlayingClock(cur)) return;
+    if (hasPlayableGrid(cur)) {
+      promoteStartedRound(channel, cur);
+      return;
+    }
+    patchChannel(channel, { phase: 'go', countdown: 0 });
+  }
+
   function escapeIrcTag(val) {
     return String(val || '')
       .replace(/\\/g, '\\\\')
@@ -428,7 +458,12 @@
 
   function maybeRequestGameSync(orbit, buffer, game) {
     if (!orbit || !buffer || !isBacChannel(orbit, buffer)) return;
-    if (isPrepPhase(game.phase) || game.phase === 'paused') return;
+    if (game.phase === 'paused') return;
+    if (hasPlayableGrid(game) && (game.phase === 'go' || game.phase === 'starting' || game.phase === 'countdown')) {
+      promoteStartedRound(buffer, game);
+      return;
+    }
+    if (isPrepPhase(game.phase)) return;
     if (hasPlayableGrid(game) && game.phase === 'playing') return;
     var key = normChan(buffer);
     var now = Date.now();
@@ -889,9 +924,12 @@
         mode: modeStart ? modeStart[1].toLowerCase() : ((getChannelState(channel) || {}).mode || ''),
       });
     }
-    if (fromBac && /petit bac est actuellement en cours|la partie d[eé]marre|c'est parti|une partie est d[eé]j[aà] en cours/i.test(body)) {
+    if (fromBac && /petit bac est actuellement en cours|la partie d[eé]marre|une partie est d[eé]j[aà] en cours/i.test(body)) {
       if (!/partie d[eé]marre\s*:/i.test(body)) {
-        patchChannel(channel, { phase: 'starting' });
+        var stJoin = getChannelState(channel) || defaultState();
+        if (!isActivePlayPhase(stJoin.phase) && !hasPlayableGrid(stJoin) && !isPlayingClock(stJoin)) {
+          patchChannel(channel, { phase: 'starting' });
+        }
       }
     }
     var startInfo = body.match(/partie d[eé]marre\s*:\s*(\d+)\s+manches\s+de\s+(\d+)\s+secondes/i);
@@ -906,14 +944,17 @@
     }
     var cdStart = body.match(/jeu commence dans\s+(\d+)/i);
     if (cdStart) {
-      patchChannel(channel, {
-        phase: 'countdown',
-        countdown: Number(cdStart[1]) || 0,
-        countdownAt: Date.now(),
-      });
+      var stCdIrc = getChannelState(channel) || defaultState();
+      if (!isActivePlayPhase(stCdIrc.phase) && !hasPlayableGrid(stCdIrc) && !isPlayingClock(stCdIrc)) {
+        patchChannel(channel, {
+          phase: 'countdown',
+          countdown: Number(cdStart[1]) || 0,
+          countdownAt: Date.now(),
+        });
+      }
     }
     if (/c'est parti/i.test(body)) {
-      patchChannel(channel, { phase: 'go', countdown: 0 });
+      applyGameGo(channel);
     }
     if (fromBac && /mise en pause/i.test(body)) {
       var tPauseIrc = computeRemaining(getChannelState(channel) || defaultState());
@@ -973,7 +1014,8 @@
       });
       }
     }
-    var lc = body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*cat[ée]gories(?:\s+actuelles)?\s*:\s*(.+)$/i);
+    var lc = body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*cat[ée]gories(?:\s+actuelles)?\s*:\s*(.+)$/i)
+      || body.match(/lettre\s*(?:actuelle)?\s*:\s*(\S+).*📚\s*(.+)$/i);
     if (lc) {
       var stLc = getChannelState(channel) || defaultState();
       if (stLc.phase === 'paused') {
@@ -1574,15 +1616,18 @@
     }
 
     if (ev === 'countdown_start') {
+      var curCd = getChannelState(channel) || defaultState();
+      if (isActivePlayPhase(curCd.phase) || hasPlayableGrid(curCd)) return;
       patchChannel(channel, {
         phase: 'countdown',
         countdown: Number(tagVal(tags, '+seconds')) || 0,
+        countdownAt: Date.now(),
       });
       return;
     }
 
     if (ev === 'game_go') {
-      patchChannel(channel, { phase: 'go', countdown: 0 });
+      applyGameGo(channel);
       return;
     }
 
@@ -2424,6 +2469,10 @@
     if (!game) return { remaining: 0, progress: 0, total: 0 };
     var phase = game.phase || 'idle';
     var now = Date.now();
+    if ((phase === 'countdown' || phase === 'go') && hasPlayableGrid(game)
+        && (game.roundStartAt || game.duration) && !(game.countdown > 0)) {
+      phase = 'playing';
+    }
     if (phase === 'countdown' || phase === 'go') {
       if (game.countdown > 0 && game.countdownAt) {
         var elapsedCd = (now - game.countdownAt) / 1000;
@@ -5979,7 +6028,7 @@
     }
     root.style.display = '';
     bindDomPanel(root, orbit);
-    var game = getChannelState(buffer) || defaultState();
+    var game = promoteStartedRound(buffer, getChannelState(buffer) || defaultState());
     var phase = game.phase || 'idle';
     var sig = panelSignature(game) + '|' + (isLiveBoardOpen(orbit) ? '1' : '0') +
       '|' + (skipRulesPref(orbit) ? '1' : '0');
