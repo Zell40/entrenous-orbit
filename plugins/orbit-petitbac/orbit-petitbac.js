@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 66;
+  var PBAC_VER = 67;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -529,6 +529,11 @@
         return pick({
           fr: 'Un seul mot par message. Les composés enregistrés (espaces ou tirets) sont acceptés.',
           en: 'Only one word per message. Registered compound words (spaces or hyphens) are accepted.',
+        });
+      case 'revoked':
+        return pick({
+          fr: 'Mot IA refusé par un opérateur — la catégorie est de nouveau libre.',
+          en: 'AI word rejected by an operator — the category is free again.',
         });
       default:
         return pick({ fr: 'Mot non accepté.', en: 'Word not accepted.' });
@@ -1183,6 +1188,27 @@
     patchChannel(channel, { livePlayers: players });
   }
 
+  function removeLiveAnswer(channel, nick, cat, pts) {
+    var key = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
+    var catKey = String(cat || '').toLowerCase();
+    if (!key || !catKey) return;
+    var game = getChannelState(channel) || defaultState();
+    var players = Object.assign({}, game.livePlayers || {});
+    var prev = players[key];
+    if (!prev) return;
+    var answers = Object.assign({}, prev.answers);
+    var already = answers[catKey];
+    if (!already) return;
+    delete answers[catKey];
+    var nPts = pts > 0 ? pts : (already.pts || 0.5);
+    players[key] = {
+      nick: prev.nick,
+      answers: answers,
+      roundPts: Math.max(0, (prev.roundPts || 0) - nPts),
+    };
+    patchChannel(channel, { livePlayers: players });
+  }
+
   function ensureLivePlayer(channel, nick) {
     var key = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     if (!key) return;
@@ -1585,15 +1611,16 @@
       applyLiveAnswer(channel, nickOk, catOk || tagVal(tags, '+category'), wordOk, ptsOk);
       gameOk = getChannelState(channel) || gameOk;
       var mineOk = isMyNick(nickOk);
+      var iaOk = tagVal(tags, '+ia') === '1' || isIaAward(ptsOk);
       if (catOk && mineOk) {
         var draftOk = getDraft(channel, gameOk);
-        markCatValidated(draftOk, catOk, ptsOk, isIaAward(ptsOk));
-        showScoreBurst(ptsOk || 1, isIaAward(ptsOk) ? 'ia' : '');
-        if (isIaAward(ptsOk) && pluginOrbit) {
+        markCatValidated(draftOk, catOk, ptsOk, iaOk);
+        showScoreBurst(ptsOk || 1, iaOk ? 'ia' : '');
+        if (iaOk && pluginOrbit) {
           try {
             pluginOrbit.notify('Petit Bac', pick({
-              fr: '« ' + (wordOk || '') + ' » reconnu par l’IA — +0,5 pt',
-              en: '« ' + (wordOk || '') + ' » recognized by AI — +0.5 pt',
+              fr: '« ' + (wordOk || '') + ' » reconnu par l’IA — +0,5 pt (en vérification)',
+              en: '« ' + (wordOk || '') + ' » recognized by AI — +0.5 pt (pending review)',
             }));
           } catch (eOk) { /* ignore */ }
         }
@@ -1604,6 +1631,37 @@
         addScore(scoresOk, nickOk, ptsOk);
         addScore(rsOk, nickOk, ptsOk);
         patchChannel(channel, { scores: scoresOk, roundScores: rsOk });
+      } else {
+        bumpStore();
+      }
+      return;
+    }
+
+    if (ev === 'word_revoke') {
+      var gameRv = getChannelState(channel) || defaultState();
+      var nickRv = tagVal(tags, '+nick') || tagVal(tags, '+player');
+      var catRv = matchCatKey(gameRv, tagVal(tags, '+category'));
+      var wordRv = tagVal(tags, '+word');
+      var ptsRv = parsePts(tagVal(tags, '+points'));
+      if (!(ptsRv > 0)) ptsRv = 0.5;
+      removeLiveAnswer(channel, nickRv, catRv || tagVal(tags, '+category'), ptsRv);
+      if (nickRv && isMyNick(nickRv)) {
+        var draftRv = getDraft(channel, gameRv);
+        if (catRv && draftRv.validated) delete draftRv.validated[catRv];
+        markRejected(
+          channel,
+          catRv,
+          wordRv,
+          rejectMessageForCode('revoked', wordRv),
+          { code: 'revoked', suggestInfo: false }
+        );
+      }
+      if (nickRv) {
+        var scoresRv = Object.assign({}, gameRv.scores || {});
+        var rsRv = Object.assign({}, gameRv.roundScores || {});
+        addScore(scoresRv, nickRv, -ptsRv);
+        addScore(rsRv, nickRv, -ptsRv);
+        patchChannel(channel, { scores: scoresRv, roundScores: rsRv });
       } else {
         bumpStore();
       }
@@ -1896,17 +1954,19 @@
       '.opbac-vote__btn--no{background:#dc2626;color:#fff}',
       '.opbac-panel--full:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body,.opbac-panel--split:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body{overflow:hidden;min-height:0}',
       '.opbac-idle{display:flex;flex-direction:column;align-items:stretch;gap:.35rem;padding:.4rem .65rem 0;text-align:center;min-height:0;flex:1 1 auto;overflow:hidden;box-sizing:border-box;height:100%;position:relative;background:radial-gradient(ellipse at top,color-mix(in srgb,#6366f1 14%,transparent),transparent 58%),var(--bg,#fff)}',
-      '.opbac-idle__hero{flex:1 1 auto;min-height:4.5rem;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.15rem 0 .2rem}',
-      '.opbac-idle__hero-art{width:min(280px,86%);height:auto;display:block;filter:drop-shadow(0 8px 16px rgba(79,70,229,.16))}',
+      '.opbac-idle__stage{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;gap:.35rem;overflow:hidden}',
+      '.opbac-idle__hero{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.1rem 0 .15rem}',
+      '.opbac-idle__hero-art{width:min(240px,82%);height:auto;display:block;filter:drop-shadow(0 8px 16px rgba(79,70,229,.16))}',
       '.opbac-idle__tag{margin:.2rem 0 0;font-size:.8rem;font-weight:800;color:#4f46e5;letter-spacing:.01em}',
       '.opbac-idle__scrim{display:none;position:absolute;inset:0;z-index:4;border:0;padding:0;margin:0;background:rgba(15,23,42,.28);cursor:pointer}',
       '.opbac-idle--sheet-open .opbac-idle__scrim{display:block}',
       '.opbac-idle__art{display:none}',
       '.opbac-idle__txt{display:none}',
-      '.opbac-idle__launch{display:flex;flex-direction:column;align-items:center;gap:.28rem;margin:0;flex:0 0 auto}',
+      '.opbac-idle__launch{display:flex;flex-direction:column;align-items:center;gap:.28rem;margin:.15rem 0 0;flex:0 0 auto}',
       '.opbac-idle__cta{display:flex;width:100%;max-width:28rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.7rem 1.1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:46px;box-shadow:0 10px 24px -10px rgba(99,102,241,.65)}',
       '.opbac-idle__cta:hover{filter:brightness(1.06)}',
       '.opbac-idle__launch .opbac-skip-rules{margin:0 auto;max-width:28rem;padding:.32rem .5rem;font-size:.72rem}',
+      '@media(min-width:880px){.opbac-idle{padding:.5rem .8rem 0;gap:0}.opbac-idle__stage{display:grid;grid-template-columns:minmax(17rem,.95fr) minmax(24rem,1.25fr);gap:.55rem 1.15rem;align-items:stretch;padding:.1rem 0 .4rem}.opbac-idle__stopped{grid-column:1/-1;margin:0}.opbac-idle__hero{grid-column:1;align-self:stretch;min-height:0;height:100%;padding:.2rem}.opbac-idle__hero-art{width:min(100%,28rem);max-height:min(100%,24rem)}.opbac-idle__tag{font-size:.9rem}.opbac-playpick{grid-column:2;max-height:none;overflow:auto;min-height:0}.opbac-idle__launch{margin-top:.45rem}.opbac-idle__cta{max-width:none;min-height:54px;font-size:1.08rem;padding:.85rem 1.2rem;box-shadow:0 14px 28px -10px rgba(99,102,241,.7)}}',
       '.opbac-idle__help{margin-top:0;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
       '.opbac-idle__stopped{margin:0 auto;max-width:26rem;padding:.32rem .6rem;border-radius:10px;font-size:.76rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd));flex:0 0 auto}',
       '.opbac-offline{padding:1.15rem .95rem 1.25rem;text-align:center}',
@@ -2138,7 +2198,8 @@
       '.opbac-replay__cta{display:flex;width:100%;max-width:32rem;margin:0 auto;align-items:center;justify-content:center;border:0;border-radius:999px;padding:.85rem 1rem;font-size:1.05rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 12px 28px -10px rgba(99,102,241,.65);min-height:52px}',
       '.opbac-replay__cta:hover{filter:brightness(1.06)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
-      '.opbac-playpick{display:flex;flex-direction:column;gap:.35rem;flex:0 1 auto;max-height:min(62%,32rem);min-height:0;overflow:auto}',
+      '.opbac-playpick{display:flex;flex-direction:column;gap:.35rem;flex:1 1 auto;min-height:0;overflow:auto}',
+      '@media(max-width:879px){.opbac-playpick{max-height:min(70%,34rem)}}',
       '.opbac-setup{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(15rem,.75fr);gap:.45rem;text-align:left;flex:1 1 auto;min-height:0;overflow:hidden}',
       '.opbac-setup--solo{grid-template-columns:1fr}',
       '@media(max-width:760px){.opbac-setup{grid-template-columns:1fr;overflow:auto}}',
@@ -3692,22 +3753,28 @@
 
   function idleHeroHtml() {
     return '<div class="opbac-idle__hero">' +
-      '<svg class="opbac-idle__hero-art" viewBox="0 0 320 118" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      '<svg class="opbac-idle__hero-art" viewBox="0 0 320 210" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
         '<defs>' +
-          '<linearGradient id="opbac-idle-sky" x1="0" y1="0" x2="320" y2="118" gradientUnits="userSpaceOnUse">' +
-            '<stop stop-color="#eef2ff"/><stop offset="1" stop-color="#faf5ff"/></linearGradient>' +
+          '<linearGradient id="opbac-idle-sky" x1="0" y1="0" x2="320" y2="210" gradientUnits="userSpaceOnUse">' +
+            '<stop stop-color="#eef2ff"/><stop offset="1" stop-color="#f5f3ff"/></linearGradient>' +
           '<linearGradient id="opbac-idle-card" x1="0" y1="0" x2="1" y2="1">' +
-            '<stop stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>' +
+            '<stop stop-color="#6366f1"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>' +
         '</defs>' +
-        '<rect width="320" height="118" rx="18" fill="url(#opbac-idle-sky)"/>' +
-        '<rect x="52" y="22" width="78" height="86" rx="10" fill="#fff" stroke="#c7d2fe" stroke-width="2" transform="rotate(-8 91 65)"/>' +
-        '<rect x="121" y="14" width="78" height="90" rx="10" fill="url(#opbac-idle-card)" transform="rotate(2 160 59)"/>' +
-        '<rect x="190" y="24" width="78" height="86" rx="10" fill="#fff" stroke="#ddd6fe" stroke-width="2" transform="rotate(9 229 67)"/>' +
-        '<text x="160" y="62" text-anchor="middle" fill="#fff" font-size="32" font-weight="900" font-family="Georgia,serif">B</text>' +
-        '<circle cx="160" cy="92" r="16" fill="#fb923c" stroke="#fff" stroke-width="2.5"/>' +
-        '<text x="160" y="98" text-anchor="middle" fill="#fff" font-size="15" font-weight="900" font-family="system-ui,sans-serif">?</text>' +
-        '<text x="78" y="52" fill="#6366f1" font-size="10" font-weight="700" font-family="system-ui,sans-serif">Pays</text>' +
-        '<text x="214" y="56" fill="#7c3aed" font-size="10" font-weight="700" font-family="system-ui,sans-serif">Fruit</text>' +
+        '<rect width="320" height="210" rx="22" fill="url(#opbac-idle-sky)"/>' +
+        '<circle cx="42" cy="38" r="16" fill="#fb923c" opacity=".9"/>' +
+        '<text x="42" y="44" text-anchor="middle" fill="#fff" font-size="16" font-weight="900" font-family="Georgia,serif">A</text>' +
+        '<circle cx="278" cy="48" r="14" fill="#6366f1" opacity=".9"/>' +
+        '<text x="278" y="54" text-anchor="middle" fill="#fff" font-size="14" font-weight="900" font-family="Georgia,serif">Z</text>' +
+        '<rect x="38" y="58" width="92" height="118" rx="12" fill="#fff" stroke="#c7d2fe" stroke-width="2.2" transform="rotate(-9 84 117)"/>' +
+        '<rect x="114" y="42" width="96" height="128" rx="13" fill="url(#opbac-idle-card)" transform="rotate(2 162 106)"/>' +
+        '<rect x="194" y="62" width="92" height="118" rx="12" fill="#fff" stroke="#ddd6fe" stroke-width="2.2" transform="rotate(10 240 121)"/>' +
+        '<text x="162" y="108" text-anchor="middle" fill="#fff" font-size="48" font-weight="900" font-family="Georgia,serif">B</text>' +
+        '<circle cx="162" cy="148" r="18" fill="#fb923c" stroke="#fff" stroke-width="3"/>' +
+        '<text x="162" y="155" text-anchor="middle" fill="#fff" font-size="16" font-weight="900" font-family="system-ui,sans-serif">?</text>' +
+        '<text x="72" y="102" fill="#6366f1" font-size="13" font-weight="800" font-family="system-ui,sans-serif">Pays</text>' +
+        '<text x="228" y="108" fill="#7c3aed" font-size="13" font-weight="800" font-family="system-ui,sans-serif">Fruit</text>' +
+        '<path d="M48 188 l12-28 6 3-12 28z" fill="#f59e0b"/>' +
+        '<path d="M46 192 l8-4 3 6-8 4z" fill="#1e293b"/>' +
       '</svg>' +
       '<p class="opbac-idle__tag">' + escHtml(pick({
         fr: 'Une lettre, des catégories — à vos crayons !',
@@ -3725,12 +3792,14 @@
     return '<div class="opbac-idle' + (recapSheetOpen ? ' opbac-idle--sheet-open' : '') + '">' +
       '<button type="button" class="opbac-idle__scrim" data-act="recap-close" aria-label="' +
         escHtml(pick({ fr: 'Fermer le classement', en: 'Close ranking' })) + '"></button>' +
-      idleHeroHtml() +
-      stopBanner +
-      buildPlayPickerHtml(replayMode, buildLaunchHtml(pick({
-        fr: '▶ Lancer une partie',
-        en: '▶ Start a game',
-      }))) +
+      '<div class="opbac-idle__stage">' +
+        idleHeroHtml() +
+        stopBanner +
+        buildPlayPickerHtml(replayMode, buildLaunchHtml(pick({
+          fr: '▶ Lancer une partie',
+          en: '▶ Start a game',
+        }))) +
+      '</div>' +
       buildRecapHtml(game, myNick) +
       '</div>';
   }
