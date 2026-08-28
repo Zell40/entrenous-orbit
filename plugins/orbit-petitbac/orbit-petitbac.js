@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 63;
+  var PBAC_VER = 64;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2055,7 +2055,7 @@
       '.opbac-end__hero{text-align:center;padding:.85rem .75rem .95rem;border-radius:14px;margin-bottom:.85rem;color:#fff;overflow:visible;width:100%;box-sizing:border-box}',
       '.opbac-end__hero--game{background:linear-gradient(135deg,#6d28d9,#4f46e5)}',
       '.opbac-end__hero--round{background:linear-gradient(135deg,#6366f1,#4f46e5)}',
-      '.opbac-end__illus{width:3.25rem;height:3.25rem;margin:0 auto .45rem;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.12))}',
+      '.opbac-end__illus{width:3.25rem;height:3.25rem;margin:0 auto .45rem;display:block;flex-shrink:0;overflow:visible;filter:drop-shadow(0 4px 8px rgba(0,0,0,.12))}',
       '.opbac-end__trophy{font-size:2.2rem;line-height:1;margin-bottom:.35rem}',
       '.opbac-end__title{display:block;width:100%;max-width:100%;box-sizing:border-box;font-size:1.22rem;font-weight:900;letter-spacing:0;margin:0 0 .25rem;line-height:1.35;overflow:visible;white-space:normal;word-break:normal;overflow-wrap:normal;hyphens:none;text-align:center}',
       '.opbac-end__sub{font-size:.82rem;font-weight:700;opacity:.92;margin:0}',
@@ -4730,9 +4730,25 @@
     var pending = isGameEnd ? !finalRows.length : (!roundRows.length && !finalRows.length);
     if (pending) return refreshSpinnerHtml('opbac-end__refresh');
     if (isGameEnd) {
-      return imgHtml('trophy.svg', pick({ fr: 'Partie terminée', en: 'Game over' }), 'opbac-end__illus');
+      return '<svg class="opbac-end__illus" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" aria-hidden="true">' +
+        '<defs><linearGradient id="opbac-trophy-g" x1="20" y1="8" x2="60" y2="72" gradientUnits="userSpaceOnUse">' +
+        '<stop stop-color="#fbbf24"/><stop offset="1" stop-color="#d97706"/></linearGradient></defs>' +
+        '<path d="M24 12h32v8c0 12-6 22-16 26s-16-14-16-26v-8z" fill="url(#opbac-trophy-g)"/>' +
+        '<path d="M16 16h8v4c0 8-3 12-8 14M56 16h8v4c0 8 3 12 8 14" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>' +
+        '<rect x="30" y="46" width="20" height="8" rx="2" fill="#b45309"/>' +
+        '<rect x="24" y="54" width="32" height="10" rx="3" fill="#92400e"/>' +
+        '<path d="M34 24h12l-2 10h-8l-2-10z" fill="#fff" opacity=".35"/>' +
+        '</svg>';
     }
-    return imgHtml('round-end.svg', pick({ fr: 'Fin de manche', en: 'Round over' }), 'opbac-end__illus');
+    return '<svg class="opbac-end__illus" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" aria-hidden="true">' +
+      '<defs><linearGradient id="opbac-flag-g" x1="16" y1="12" x2="64" y2="68" gradientUnits="userSpaceOnUse">' +
+      '<stop stop-color="#818cf8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs>' +
+      '<rect x="18" y="14" width="8" height="54" rx="3" fill="#4338ca"/>' +
+      '<path d="M26 18h34c4 0 6 2 6 6v8c0 4-2 6-6 6H26V18z" fill="url(#opbac-flag-g)"/>' +
+      '<path d="M26 38h30c4 0 6 2 6 6v6c0 4-2 6-6 6H26V38z" fill="#6366f1" opacity=".85"/>' +
+      '<circle cx="58" cy="58" r="14" fill="#22c55e" stroke="#fff" stroke-width="3"/>' +
+      '<path d="M52 58l4 4 8-10" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>';
   }
 
   function buildEndScreenHtml(game, myNick, selectedMode, animate) {
