@@ -44,7 +44,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=6"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=7"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`

@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=6"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=7"]
  */
 (function () {
   'use strict';
@@ -60,6 +60,13 @@
       if (ui.guest === next) return;
       ui.guest = next;
       notifyUi();
+    }
+    function quotedNick(nick) {
+      var inner = orbit.i18n.pick({
+        fr: '«\u00a0' + nick + '\u00a0»',
+        en: '“' + nick + '”',
+      });
+      return h('span', { className: 'guestprompt__nick' }, inner);
     }
     function networkName() {
       try {
@@ -487,6 +494,7 @@
         '.anope-id__err{margin:.15rem 0 0;font-size:.84rem;font-weight:650;color:var(--danger,#dc2626);text-align:center}',
         '.anope-id__ok{margin:.35rem 0 0;font-size:.92rem;font-weight:750;color:var(--accent);text-align:center}',
         '.anope-id .guestprompt__primary:disabled{opacity:.65;cursor:wait}',
+        '.guestprompt__nick{white-space:nowrap}',
         '.anope-guest-badge{flex:none;display:inline-flex;align-items:center;justify-content:center;',
         'width:1.45rem;height:1.45rem;margin-left:.05rem;padding:0;border:0;border-radius:999px;',
         'background:transparent;cursor:pointer;font-size:.95rem;line-height:1;',
@@ -517,9 +525,13 @@
       var registerUrl = (cfg.branding && cfg.branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
       var net = networkName();
       var title = orbit.i18n.pick({ fr: 'Pseudo non enregistré', en: 'Nickname not registered' });
-      var body = orbit.i18n.pick({
-        fr: 'Tu es connecté en invité avec le pseudo « ' + nick + ' ». Enregistre-le via ton profil EntreNous pour le protéger et retrouver tes préférences.',
-        en: 'You\'re connected as a guest with the nick “' + nick + '”. Register it via your EntreNous profile to protect it and keep your preferences.',
+      var bodyLead = orbit.i18n.pick({
+        fr: 'Tu es connecté en invité avec le pseudo ',
+        en: 'You\'re connected as a guest with the nick ',
+      });
+      var bodyTail = orbit.i18n.pick({
+        fr: '. Enregistre-le via ton profil EntreNous pour le protéger et retrouver tes préférences.',
+        en: '. Register it via your EntreNous profile to protect it and keep your preferences.',
       });
       var extraFree = orbit.i18n.pick({
         fr: 'L’accès au tchat sur ' + net + ' reste gratuit, même sans enregistrement. Tu peux discuter tout de suite en invité.',
@@ -561,7 +573,7 @@
         h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissLater, 'aria-label': close }, '×'),
         h('div', { className: 'guestprompt__ic', 'aria-hidden': true }, '🔐'),
         h('h2', { id: 'guestprompt-title', className: 'guestprompt__title' }, title),
-        h('p', { id: 'guestprompt-desc', className: 'guestprompt__txt' }, body),
+        h('p', { id: 'guestprompt-desc', className: 'guestprompt__txt' }, bodyLead, quotedNick(nick), bodyTail),
         h('button', {
           type: 'button',
           className: 'guestprompt__more',
@@ -661,14 +673,15 @@
       var remain = en.deadline ? Math.max(0, Math.ceil((en.deadline - Date.now()) / 1000)) : 0;
       var late = !!(en.deadline && remain <= 10);
       var title = orbit.i18n.pick({ fr: 'Identifie ton compte', en: 'Identify your account' });
-      var body = en.deadline
+      var bodyLead = orbit.i18n.pick({ fr: 'Le pseudo ', en: 'The nick ' });
+      var bodyTail = en.deadline
         ? orbit.i18n.pick({
-          fr: 'Le pseudo « ' + nick + ' » est protégé. Identifie-toi avant que NickServ ne le change.',
-          en: 'The nick “' + nick + '” is protected. Identify before NickServ changes it.',
+          fr: ' est protégé. Identifie-toi avant que NickServ ne le change.',
+          en: ' is protected. Identify before NickServ changes it.',
         })
         : orbit.i18n.pick({
-          fr: 'Le pseudo « ' + nick + ' » est enregistré. Saisis le mot de passe de ton compte Anope.',
-          en: 'The nick “' + nick + '” is registered. Enter your Anope account password.',
+          fr: ' est enregistré. Saisis le mot de passe de ton compte Anope.',
+          en: ' is registered. Enter your Anope account password.',
         });
       var timeHint = orbit.i18n.pick({
         fr: remain <= 0 ? 'Le délai indiqué est écoulé — identifie-toi tout de suite.' : 'Temps restant',
@@ -689,7 +702,7 @@
         h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissEnforce, 'aria-label': close }, '×'),
         h('div', { className: 'guestprompt__ic', 'aria-hidden': true }, '🔑'),
         h('h2', { id: 'anope-id-title', className: 'guestprompt__title' }, title),
-        h('p', { id: 'anope-id-desc', className: 'guestprompt__txt' }, body),
+        h('p', { id: 'anope-id-desc', className: 'guestprompt__txt' }, bodyLead, quotedNick(nick), bodyTail),
       ];
       if (en.deadline) {
         kids.push(h('div', {
@@ -740,9 +753,13 @@
       var cfg = orbit.config() || {};
       var registerUrl = (cfg.branding && cfg.branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
       var title = orbit.i18n.pick({ fr: 'Pseudo modifié', en: 'Nickname changed' });
-      var body = orbit.i18n.pick({
-        fr: 'Ton pseudo a été changé en « ' + nick + ' » parce que tu ne t’es pas identifié sur le compte. Tu peux créer un compte EntreNous ici pour protéger ton pseudo.',
-        en: 'Your nick was changed to “' + nick + '” because you did not identify to the account. You can create an EntreNous account here to protect your nick.',
+      var bodyLead = orbit.i18n.pick({
+        fr: 'Ton pseudo a été changé en ',
+        en: 'Your nick was changed to ',
+      });
+      var bodyTail = orbit.i18n.pick({
+        fr: ' parce que tu ne t’es pas identifié sur le compte. Tu peux créer un compte EntreNous ici pour protéger ton pseudo.',
+        en: ' because you did not identify to the account. You can create an EntreNous account here to protect your nick.',
       });
       var create = orbit.i18n.pick({ fr: 'Créer un compte', en: 'Create an account' });
       var login = orbit.i18n.pick({ fr: 'J’ai déjà un compte', en: 'I already have an account' });
@@ -757,7 +774,7 @@
         h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissForced, 'aria-label': close }, '×'),
         h('div', { className: 'guestprompt__ic', 'aria-hidden': true }, '⚠️'),
         h('h2', { id: 'anope-forced-title', className: 'guestprompt__title' }, title),
-        h('p', { id: 'anope-forced-desc', className: 'guestprompt__txt' }, body),
+        h('p', { id: 'anope-forced-desc', className: 'guestprompt__txt' }, bodyLead, quotedNick(nick), bodyTail),
         h('div', { className: 'guestprompt__actions' },
           h('a', {
             className: 'guestprompt__primary',
