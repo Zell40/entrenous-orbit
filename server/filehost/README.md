@@ -189,5 +189,9 @@ can write into it.
 - The first time a file is saved, this script drops a small `.htaccess`
   inside `files/` disabling directory listing and PHP execution there, as
   defense in depth on top of the mime/extension allowlist above.
-- This script never deletes old files — add your own cleanup/retention job
-  against `files/` if storage growth matters to you.
+- This script never deletes old files on its own. `filehost-purge.php` (CLI)
+  removes expired files. Cron (every 15 minutes):
+  `php /path/to/webroot/filehost-purge.php`
+  Default keep-time is **24 hours** (`$RETENTION_HOURS`); the composer can
+  send `ttl_hours` (capped by `$RETENTION_MAX_HOURS`, default 7 days).
+  Legacy files without a `.expires` sidecar are aged from their mtime.

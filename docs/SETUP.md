@@ -45,6 +45,14 @@ chmod +x /home/chat/irc/sources/entrenous-orbit/deploy.sh
 ```
 
 Les `*.local.php` et dossiers d’upload dans `webchat-new/` restent en place.
+
+Purge des images du composer (24 h par défaut) — cron toutes les 15 min :
+
+```
+*/15 * * * * php /home/chat/irc/webchat-new/filehost-purge.php >/dev/null 2>&1
+```
+
+Sur la prod, même commande avec `/home/chat/irc/webchat/filehost-purge.php`.
 Au premier deploy avec le nouveau layout, `deploy.sh` migre
 `room-images.local.php` + `room-images-uploads/` de la racine vers
 `plugins/third/orbit-room-gallery/` si besoin, puis retire les copies

@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=7"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=8"]
  */
 (function () {
   'use strict';
@@ -24,6 +24,7 @@
   var COALESCE_MS = 600;
   var IDENTIFY_TIMEOUT_MS = 12000;
   var SUCCESS_CLOSE_MS = 1400;
+  var IDENTIFY_POLL_MS = 3000;
   var STYLE_ID = 'orbit-anope-css';
 
   Orbit.plugin('orbit-anope', function (orbit, log) {
@@ -40,6 +41,7 @@
     var dismissedEnforce = false;
     var identifyTimer = 0;
     var successTimer = 0;
+    var identifyPollTimer = 0;
 
     var ui = { nick: '', guest: false, enforce: null, forced: null, listeners: new Set() };
     var snap = { nick: '', guest: false, enforce: null, forced: null };
@@ -119,6 +121,8 @@
     function setEnforce(next) {
       ui.enforce = next;
       notifyUi();
+      if (next && !next.success) startIdentifyPoll();
+      else stopIdentifyPoll();
     }
     function setForced(next) {
       ui.forced = next;
@@ -199,7 +203,12 @@
     function classify(text) {
       var t = foldText(text);
       if (!t.trim()) return 'other';
-      if (/password accepted|successfully identified|already identified|now recognized|deja identifi/.test(t)) {
+      if (/password accepted|successfully identified|already identified|now recognized|deja identifi/.test(t)
+        || /mot de passe accepte/.test(t)
+        || /vous (etes|avez ete) (maintenant )?identifi/.test(t)
+        || /you (are now|have been) identified/.test(t)
+        || /now identified as|logged in as/.test(t)
+        || /identifie(e)? (avec succes|en tant que)/.test(t)) {
         return 'identified';
       }
       if (/(is now registered|est maintenant enregistr|has been registered|a (bien )?ete enregistr)/.test(t)
@@ -227,6 +236,34 @@
     }
     function clearSuccessTimer() {
       if (successTimer) { clearTimeout(successTimer); successTimer = 0; }
+    }
+    function stopIdentifyPoll() {
+      if (identifyPollTimer) { clearInterval(identifyPollTimer); identifyPollTimer = 0; }
+    }
+    function isNowIdentified() {
+      if (orbit.state.account()) return true;
+      try {
+        var st = orbit.state.get();
+        if (st && typeof st.umodes === 'string' && st.umodes.indexOf('r') !== -1) return true;
+      } catch (e) { /* ignore */ }
+      return false;
+    }
+    function probeAccount() {
+      try {
+        var nick = orbit.state.nick();
+        if (nick) orbit.irc.send('WHOIS ' + nick);
+      } catch (e) { /* ignore */ }
+    }
+    function pollIdentified() {
+      if (!ui.enforce || ui.enforce.success) { stopIdentifyPoll(); return; }
+      if (isNowIdentified()) { onIdentified(); return; }
+      probeAccount();
+    }
+    function startIdentifyPoll() {
+      if (identifyPollTimer) return;
+      pollIdentified();
+      if (!ui.enforce || ui.enforce.success) return;
+      identifyPollTimer = setInterval(pollIdentified, IDENTIFY_POLL_MS);
     }
 
     function dismissOrbitNickServ() {
@@ -395,8 +432,20 @@
       if (!msg) return;
       var cmd = String(msg.command || '').toUpperCase();
       if (cmd === '900') {
-        setGuest(false);
-        setPromptNick('');
+        onIdentified();
+        return;
+      }
+      if (cmd === 'ACCOUNT') {
+        var acct = msg.params && msg.params[0];
+        if (acct && acct !== '*' && foldNick(msg.nick) === foldNick(orbit.state.nick())) {
+          onIdentified();
+        }
+        return;
+      }
+      if (cmd === '330') {
+        var who = msg.params && msg.params[1];
+        var whoAcct = msg.params && msg.params[2];
+        if (whoAcct && foldNick(who) === foldNick(orbit.state.nick())) onIdentified();
         return;
       }
       if (cmd !== 'NOTICE') return;

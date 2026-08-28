@@ -73,6 +73,8 @@ $PUBLIC_URL_PATH  = '/files';              // <-- the ONLY thing to change if yo
 // (e.g. an unusual proxy setup).
 $PUBLIC_ORIGIN    = '';
 $MAX_UPLOAD_BYTES = 16 * 1024 * 1024;      // matches Orbit's own client-side cap (src/core/store/upload.ts)
+$RETENTION_HOURS = 24;                     // default keep-time when the client omits ttl_hours
+$RETENTION_MAX_HOURS = 168;                // hard cap (7 days) even if the client asks for more
 $ALLOWED_UPLOAD_MIME = [
   // Images — Orbit's composer button accepts any `image/*`.
   'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
@@ -216,13 +218,20 @@ if ($freshDir) {
   // Defense in depth: uploads are already restricted by mime-sniffed
   // extension above, but make doubly sure nothing dropped in here can ever
   // be executed, and that the directory listing isn't browsable.
-  file_put_contents($UPLOAD_DIR . '/.htaccess', "Options -Indexes\nphp_flag engine off\n<FilesMatch \"\\.ph(p[3457]?|t|tml)$\">\n  Require all denied\n</FilesMatch>\n");
+  file_put_contents($UPLOAD_DIR . '/.htaccess', "Options -Indexes\nphp_flag engine off\n<FilesMatch \"\\.ph(p[3457]?|t|tml)$\">\n  Require all denied\n</FilesMatch>\n<FilesMatch \"\\.expires$\">\n  Require all denied\n</FilesMatch>\n");
 }
 $name = bin2hex(random_bytes(16)) . '.' . $ext;
 if (!move_uploaded_file($file['tmp_name'], "$UPLOAD_DIR/$name")) {
   error_log("filehost-upload: move_uploaded_file() into '$UPLOAD_DIR' failed — " . (error_get_last()['message'] ?? 'unknown error'));
   http_response_code(500); echo json_encode(['detail' => 'save_failed']); exit;
 }
+
+$ttlHours = (int)($_POST['ttl_hours'] ?? $RETENTION_HOURS);
+if ($ttlHours < 1) $ttlHours = (int)$RETENTION_HOURS;
+$maxHours = max(1, (int)$RETENTION_MAX_HOURS);
+if ($ttlHours > $maxHours) $ttlHours = $maxHours;
+$exp = time() + $ttlHours * 3600;
+@file_put_contents("$UPLOAD_DIR/$name.expires", (string)$exp);
 
 $origin = $PUBLIC_ORIGIN !== '' ? rtrim($PUBLIC_ORIGIN, '/') : detect_origin();
 echo json_encode(['url' => "$origin$PUBLIC_URL_PATH/$name"]);

@@ -33,6 +33,7 @@ Après deploy, le web root contient notamment :
 webchat-new/
   plugins/third/orbit-room-gallery/   ← JS + room-images.php + uploads
   filehost-upload.php                 ← composer /upload
+  filehost-purge.php                  ← cron : suppression des images expirées
   files/                              ← uploads composer
   handoff.php                         ← WordPress → Orbit SASL
   avatars.php                         ← WordPress → Orbit avatars
@@ -60,6 +61,12 @@ Puis :
 Le cron ne doit **jamais** passer `--prod`. Premier `--prod` : Kiwi doit déjà être déplacé (`mv webchat webchat-kiwi-DATE`), sinon le script refuse d’écraser. Copier les `*.local.php` depuis `webchat-new/` vers `webchat/` une fois, puis adapter `$PUBLIC_ORIGIN` s’il est figé sur webapp2.
 
 Les dossiers runtime (`…/room-images-uploads/`, `files/`) et les secrets (`*.local.php`) ne sont **jamais** écrasés. `deploy.sh` crée les dossiers d’upload s’ils manquent, migre l’ancien layout racine vers le dossier plugin, puis **supprime** les copies obsolètes à la racine (`/room-images.php`, etc.) une fois le plugin en place.
+
+Images du composer : conservation **24 h** par défaut (choix 1 h / 6 h / 24 h / 3 j à l’envoi). Cron de purge :
+
+```
+*/15 * * * * php /home/chat/irc/webchat-new/filehost-purge.php >/dev/null 2>&1
+```
 
 ## En local (Cursor)
 

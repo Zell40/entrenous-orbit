@@ -197,6 +197,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-asl/" \
   --exclude="/plugins/third/orbit-anope/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
+  --exclude="/filehost-purge.php" \
   --exclude="/$FILEHOST_FILES_DIR" \
   --exclude="/handoff.php" \
   --exclude="/chat-resume.php" \
@@ -315,6 +316,7 @@ fi
 
 # Filehost PHP at web root (Orbit core /upload — not part of the gallery plugin)
 cp -f "$PLUGINS_REPO/server/filehost/filehost-upload.php" "$WEBROOT/$FILEHOST_UPLOAD_NAME"
+cp -f "$PLUGINS_REPO/server/filehost/filehost-purge.php" "$WEBROOT/filehost-purge.php"
 # PHP-FPM upload limits for /upload (gallery already has its own .user.ini).
 # Keep WEBROOT/.user.ini across rsync --delete (excluded above), then refresh.
 if [ -f "$PLUGINS_REPO/server/filehost/.user.ini" ]; then
