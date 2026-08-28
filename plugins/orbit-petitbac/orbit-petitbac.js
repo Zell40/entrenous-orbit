@@ -6,13 +6,14 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 67;
+  var PBAC_VER = 68;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
   var STORAGE_GAME_VIEW = 'opbacGameView';
   var STORAGE_LIVE_OPEN = 'opbacLiveOpen';
   var STORAGE_SKIP_RULES = 'opbacSkipRules';
+  var STORAGE_TOUR_DONE = 'opbacTourDone';
   var PANEL_HEIGHT_MIN = 220;
   var PANEL_HEIGHT_MAX = 1200;
   var CHAT_RESERVE_MIN = 120; /* topic + composer at least */
@@ -52,6 +53,11 @@
   var createdModeId = '';
   var STORAGE_LOBBY_TAB = 'opbacLobbyTab';
   var recapSheetOpen = false;
+  var tourIndex = 0;
+  var tourActive = false;
+  var tourForced = false;
+  var tourEscHandler = null;
+  var tourTimer = 0;
   var activeVote = null;
 
   function pick(table) {
@@ -2078,6 +2084,23 @@
       '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
       '.opbac-help-wrap{padding:0 1.2rem 1.25rem}',
       '.opbac-help-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
+      '.opbac-tour{position:fixed;inset:0;z-index:10050;pointer-events:auto}',
+      '.opbac-tour--pass{pointer-events:none}',
+      '.opbac-tour--pass .opbac-tour__card{pointer-events:auto}',
+      '.opbac-tour__spot{position:fixed;z-index:1;pointer-events:none;border-radius:12px;box-shadow:0 0 0 3px #c4b5fd,0 0 0 9999px rgba(15,23,42,.58);transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
+      '.opbac-tour--launch .opbac-tour__spot{border-radius:999px;animation:opbacTourPulse 1.15s ease-in-out infinite}',
+      '@keyframes opbacTourPulse{0%,100%{box-shadow:0 0 0 4px #a5b4fc,0 0 0 9999px rgba(15,23,42,.55)}50%{box-shadow:0 0 0 9px #fb923c,0 0 0 9999px rgba(15,23,42,.5)}}',
+      '.opbac-tour__card{position:fixed;z-index:2;width:min(22.5rem,calc(100vw - 1.5rem));background:var(--bg,#fff);color:var(--ink,#111);border-radius:16px;padding:.9rem 1rem .85rem;box-shadow:0 18px 40px -12px rgba(15,23,42,.45);border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd))}',
+      '.opbac-tour__n{margin:0 0 .28rem;font-size:.68rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#6366f1}',
+      '.opbac-tour__card h3{margin:0 0 .4rem;font-size:1.05rem;font-weight:900}',
+      '.opbac-tour__card p{margin:0;font-size:.84rem;line-height:1.45;color:var(--ink,#222)}',
+      '.opbac-tour__list{margin:.45rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.28rem}',
+      '.opbac-tour__list li{display:flex;align-items:flex-start;gap:.45rem;font-size:.8rem;line-height:1.35}',
+      '.opbac-tour__ico{flex-shrink:0;width:1.45rem;height:1.45rem;border-radius:7px;display:grid;place-items:center;background:#4f46e5;color:#fff;font-size:.78rem;font-weight:900}',
+      '.opbac-tour__nav{display:flex;align-items:center;justify-content:space-between;gap:.45rem;margin-top:.85rem}',
+      '.opbac-tour__skip{border:0;background:none;color:var(--muted,#666);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline;padding:.25rem}',
+      '.opbac-tour__next{border:0;border-radius:999px;padding:.5rem 1rem;font-size:.84rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:38px}',
+      '.opbac-help-tour{display:inline-flex;align-items:center;justify-content:center;margin:0 0 .75rem;border:1px solid color-mix(in srgb,#6366f1 28%,var(--border,#ddd));border-radius:999px;padding:.42rem .9rem;font-size:.8rem;font-weight:800;cursor:pointer;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));color:#4338ca}',
       '.opbac-help-dialog{width:min(680px,100%);max-height:min(88vh,760px);display:flex;flex-direction:column;background:var(--bg,#fff);border-radius:16px;border:1px solid var(--border,#ddd);box-shadow:0 24px 64px -20px rgba(15,23,42,.45);overflow:hidden}',
       '.opbac-help-dialog__head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem .85rem;border-bottom:1px solid var(--border,#e5e5e5)}',
       '.opbac-help-dialog__head h3{margin:0;font-size:1.15rem;font-weight:900;color:var(--ink,#111);display:flex;align-items:center;gap:.55rem}',
@@ -2778,7 +2801,7 @@
         '<div class="opbac-mode-dd" hidden data-opbac-mode-dd>' +
           buildModeMenuInnerHtml(modeId) + '</div></div>';
     }
-    return '<div class="opbac-head">' +
+    return '<div class="opbac-head" data-tour="head">' +
       '<div class="opbac-head__brand">' +
         imgHtml('logo.svg', 'Petit Bac', 'opbac-head__logo') +
         '<span class="opbac-head__title" title="Petit Bac">' +
@@ -2789,27 +2812,27 @@
           '" data-opbac-head-badge>' + escHtml(headBadge) + '</span>' +
         modeHtml +
       '</div>' +
-      '<div class="opbac-head__actions">' +
-        '<button type="button" class="opbac-head__btn" data-act="aide" title="' +
+      '<div class="opbac-head__actions" data-tour="actions">' +
+        '<button type="button" class="opbac-head__btn" data-act="aide" data-tour="help" title="' +
           escHtml(pick({ fr: 'Aide', en: 'Help' })) + '">?</button>' +
-        '<button type="button" class="opbac-head__btn" data-act="bug" title="' +
+        '<button type="button" class="opbac-head__btn" data-act="bug" data-tour="bug" title="' +
           escHtml(pick({ fr: 'Signaler un bug', en: 'Report a bug' })) + '">🐞</button>' +
-        '<button type="button" class="opbac-head__btn" data-act="rules" title="' +
+        '<button type="button" class="opbac-head__btn" data-act="rules" data-tour="rules" title="' +
           escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '">' +
           iconSvg('rules') + '</button>' +
         (!gameActive
-          ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
+          ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" data-tour="mode" title="' +
           escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">' +
           iconSvg('mode') + '</button>')
           : '') +
         '<button type="button" class="opbac-head__btn' + (!chatOn ? ' opbac-head__btn--on' : '') +
-          '" data-act="view-' + layoutTarget + '" title="' +
+          '" data-act="view-' + layoutTarget + '" data-tour="layout" title="' +
           escHtml(layoutTarget === VIEW_SPLIT
             ? pick({ fr: 'Partager l\'écran (jeu + tchat)', en: 'Split screen (game + chat)' })
             : pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })) + '">' +
           iconSvg(layoutTarget) + '</button>' +
         '<button type="button" class="opbac-head__btn' + (chatOn ? ' opbac-head__btn--on' : '') +
-          '" data-act="' + (chatOn ? backToGame : 'view-chat') + '" title="' +
+          '" data-act="' + (chatOn ? backToGame : 'view-chat') + '" data-tour="chat" title="' +
           escHtml(chatOn
             ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
             : pick({ fr: 'Afficher le tchat', en: 'Show chat' })) + '">' +
@@ -3746,7 +3769,7 @@
 
   function buildLaunchHtml(label) {
     return '<div class="opbac-idle__launch">' +
-      '<button type="button" class="opbac-idle__cta" data-act="replay">' + escHtml(label) + '</button>' +
+      '<button type="button" class="opbac-idle__cta" data-act="replay" data-tour="launch">' + escHtml(label) + '</button>' +
       buildSkipRulesCheckHtml() +
       '</div>';
   }
@@ -4477,10 +4500,193 @@
         '<div class="opbac-help-cmds">' + cmdRows + '</div>' +
       '</section>' +
       opBlock +
+      '<p class="opbac-help-foot"><button type="button" class="opbac-help-tour" data-act="tour-start">' +
+        escHtml(pick({ fr: 'Revoir le guide de démarrage', en: 'Replay the starter guide' })) +
+      '</button></p>' +
       '<p class="opbac-help-foot">' + escHtml(pick({
         fr: '💡 Les scores live s\'affichent à droite pendant la manche. Mot refusé ? Bouton « Vérifier » ou !verifier <catégorie> <mot>.',
         en: '💡 Live scores appear on the right during the round. Word rejected? Use Verify or !verifier <category> <word>.',
       })) + '</p></div>';
+  }
+
+  function tourDone(orbit) {
+    try {
+      if (orbit) return orbit.storage.get(STORAGE_TOUR_DONE, false) === true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function markTourDone(orbit) {
+    try { if (orbit) orbit.storage.set(STORAGE_TOUR_DONE, true); } catch (e) { /* ignore */ }
+  }
+
+  function tourSteps() {
+    return [
+      {
+        sel: '[data-tour="head"]',
+        title: pick({ fr: 'Bienvenue au Petit Bac !', en: 'Welcome to Petit Bac!' }),
+        html: '<p>' + escHtml(pick({
+          fr: 'Ce bandeau violet reste affiché pendant toute la partie. À droite, les icônes du menu. Ensuite, on vous montre comment lancer un jeu.',
+          en: 'This purple bar stays on screen during the game. The menu icons are on the right. Next, we’ll show you how to start a game.',
+        })) + '</p>',
+      },
+      {
+        sel: '[data-tour="actions"]',
+        title: pick({ fr: 'Les icônes du menu', en: 'Menu icons' }),
+        html: '<ul class="opbac-tour__list">' +
+          '<li><span class="opbac-tour__ico">?</span>' + escHtml(pick({ fr: 'Aide : règles, commandes, et ce guide.', en: 'Help: rules, commands, and this guide.' })) + '</li>' +
+          '<li><span class="opbac-tour__ico">🐞</span>' + escHtml(pick({ fr: 'Signaler un bug ou une suggestion.', en: 'Report a bug or a suggestion.' })) + '</li>' +
+          '<li><span class="opbac-tour__ico">☰</span>' + escHtml(pick({ fr: 'Règles du jeu.', en: 'Game rules.' })) + '</li>' +
+          '<li><span class="opbac-tour__ico">▮</span>' + escHtml(pick({ fr: 'Choisir un niveau (facile, moyen, difficile…).', en: 'Choose a level (easy, medium, hard…).' })) + '</li>' +
+          '<li><span class="opbac-tour__ico">▢</span>' + escHtml(pick({ fr: 'Plein écran ou jeu + tchat côte à côte.', en: 'Fullscreen or game + chat side by side.' })) + '</li>' +
+          '<li><span class="opbac-tour__ico">💬</span>' + escHtml(pick({ fr: 'Afficher uniquement le tchat.', en: 'Show chat only.' })) + '</li>' +
+        '</ul>',
+      },
+      {
+        sel: '[data-tour="launch"]',
+        title: pick({ fr: 'Lancer une partie', en: 'Start a game' }),
+        html: '<p>' + escHtml(pick({
+          fr: 'Choisissez un niveau ci-dessus, puis appuyez sur ce gros bouton violet. C’est parti !',
+          en: 'Pick a level above, then press this big purple button. You’re in!',
+        })) + '</p>',
+        launch: true,
+      },
+    ];
+  }
+
+  function closePetitBacTour(orbit, done) {
+    tourActive = false;
+    tourForced = false;
+    if (tourEscHandler) {
+      document.removeEventListener('keydown', tourEscHandler);
+      tourEscHandler = null;
+    }
+    window.removeEventListener('resize', layoutTourStep);
+    var overlay = document.getElementById('opbac-tour');
+    if (overlay) overlay.remove();
+    if (done) markTourDone(orbit || pluginOrbit);
+  }
+
+  function layoutTourStep() {
+    var overlay = document.getElementById('opbac-tour');
+    if (!overlay) return;
+    var steps = tourSteps();
+    var step = steps[tourIndex];
+    if (!step) return;
+    var root = document.getElementById('opbac-dom-panel');
+    var el = root && root.querySelector(step.sel);
+    var spot = overlay.querySelector('.opbac-tour__spot');
+    var card = overlay.querySelector('.opbac-tour__card');
+    if (!spot || !card) return;
+    overlay.classList.toggle('opbac-tour--launch', !!step.launch);
+    overlay.classList.toggle('opbac-tour--pass', !!step.launch);
+    var pad = step.launch ? 8 : 6;
+    var r;
+    if (el) {
+      r = el.getBoundingClientRect();
+    } else {
+      r = { top: window.innerHeight / 3, left: window.innerWidth / 2 - 80, width: 160, height: 40, bottom: window.innerHeight / 3 + 40 };
+    }
+    spot.style.top = Math.max(4, r.top - pad) + 'px';
+    spot.style.left = Math.max(4, r.left - pad) + 'px';
+    spot.style.width = Math.max(24, r.width + pad * 2) + 'px';
+    spot.style.height = Math.max(24, r.height + pad * 2) + 'px';
+    var cardW = Math.min(360, window.innerWidth - 24);
+    var left = Math.min(Math.max(12, r.left), window.innerWidth - cardW - 12);
+    var top = r.bottom + 14;
+    card.style.width = cardW + 'px';
+    card.style.left = left + 'px';
+    card.style.top = '0px';
+    var ch = card.offsetHeight || 180;
+    if (top + ch > window.innerHeight - 12) top = Math.max(12, r.top - 12 - ch);
+    card.style.top = top + 'px';
+  }
+
+  function renderTourCard() {
+    var overlay = document.getElementById('opbac-tour');
+    if (!overlay) return;
+    var steps = tourSteps();
+    var step = steps[tourIndex];
+    if (!step) return;
+    var last = tourIndex >= steps.length - 1;
+    var card = overlay.querySelector('.opbac-tour__card');
+    if (!card) return;
+    card.innerHTML =
+      '<p class="opbac-tour__n">' + escHtml(pick({ fr: 'Guide', en: 'Guide' })) + ' · ' +
+        (tourIndex + 1) + ' / ' + steps.length + '</p>' +
+      '<h3>' + escHtml(step.title) + '</h3>' +
+      step.html +
+      '<div class="opbac-tour__nav">' +
+        '<button type="button" class="opbac-tour__skip" data-act="tour-skip">' +
+          escHtml(last
+            ? pick({ fr: 'Fermer', en: 'Close' })
+            : pick({ fr: 'Passer', en: 'Skip' })) +
+        '</button>' +
+        '<button type="button" class="opbac-tour__next" data-act="' + (last ? 'tour-done' : 'tour-next') + '">' +
+          escHtml(last
+            ? pick({ fr: 'C’est compris !', en: 'Got it!' })
+            : pick({ fr: 'Suivant', en: 'Next' })) +
+        '</button>' +
+      '</div>';
+    requestAnimationFrame(layoutTourStep);
+  }
+
+  function startPetitBacTour(orbit, root, forced) {
+    if (tourActive) {
+      layoutTourStep();
+      return;
+    }
+    var panel = root || document.getElementById('opbac-dom-panel');
+    if (!panel || !panel.querySelector('.opbac-idle')) return;
+    if (getViewMode(orbit, panel) === VIEW_CHAT) {
+      setViewMode(orbit, panel, VIEW_FULL);
+    }
+    tourForced = !!forced;
+    tourActive = true;
+    tourIndex = 0;
+    var old = document.getElementById('opbac-tour');
+    if (old) old.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'opbac-tour';
+    overlay.className = 'opbac-tour';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', pick({ fr: 'Guide de démarrage Petit Bac', en: 'Petit Bac starter guide' }));
+    overlay.innerHTML = '<div class="opbac-tour__spot"></div><div class="opbac-tour__card"></div>';
+    overlay.addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+      var act = btn && btn.getAttribute('data-act');
+      if (act === 'tour-skip' || act === 'tour-done') {
+        closePetitBacTour(orbit, true);
+        return;
+      }
+      if (act === 'tour-next') {
+        tourIndex += 1;
+        if (tourIndex >= tourSteps().length) closePetitBacTour(orbit, true);
+        else renderTourCard();
+      }
+    });
+    tourEscHandler = function (ev) {
+      if (ev.key === 'Escape') closePetitBacTour(orbit, true);
+    };
+    document.addEventListener('keydown', tourEscHandler);
+    window.addEventListener('resize', layoutTourStep);
+    document.body.appendChild(overlay);
+    renderTourCard();
+  }
+
+  function schedulePetitBacTour(orbit, root) {
+    if (tourActive) {
+      requestAnimationFrame(layoutTourStep);
+      return;
+    }
+    if (!root || !root.querySelector || !root.querySelector('.opbac-idle')) return;
+    if (!tourForced && tourDone(orbit)) return;
+    if (tourTimer) clearTimeout(tourTimer);
+    tourTimer = setTimeout(function () {
+      tourTimer = 0;
+      startPetitBacTour(orbit, root, tourForced);
+    }, 500);
   }
 
   function closeHelpModal() {
@@ -5583,6 +5789,8 @@
       applyViewMode(root, orbit, viewMode);
 
       root.__opbacDraftSig = draftSignature(buffer, game);
+      if (isIdle) schedulePetitBacTour(orbit, root);
+      else if (tourActive) closePetitBacTour(orbit, true);
 
       if (isLive && !isEnd && viewMode !== VIEW_CHAT) {
         requestAnimationFrame(function () {
@@ -5765,6 +5973,18 @@
     orbit.addCommand('aide', {
       help: pick({ fr: 'Afficher l\'aide du Petit Bac', en: 'Show Petit Bac help' }),
       run: function () { openHelpModal(orbit); },
+    });
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act="tour-start"]') : null;
+      if (!btn) return;
+      ev.preventDefault();
+      closeHelpModal();
+      tourForced = true;
+      var panel = document.getElementById('opbac-dom-panel');
+      if (!panel) return;
+      if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
+      schedulePetitBacTour(orbit, panel);
     });
 
     orbit.addCommand('jouer', {
