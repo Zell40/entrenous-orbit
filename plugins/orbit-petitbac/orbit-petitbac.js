@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 64;
+  var PBAC_VER = 65;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -19,6 +19,7 @@
   var VIEW_FULL = 'full';
   var VIEW_SPLIT = 'split';
   var VIEW_CHAT = 'chat';
+  var TOP_GLOBAL_MAX = 10;
   var lobbyFetchAt = 0;
   var lobbyWaiting = false;
 
@@ -917,17 +918,21 @@
         duration: stCat.duration || 60,
       });
     }
-    if (fromBac && /🏆\s*Top\s+\d+/i.test(body)) {
+    if (fromBac && (/🏆\s*Top\s+\d+/i.test(body) || /Meilleurs joueurs/i.test(body))) {
       patchChannel(channel, { topGlobal: [], topLoaded: false });
       return;
     }
     var topRow = body.match(/^\s*(\d+)\.\s+([^\s—\-]+)[^\d]*?(\d+(?:[.,]\d+)?)\s*pts/i);
     if (fromBac && topRow && !/classement\s*:/i.test(body) && !/Partie termin[eé]e/i.test(body)) {
-      var stTop = getChannelState(channel) || defaultState();
-      var topList = (stTop.topGlobal || []).slice();
-      topList.push({ nick: topRow[2], pts: parsePts(topRow[3]), fc: 0 });
-      patchChannel(channel, { topGlobal: topList, topLoaded: true });
-      refreshDockOverlay();
+      var rankN = parseInt(topRow[1], 10);
+      if (!(rankN > TOP_GLOBAL_MAX)) {
+        var stTop = getChannelState(channel) || defaultState();
+        var topList = capTopGlobal((stTop.topGlobal || []).concat([{
+          nick: topRow[2], pts: parsePts(topRow[3]), fc: 0,
+        }]));
+        patchChannel(channel, { topGlobal: topList, topLoaded: true });
+        refreshDockOverlay();
+      }
     }
     if (fromBac) {
       var infoBot = body.match(/!info\s+(\S+)/i);
@@ -1382,6 +1387,19 @@
     });
   }
 
+  function capTopGlobal(list) {
+    var out = [];
+    var seen = Object.create(null);
+    (list || []).forEach(function (row) {
+      if (!row || !row.nick || out.length >= TOP_GLOBAL_MAX) return;
+      var key = String(row.nick).toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(row);
+    });
+    return out;
+  }
+
   function handlePetitBacEvent(channel, tags) {
     if (tagVal(tags, PB) !== 'v1') return;
     var ev = tagVal(tags, EV);
@@ -1642,7 +1660,7 @@
     if (ev === 'game_end') {
       var rankingRaw = tagVal(tags, '+final_ranking') || tagVal(tags, '+ranking');
       var ranking = rankingFromPairs(rankingRaw);
-      var topGlobal = rankingFromPairs(safeJson(tagVal(tags, '+top_global'), []));
+      var topGlobal = capTopGlobal(rankingFromPairs(safeJson(tagVal(tags, '+top_global'), [])));
       var endPatch = {
         phase: 'game_end',
         finalRanking: ranking,
@@ -2556,6 +2574,9 @@
     if (name === 'rules') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>';
     }
+    if (name === 'mode') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="14" width="5" height="7" rx="1"/><rect x="10" y="8" width="5" height="13" rx="1"/><rect x="17" y="3" width="5" height="18" rx="1"/></svg>';
+    }
     return '';
   }
 
@@ -2676,7 +2697,7 @@
     var layoutTarget = gameView === VIEW_SPLIT ? VIEW_FULL : VIEW_SPLIT;
     var backToGame = gameView === VIEW_SPLIT ? 'view-split' : 'view-full';
     var modeHtml = '';
-    if (modeBadge) {
+    if (modeBadge && gameActive) {
       modeHtml = '<div class="opbac-head__mode" data-opbac-mode-wrap>' +
         '<button type="button" class="opbac-head__badge opbac-head__badge--mode" data-act="mode-menu" ' +
           'aria-haspopup="listbox" aria-label="' + escHtml(modeBadge) + '" title="' +
@@ -2708,7 +2729,8 @@
           iconSvg('rules') + '</button>' +
         (!gameActive
           ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" title="' +
-          escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">▶</button>')
+          escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">' +
+          iconSvg('mode') + '</button>')
           : '') +
         '<button type="button" class="opbac-head__btn' + (!chatOn ? ' opbac-head__btn--on' : '') +
           '" data-act="view-' + layoutTarget + '" title="' +
@@ -3038,7 +3060,7 @@
           en: 'Loading ranking…',
         })) + '</p>';
       }
-      return buildRankingTableHtml(rows, myNick);
+      return buildRankingTableHtml(capTopGlobal(rows), myNick);
     }
     return '';
   }
@@ -3892,7 +3914,7 @@
   }
 
   function applyTopResult(channel, tags) {
-    patchChannel(channel, { topGlobal: rankingFromTop(tagVal(tags, '+ranking')), topLoaded: true });
+    patchChannel(channel, { topGlobal: capTopGlobal(rankingFromTop(tagVal(tags, '+ranking'))), topLoaded: true });
     refreshDockOverlay();
   }
 
@@ -4778,7 +4800,7 @@
         '<div class="opbac-end__block">' +
           '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Top joueurs (global)', en: 'Top players (global)' })) + '</h3>' +
           (game.topGlobal && game.topGlobal.length
-            ? buildRankingTableHtml(game.topGlobal, myNick)
+            ? buildRankingTableHtml(capTopGlobal(game.topGlobal), myNick)
             : ('<p class="opbac-end__empty">' + escHtml(pick({
               fr: 'Aucun classement global pour le moment.',
               en: 'No global ranking yet.',
@@ -5379,7 +5401,7 @@
         && !/^\d+\/\d+$/.test(String(headBadge || '').trim())) {
       headBadge += ' · 🔥 Full combo';
     }
-    var modeBadge = (gameRunning || isEnd) ? modeBadgeLabel(game.mode) : '';
+    var modeBadge = (gameRunning && !isEnd) ? modeBadgeLabel(game.mode) : '';
     var collapsedCta = collapsedCtaKind(viewMode, gameRunning, isEnd, isIdle, isGameEnd);
 
     root.className = 'opbac-panel' +
