@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 71;
+  var PBAC_VER = 72;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2198,7 +2198,8 @@
       '.opbac-tour__nav{display:flex;align-items:center;justify-content:space-between;gap:.45rem;margin-top:.85rem}',
       '.opbac-tour__skip{border:0;background:none;color:var(--muted,#666);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline;padding:.25rem}',
       '.opbac-tour__next{border:0;border-radius:999px;padding:.5rem 1rem;font-size:.84rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:38px}',
-      '.opbac-help-tour{display:inline-flex;align-items:center;justify-content:center;margin:0 0 .75rem;border:1px solid color-mix(in srgb,#6366f1 28%,var(--border,#ddd));border-radius:999px;padding:.42rem .9rem;font-size:.8rem;font-weight:800;cursor:pointer;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));color:#4338ca}',
+      '.opbac-help-tour{display:flex;align-items:flex-start;gap:.5rem;margin:0 0 .75rem;padding:.5rem .65rem;border-radius:10px;border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));font-size:.8rem;font-weight:800;color:#4338ca;cursor:pointer;user-select:none;line-height:1.35;text-align:left}',
+      '.opbac-help-tour input{margin:.12rem 0 0;flex-shrink:0;width:1.05rem;height:1.05rem;accent-color:#6366f1}',
       '.opbac-help-dialog{width:min(680px,100%);max-height:min(88vh,760px);display:flex;flex-direction:column;background:var(--bg,#fff);border-radius:16px;border:1px solid var(--border,#ddd);box-shadow:0 24px 64px -20px rgba(15,23,42,.45);overflow:hidden}',
       '.opbac-help-dialog__head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem .85rem;border-bottom:1px solid var(--border,#e5e5e5)}',
       '.opbac-help-dialog__head h3{margin:0;font-size:1.15rem;font-weight:900;color:var(--ink,#111);display:flex;align-items:center;gap:.55rem}',
@@ -4786,9 +4787,10 @@
         '<div class="opbac-help-cmds">' + cmdRows + '</div>' +
       '</section>' +
       opBlock +
-      '<p class="opbac-help-foot"><button type="button" class="opbac-help-tour" data-act="tour-start">' +
+      '<p class="opbac-help-foot"><label class="opbac-help-tour" data-act="tour-start">' +
+        '<input type="checkbox">' +
         escHtml(pick({ fr: 'Revoir le guide de démarrage', en: 'Replay the starter guide' })) +
-      '</button></p>' +
+      '</label></p>' +
       '<p class="opbac-help-foot">' + escHtml(pick({
         fr: '💡 Les scores live s\'affichent à droite pendant la manche. Mot refusé ? Bouton « Vérifier » ou !verifier <catégorie> <mot>.',
         en: '💡 Live scores appear on the right during the round. Word rejected? Use Verify or !verifier <category> <word>.',

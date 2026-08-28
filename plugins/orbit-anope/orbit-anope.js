@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=8"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=9"]
  */
 (function () {
   'use strict';
@@ -62,6 +62,11 @@
       if (ui.guest === next) return;
       ui.guest = next;
       notifyUi();
+    }
+    function markGuest() {
+      if (orbit.state.account()) return;
+      if ((orbit.config().features || {}).register === false) return;
+      setGuest(true);
     }
     function quotedNick(nick) {
       var inner = orbit.i18n.pick({
@@ -257,6 +262,7 @@
     function pollIdentified() {
       if (!ui.enforce || ui.enforce.success) { stopIdentifyPoll(); return; }
       if (isNowIdentified()) { onIdentified(); return; }
+      if (ui.enforce.deadline && Date.now() >= ui.enforce.deadline) markGuest();
       probeAccount();
     }
     function startIdentifyPoll() {
@@ -276,7 +282,7 @@
     function onUnregistered(p) {
       if (orbit.state.account()) return;
       if ((orbit.config().features || {}).register === false) return;
-      setGuest(true);
+      markGuest();
       if (shownUnregistered || ui.nick || ui.enforce || ui.forced || dismissed()) return;
       shownUnregistered = true;
       setPromptNick(p.nick || orbit.state.nick() || '…');
@@ -351,11 +357,13 @@
       clearIdentifyTimer();
       clearSuccessTimer();
       setEnforce(null);
+      markGuest();
       setForced({ nick: parseForcedNick(p.text) || p.nick || orbit.state.nick() || '' });
       dismissOrbitNickServ();
     }
 
     function dismissForced() {
+      markGuest();
       setForced(null);
     }
 
@@ -363,6 +371,7 @@
       dismissedEnforce = true;
       clearIdentifyTimer();
       clearSuccessTimer();
+      markGuest();
       setEnforce(null);
     }
 

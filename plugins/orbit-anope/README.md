@@ -30,7 +30,9 @@ y compris si l’identification a été faite hors du formulaire (IRC, opérateu
 `anope:forced` ouvre le popup **Pseudo modifié** : le pseudo a été changé
 parce que le compte n’a pas été identifié, avec **Créer un compte**.
 
-Les popups n’apparaissent **qu’après le splash de chargement** (chat visible).
+Si le popup d’identification est fermé sans s’identifier, ou si le pseudo est
+forcé en fin de délai, le cadenas d’enregistrement reste à côté du pseudo.
+Il disparaît dès que le compte est identifié.
 
 Si la notice est arrivée avant le chargement du plugin, elle est relue dans les buffers.
 
@@ -45,7 +47,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=8"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=9"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`
