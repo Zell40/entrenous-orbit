@@ -2,7 +2,7 @@
   "server": {
     "url": "https://irc.entrenous.chat/",
     "guestIdent": "ENuser",
-    "guestIdentFromNick": false,
+    "guestIdentFromNick": true,
     "bouncerUrl": "wss://bnc.reseau-entrenous.fr/webirc/websocket/",
     "bouncerHost": "bnc.entrenous.chat:+8066"
   },
@@ -51,9 +51,9 @@
   },
   "defaults": {
     "theme": "light",
-    "compact": false,
+    "compact": true,
     "sound": true,
-    "hideJoinQuit": false,
+    "hideJoinQuit": true,
     "clock24": true,
     "lang": ""
   },
@@ -62,7 +62,7 @@
     "imageUpload": true,
     "register": true,
     "linkPreviews": true,
-    "multiNetwork": false,
+    "multiNetwork": true,
     "sessionResume": true,
     "passkeySasl": true,
     "saslScram": true,
@@ -96,7 +96,7 @@
   "petitbac": {
     "channels": ["#Baccalaureat.chat"],
     "showWhenIdle": true,
-    "defaultCollapsed": false,
+    "defaultCollapsed": true,
     "maxPlayers": 14
   },
   "echecs": {
@@ -106,7 +106,7 @@
   "harrypotter": {
     "channels": ["#HarryPotter.chat"],
     "showWhenIdle": true,
-    "defaultCollapsed": false,
+    "defaultCollapsed": true,
     "botNicks": ["Choixpeau"]
   },
   "asl": {
