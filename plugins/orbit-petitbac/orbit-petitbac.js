@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 68;
+  var PBAC_VER = 69;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -1960,10 +1960,10 @@
       '.opbac-vote__btn--no{background:#dc2626;color:#fff}',
       '.opbac-panel--full:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body,.opbac-panel--split:not(.opbac-panel--playing):not(.opbac-panel--round-end):not(.opbac-panel--game-end) .opbac-body{overflow:hidden;min-height:0}',
       '.opbac-idle{display:flex;flex-direction:column;align-items:stretch;gap:.35rem;padding:.4rem .65rem 0;text-align:center;min-height:0;flex:1 1 auto;overflow:hidden;box-sizing:border-box;height:100%;position:relative;background:radial-gradient(ellipse at top,color-mix(in srgb,#6366f1 14%,transparent),transparent 58%),var(--bg,#fff)}',
-      '.opbac-idle__stage{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;gap:.35rem;overflow:hidden}',
-      '.opbac-idle__hero{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.1rem 0 .15rem}',
-      '.opbac-idle__hero-art{width:min(240px,82%);height:auto;display:block;filter:drop-shadow(0 8px 16px rgba(79,70,229,.16))}',
-      '.opbac-idle__tag{margin:.2rem 0 0;font-size:.8rem;font-weight:800;color:#4f46e5;letter-spacing:.01em}',
+      '.opbac-idle__stage{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1 1 auto;min-height:0;gap:.45rem;overflow:auto}',
+      '.opbac-idle__hero{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.1rem 0 .1rem;width:100%}',
+      '.opbac-idle__hero-art{width:min(260px,78%);height:auto;display:block;margin:0 auto;filter:drop-shadow(0 8px 16px rgba(79,70,229,.16))}',
+      '.opbac-idle__tag{margin:.25rem 0 0;font-size:.8rem;font-weight:800;color:#4f46e5;letter-spacing:.01em}',
       '.opbac-idle__scrim{display:none;position:absolute;inset:0;z-index:4;border:0;padding:0;margin:0;background:rgba(15,23,42,.28);cursor:pointer}',
       '.opbac-idle--sheet-open .opbac-idle__scrim{display:block}',
       '.opbac-idle__art{display:none}',
@@ -1972,7 +1972,7 @@
       '.opbac-idle__cta{display:flex;width:100%;max-width:28rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.7rem 1.1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:46px;box-shadow:0 10px 24px -10px rgba(99,102,241,.65)}',
       '.opbac-idle__cta:hover{filter:brightness(1.06)}',
       '.opbac-idle__launch .opbac-skip-rules{margin:0 auto;max-width:28rem;padding:.32rem .5rem;font-size:.72rem}',
-      '@media(min-width:880px){.opbac-idle{padding:.5rem .8rem 0;gap:0}.opbac-idle__stage{display:grid;grid-template-columns:minmax(17rem,.95fr) minmax(24rem,1.25fr);gap:.55rem 1.15rem;align-items:stretch;padding:.1rem 0 .4rem}.opbac-idle__stopped{grid-column:1/-1;margin:0}.opbac-idle__hero{grid-column:1;align-self:stretch;min-height:0;height:100%;padding:.2rem}.opbac-idle__hero-art{width:min(100%,28rem);max-height:min(100%,24rem)}.opbac-idle__tag{font-size:.9rem}.opbac-playpick{grid-column:2;max-height:none;overflow:auto;min-height:0}.opbac-idle__launch{margin-top:.45rem}.opbac-idle__cta{max-width:none;min-height:54px;font-size:1.08rem;padding:.85rem 1.2rem;box-shadow:0 14px 28px -10px rgba(99,102,241,.7)}}',
+      '@media(min-width:880px){.opbac-idle{padding:.55rem 1rem 0}.opbac-idle__stage{gap:.55rem;padding:.15rem 0 .35rem}.opbac-idle__hero-art{width:min(320px,52%)}.opbac-idle__tag{font-size:.92rem}.opbac-playpick--home{max-width:40rem}.opbac-idle__cta{min-height:52px;font-size:1.05rem;padding:.8rem 1.2rem}}',
       '.opbac-idle__help{margin-top:0;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
       '.opbac-idle__stopped{margin:0 auto;max-width:26rem;padding:.32rem .6rem;border-radius:10px;font-size:.76rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd));flex:0 0 auto}',
       '.opbac-offline{padding:1.15rem .95rem 1.25rem;text-align:center}',
@@ -2214,7 +2214,7 @@
       '.opbac-replay__sub{margin:0 0 .45rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
       '.opbac-mode{display:flex;flex-direction:column;align-items:center;gap:.1rem;padding:.4rem .3rem;border-radius:12px;border:2px solid var(--border,#ddd);background:var(--bg,#fff);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s;font:inherit;color:inherit}',
       '.opbac-mode:hover{border-color:color-mix(in srgb,#6366f1 40%,var(--border,#ccc));transform:translateY(-1px)}',
-      '.opbac-mode--on{border-color:#6366f1;background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff));box-shadow:0 0 0 3px color-mix(in srgb,#6366f1 18%,transparent)}',
+      '.opbac-mode--on{border-color:#4f46e5;background:color-mix(in srgb,#6366f1 16%,var(--bg,#fff));box-shadow:0 0 0 3px color-mix(in srgb,#6366f1 24%,transparent)}',
       '.opbac-mode__emoji{font-size:1.25rem;line-height:1}',
       '.opbac-mode__label{font-size:.82rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-mode__hint{font-size:.62rem;font-weight:700;color:var(--muted,#666);line-height:1.25}',
@@ -2222,7 +2222,10 @@
       '.opbac-replay__cta:hover{filter:brightness(1.06)}',
       '.opbac-replay__help{border:0;background:none;color:var(--accent,#6366f1);font-size:.76rem;font-weight:700;cursor:pointer;text-decoration:underline}',
       '.opbac-playpick{display:flex;flex-direction:column;gap:.35rem;flex:1 1 auto;min-height:0;overflow:auto}',
-      '@media(max-width:879px){.opbac-playpick{max-height:min(70%,34rem)}}',
+      '.opbac-playpick--home{width:100%;max-width:36rem;margin:0 auto;flex:0 1 auto;overflow:visible}',
+      '.opbac-playpick--home .opbac-setup,.opbac-playpick--home .opbac-setup__modes{overflow:visible}',
+      '.opbac-playpick--home .opbac-customs{max-height:min(10.5rem,28vh)}',
+      '@media(max-width:879px){.opbac-playpick:not(.opbac-playpick--home){max-height:min(70%,34rem)}}',
       '.opbac-setup{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(15rem,.75fr);gap:.45rem;text-align:left;flex:1 1 auto;min-height:0;overflow:hidden}',
       '.opbac-setup--solo{grid-template-columns:1fr}',
       '@media(max-width:760px){.opbac-setup{grid-template-columns:1fr;overflow:auto}}',
@@ -3550,11 +3553,22 @@
     return sanitizeModeId(mode);
   }
 
+  function resolveVisibleMode(mode) {
+    mode = sanitizeModeId(mode);
+    if (isBuiltinMode(mode)) return mode;
+    if (extraModes.some(function (x) { return x.id === mode; })) return mode;
+    return 'facile';
+  }
+
   function defaultReplayMode(game, root, orbit) {
-    if (root && root.__opbacReplayMode) return sanitizeModeId(root.__opbacReplayMode);
-    if (game && game.mode) return sanitizeModeId(game.mode);
+    if (root && root.__opbacReplayMode) return resolveVisibleMode(root.__opbacReplayMode);
+    var phase = (game && game.phase) || 'idle';
+    if (phase === 'idle') return 'facile';
+    if (game && game.mode) return resolveVisibleMode(game.mode);
     try {
-      if (orbit && orbit.storage) return sanitizeModeId(orbit.storage.get('petitbacMode', 'facile'));
+      if (orbit && orbit.storage) {
+        return resolveVisibleMode(orbit.storage.get('petitbacMode', 'facile'));
+      }
     } catch (e) { /* ignore */ }
     return 'facile';
   }
@@ -3570,7 +3584,6 @@
     if (!force && now - listeAt < 8000) return;
     listeAt = now;
     waitingListe = true;
-    extraModes = [];
     sendPbCmd(orbit, buffer, 'jeu', 'liste');
   }
 
@@ -3821,7 +3834,7 @@
         buildPlayPickerHtml(replayMode, buildLaunchHtml(pick({
           fr: '▶ Lancer une partie',
           en: '▶ Start a game',
-        }))) +
+        })), false) +
       '</div>' +
       buildRecapHtml(game, myNick) +
       '</div>';
@@ -3911,6 +3924,8 @@
     if (/Modes disponibles/i.test(body)) {
       waitingListe = true;
       extraModes = [];
+      extraModesTick++;
+      bumpStore();
       return true;
     }
     if (waitingListe) {
@@ -3918,6 +3933,7 @@
       if (row) {
         if (row.custom && !extraModes.some(function (x) { return x.id === row.id; })) {
           extraModes.push(row);
+          extraModesTick++;
           bumpStore();
           refreshPlayMenuCustom();
         }
@@ -3925,6 +3941,7 @@
       }
       if (/Tapez !jeu|sélectionner un mode/i.test(body)) {
         waitingListe = false;
+        extraModesTick++;
         bumpStore();
         refreshPlayMenuCustom();
         return true;
@@ -3965,6 +3982,7 @@
         custom: true,
       });
     });
+    extraModesTick++;
     bumpStore();
     refreshPlayMenuCustom();
   }
@@ -4120,7 +4138,7 @@
         '<span class="opbac-mode__label">' + escHtml(m.label) + '</span>' +
         '<span class="opbac-mode__hint">' + escHtml(m.hint) + '</span></button>';
     }).join('');
-    return '<div class="opbac-playpick" data-opbac-playpick>' +
+    return '<div class="opbac-playpick' + (allowCreate ? '' : ' opbac-playpick--home') + '" data-opbac-playpick>' +
       '<div class="opbac-setup' + (allowCreate ? '' : ' opbac-setup--solo') + '">' +
         '<div class="opbac-setup__modes">' +
           '<p class="opbac-playpick__h">' + escHtml(pick({ fr: 'Modes disponibles', en: 'Available modes' })) + '</p>' +
@@ -5336,6 +5354,9 @@
         '|' + JSON.stringify(game.serverRecords || []) +
         '|' + JSON.stringify(game.topGlobal || []);
     }
+    if (game.phase === 'idle' || game.phase === 'game_end') {
+      base += '|xm' + extraModesTick;
+    }
     return base;
   }
 
@@ -5759,11 +5780,12 @@
     if (rebuild) {
       var bodyHtml = '';
       if (isIdle) {
-        bodyHtml = buildIdleHtml(game, replayMode, myNick);
         if (isBacBotPresent(orbit, buffer)) {
           requestModeList(orbit, buffer);
           if (recapSheetOpen) requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
         }
+        replayMode = defaultReplayMode(game, root, orbit);
+        bodyHtml = buildIdleHtml(game, replayMode, myNick);
       } else if (isEnd) {
         var endSig = endScreenSignature(game);
         var endAnimate = root.__opbacEndPhase !== phase;
@@ -5820,6 +5842,7 @@
       if (customsEl && (isIdle || isEnd)) {
         customsEl.innerHTML = buildCustomModesHtml(defaultReplayMode(game, root, orbit));
       }
+      if (isIdle) updateReplayModeUi(root, replayMode);
       var idleStats = root.querySelector('[data-opbac-idle-stats]');
       if (idleStats && isIdle && recapSheetOpen) {
         idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
