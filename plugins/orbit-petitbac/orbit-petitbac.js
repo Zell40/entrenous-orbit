@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 70;
+  var PBAC_VER = 71;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -274,17 +274,106 @@
     return resolveChannelName(orbit, buffer) || buffer;
   }
 
-  function sendPbCmd(orbit, buffer, name, arg) {
+  function sendPbCmd(orbit, buffer, name, arg, extra) {
     if (!orbit || !buffer || !name) return;
     var target = sendPbTarget(orbit, buffer);
     var tags = '+pb=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
+    if (extra && extra.images) tags += ';+images=' + escapeIrcTag(extra.images);
     try {
       if (orbit.irc && orbit.irc.send) {
         orbit.irc.send('@' + tags + ' TAGMSG ' + target);
         return;
       }
     } catch (e) { /* ignore */ }
+  }
+
+  var FB_IMAGE_MAX = 3;
+  var FB_IMAGE_BYTES = 16 * 1024 * 1024;
+  var filehostWait = null;
+
+  function isOrbitAccount(orbit) {
+    try {
+      if (orbit && orbit.state && typeof orbit.state.account === 'function') {
+        var a = String(orbit.state.account() || '').trim();
+        if (a && a !== '0' && a !== '*') return true;
+      }
+      if (orbit && orbit.state && typeof orbit.state.get === 'function') {
+        var st = orbit.state.get();
+        var b = String((st && st.account) || '').trim();
+        if (b && b !== '0' && b !== '*') return true;
+      }
+    } catch (eAcc) { /* ignore */ }
+    return false;
+  }
+
+  function requestFilehostToken(orbit) {
+    return new Promise(function (resolve, reject) {
+      if (filehostWait && filehostWait.cancel) filehostWait.cancel();
+      var done = false;
+      var unsub = null;
+      var timer = setTimeout(function () { finish(new Error('timeout')); }, 10000);
+      function finish(err, token) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        filehostWait = null;
+        if (unsub) try { unsub(); } catch (eUn) { /* ignore */ }
+        if (err) reject(err);
+        else resolve(token);
+      }
+      try {
+        unsub = orbit.on('raw', function (msg) {
+          var cmd = String(msg.command || '').toUpperCase();
+          if (cmd !== 'NOTICE') return;
+          var text = (msg.params && msg.params[1]) || '';
+          if (/must be logged in|Identifie-toi|not (logged|identif|authentic)/i.test(text)
+              && /FILEHOST|file hosting|fichiers/i.test(text)) {
+            finish(new Error('not_identified'));
+            return;
+          }
+          var tok = String(text).match(/[?&]token=([A-Za-z0-9._\-]+)/);
+          if (tok) finish(null, tok[1]);
+        });
+      } catch (eOn) {
+        finish(eOn);
+        return;
+      }
+      filehostWait = { cancel: function () { finish(new Error('cancelled')); } };
+      try { orbit.irc.send('FILEHOST'); } catch (eSend) { finish(eSend); }
+    });
+  }
+
+  function postFilehostFile(token, file) {
+    var underApp = typeof location !== 'undefined' && String(location.pathname || '').indexOf('/app') === 0;
+    var path = underApp ? '/app/upload' : '/upload';
+    var fd = new FormData();
+    fd.append('file', file);
+    function parseRes(res) {
+      if (!res.ok) {
+        return res.json().then(function (j) {
+          throw new Error((j && j.detail) || ('http_' + res.status));
+        }, function () { throw new Error('http_' + res.status); });
+      }
+      return res.json();
+    }
+    return fetch(path + '?token=' + encodeURIComponent(token), { method: 'POST', body: fd })
+      .then(function (res) {
+        if (res.status === 404 && path.indexOf('/app/') === 0) {
+          return fetch('/upload?token=' + encodeURIComponent(token), { method: 'POST', body: fd }).then(parseRes);
+        }
+        return parseRes(res);
+      })
+      .then(function (data) {
+        if (!data || !data.url) throw new Error('no_url');
+        return data.url;
+      });
+  }
+
+  function uploadFeedbackImage(orbit, file) {
+    return requestFilehostToken(orbit).then(function (token) {
+      return postFilehostFile(token, file);
+    });
   }
 
   function skipRulesPref(orbit) {
@@ -2218,6 +2307,15 @@
       '.opbac-fb-form__status{margin:0;font-size:.8rem;font-weight:700;line-height:1.35}',
       '.opbac-fb-form__status--err{color:#b91c1c}',
       '.opbac-fb-form__status--ok{color:#15803d}',
+      '.opbac-fb-form__attach{display:flex;flex-direction:column;align-items:flex-start;gap:.35rem}',
+      '.opbac-fb-form__attach-btn{display:inline-flex;align-items:center;gap:.35rem;border:1px dashed color-mix(in srgb,#6366f1 35%,var(--border,#ddd));background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));color:var(--ink,#222);border-radius:10px;padding:.38rem .7rem;font-size:.78rem;font-weight:800;cursor:pointer}',
+      '.opbac-fb-form__attach-btn:hover{border-color:#6366f1}',
+      '.opbac-fb-form__attach-btn:disabled{opacity:.55;cursor:not-allowed}',
+      '.opbac-fb-form__note{margin:0;font-size:.72rem;font-weight:600;color:var(--muted,#666);line-height:1.35}',
+      '.opbac-fb-thumbs{display:flex;flex-wrap:wrap;gap:.35rem}',
+      '.opbac-fb-thumb{position:relative;width:4.4rem;height:4.4rem;border-radius:10px;overflow:hidden;border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:#0f172a}',
+      '.opbac-fb-thumb img{width:100%;height:100%;object-fit:cover;display:block}',
+      '.opbac-fb-thumb__x{position:absolute;top:.15rem;right:.15rem;width:1.15rem;height:1.15rem;border:0;border-radius:999px;background:rgba(15,23,42,.78);color:#fff;font-size:.7rem;font-weight:900;cursor:pointer;line-height:1}',
       '.opbac-fb-form__row{display:flex;justify-content:flex-end}',
       '.opbac-replay__q{margin:0 0 .25rem;font-size:1.08rem;font-weight:900;color:var(--ink,#111)}',
       '.opbac-replay__sub{margin:0 0 .45rem;font-size:.8rem;font-weight:600;color:var(--muted,#666)}',
@@ -4318,6 +4416,74 @@
     } catch (e) { /* ignore */ }
   }
 
+  function renderFbThumbs(overlay) {
+    var host = overlay && overlay.querySelector('[data-opbac-fb-thumbs]');
+    if (!host) return;
+    var list = overlay.__opbacFbImages || [];
+    host.innerHTML = list.map(function (item, i) {
+      var src = escHtml(item.preview || item.url || '');
+      return '<div class="opbac-fb-thumb">' +
+        (src ? '<img src="' + src + '" alt="">' : '') +
+        '<button type="button" class="opbac-fb-thumb__x" data-act="fb-img-del" data-i="' + i +
+          '" aria-label="' + escHtml(pick({ fr: 'Retirer', en: 'Remove' })) + '">×</button></div>';
+    }).join('');
+    var attachBtn = overlay.querySelector('[data-act="fb-attach"]');
+    if (attachBtn) attachBtn.disabled = list.length >= FB_IMAGE_MAX;
+  }
+
+  function addFeedbackImage(orbit, overlay, file) {
+    if (!file) return;
+    var list = overlay.__opbacFbImages || [];
+    if (list.length >= FB_IMAGE_MAX) {
+      setFeedbackStatus(pick({ fr: 'Maximum 3 images.', en: 'Maximum 3 images.' }), true);
+      return;
+    }
+    if (!String(file.type || '').startsWith('image/')) {
+      setFeedbackStatus(pick({ fr: 'Seules les images sont acceptées.', en: 'Only images are accepted.' }), true);
+      return;
+    }
+    if (file.size > FB_IMAGE_BYTES) {
+      setFeedbackStatus(pick({ fr: 'Image trop lourde (16 Mo max).', en: 'Image too large (16 MB max).' }), true);
+      return;
+    }
+    if (!isOrbitAccount(orbit)) {
+      setFeedbackStatus(pick({
+        fr: 'Connecte-toi avec ton compte pour joindre une image.',
+        en: 'Sign in with your account to attach an image.',
+      }), true);
+      return;
+    }
+    var item = { preview: '', url: '', uploading: true };
+    try { item.preview = URL.createObjectURL(file); } catch (ePrev) { /* ignore */ }
+    list.push(item);
+    overlay.__opbacFbImages = list;
+    renderFbThumbs(overlay);
+    setFeedbackStatus(pick({ fr: 'Envoi de l’image…', en: 'Uploading image…' }), false);
+    uploadFeedbackImage(orbit, file).then(function (url) {
+      item.url = url;
+      item.uploading = false;
+      renderFbThumbs(overlay);
+      setFeedbackStatus('', false);
+    }).catch(function (err) {
+      var msg = String((err && err.message) || err || '');
+      var code = msg === 'not_identified' || msg === 'timeout' ? msg : 'upload';
+      var idx = list.indexOf(item);
+      if (idx >= 0) list.splice(idx, 1);
+      if (item.preview) try { URL.revokeObjectURL(item.preview); } catch (eR) { /* ignore */ }
+      renderFbThumbs(overlay);
+      if (code === 'not_identified') {
+        setFeedbackStatus(pick({
+          fr: 'Connecte-toi avec ton compte pour joindre une image.',
+          en: 'Sign in with your account to attach an image.',
+        }), true);
+      } else if (code === 'timeout') {
+        setFeedbackStatus(pick({ fr: 'Délai dépassé pour l’image.', en: 'Image upload timed out.' }), true);
+      } else {
+        setFeedbackStatus(pick({ fr: 'Impossible d’envoyer l’image.', en: 'Could not upload the image.' }), true);
+      }
+    });
+  }
+
   function buildFeedbackBlockHtml() {
     return '<div class="opbac-feedback">' +
       '<h3 class="opbac-end__h">' + escHtml(pick({ fr: 'Votre avis', en: 'Your feedback' })) + '</h3>' +
@@ -4368,6 +4534,11 @@
         fr: 'Il faut avoir joué au moins une partie pour envoyer un avis.',
         en: 'You need to have played at least one game to send feedback.',
       });
+    } else if (code === 'not_identified') {
+      msg = pick({
+        fr: 'Connecte-toi avec ton compte pour joindre une image.',
+        en: 'Sign in with your account to attach an image.',
+      });
     } else if (code === 'unknown') {
       msg = pick({
         fr: 'Le bot n’a pas reconnu la commande. Recharge le plugin PetitBac, puis réessaie.',
@@ -4402,8 +4573,25 @@
       ? pick({ fr: 'Ex. : le tableau live ne se met pas à jour…', en: 'E.g. the live board does not update…' })
       : pick({ fr: 'Ex. : ajouter une catégorie Fleurs…', en: 'E.g. add a Flowers category…' });
     var overlay = document.createElement('div');
+    var canAttach = isOrbitAccount(orbit);
+    var attachHtml = canAttach
+      ? ('<div class="opbac-fb-form__attach">' +
+          '<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden data-opbac-fb-file>' +
+          '<button type="button" class="opbac-fb-form__attach-btn" data-act="fb-attach">📎 ' +
+            escHtml(pick({ fr: 'Joindre une image', en: 'Attach an image' })) + '</button>' +
+          '<p class="opbac-fb-form__note">' + escHtml(pick({
+            fr: 'Jusqu’à 3 images (jpg, png, gif, webp). Elles sont envoyées via Orbit, comme dans le tchat.',
+            en: 'Up to 3 images (jpg, png, gif, webp). They use Orbit’s upload, like in chat.',
+          })) + '</p>' +
+          '<div class="opbac-fb-thumbs" data-opbac-fb-thumbs></div>' +
+        '</div>')
+      : ('<p class="opbac-fb-form__note">' + escHtml(pick({
+          fr: 'Pour joindre une capture d’écran, connecte-toi avec ton compte EntreNous.',
+          en: 'To attach a screenshot, sign in with your EntreNous account.',
+        })) + '</p>');
     overlay.id = 'opbac-feedback-overlay';
     overlay.className = 'opbac-help-overlay';
+    overlay.__opbacFbImages = [];
     overlay.innerHTML =
       '<div class="opbac-help-dialog" role="dialog" aria-modal="true" aria-label="' + escHtml(title) + '">' +
         '<div class="opbac-help-dialog__head">' +
@@ -4415,6 +4603,7 @@
           '<form class="opbac-fb-form" data-opbac-fb>' +
             '<p class="opbac-fb-form__hint">' + escHtml(hint) + '</p>' +
             '<textarea name="msg" maxlength="350" rows="5" required placeholder="' + escHtml(placeholder) + '"></textarea>' +
+            attachHtml +
             '<p class="opbac-fb-form__status" data-opbac-fb-status hidden></p>' +
             '<div class="opbac-fb-form__row">' +
               '<button type="submit" class="opbac-end__btn opbac-end__btn--primary">' +
@@ -4427,13 +4616,47 @@
       if (ev.target === overlay) closeOverlayModal('feedback');
       var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-overlay"]') : null;
       if (closeBtn) closeOverlayModal('feedback');
+      var attachBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="fb-attach"]') : null;
+      if (attachBtn) {
+        var fileInp = overlay.querySelector('[data-opbac-fb-file]');
+        if (fileInp) fileInp.click();
+        return;
+      }
+      var rm = ev.target && ev.target.closest ? ev.target.closest('[data-act="fb-img-del"]') : null;
+      if (rm) {
+        var idx = Number(rm.getAttribute('data-i'));
+        var list = overlay.__opbacFbImages || [];
+        if (idx >= 0 && idx < list.length) {
+          if (list[idx].preview) try { URL.revokeObjectURL(list[idx].preview); } catch (eRev) { /* ignore */ }
+          list.splice(idx, 1);
+          renderFbThumbs(overlay);
+        }
+      }
     });
+    var fileInpBind = overlay.querySelector('[data-opbac-fb-file]');
+    if (fileInpBind) {
+      fileInpBind.addEventListener('change', function () {
+        var file = fileInpBind.files && fileInpBind.files[0];
+        fileInpBind.value = '';
+        if (!file) return;
+        addFeedbackImage(orbit, overlay, file);
+      });
+    }
     overlay.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var ta = overlay.querySelector('textarea');
       var text = ta ? String(ta.value || '').trim() : '';
       if (!text) {
         setFeedbackStatus(pick({ fr: 'Écris un message avant d’envoyer.', en: 'Write a message before sending.' }), true);
+        return;
+      }
+      var imgs = (overlay.__opbacFbImages || []).filter(function (x) { return x && x.url && !x.uploading; });
+      var stillUp = (overlay.__opbacFbImages || []).some(function (x) { return x && x.uploading; });
+      if (stillUp) {
+        setFeedbackStatus(pick({
+          fr: 'Attends la fin de l’envoi de l’image…',
+          en: 'Wait until the image upload finishes…',
+        }), true);
         return;
       }
       var btn = overlay.querySelector('[type="submit"]');
@@ -4448,7 +4671,8 @@
           applyFeedbackResult(false, kind, 'timeout');
         }, 8000),
       };
-      sendPbCmd(orbit, buffer, kind, text.slice(0, 350));
+      var extra = imgs.length ? { images: imgs.map(function (x) { return x.url; }).join(',') } : null;
+      sendPbCmd(orbit, buffer, kind, text.slice(0, 350), extra);
     });
     feedbackEscHandler = function (ev) {
       if (ev.key === 'Escape') closeOverlayModal('feedback');
