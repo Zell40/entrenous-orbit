@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=5"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=6"]
  */
 (function () {
   'use strict';
@@ -41,12 +41,12 @@
     var identifyTimer = 0;
     var successTimer = 0;
 
-    var ui = { nick: '', enforce: null, forced: null, listeners: new Set() };
-    var snap = { nick: '', enforce: null, forced: null };
+    var ui = { nick: '', guest: false, enforce: null, forced: null, listeners: new Set() };
+    var snap = { nick: '', guest: false, enforce: null, forced: null };
     function subscribeUi(cb) { ui.listeners.add(cb); return function () { ui.listeners.delete(cb); }; }
     function uiSnap() { return snap; }
     function notifyUi() {
-      snap = { nick: ui.nick, enforce: ui.enforce, forced: ui.forced };
+      snap = { nick: ui.nick, guest: ui.guest, enforce: ui.enforce, forced: ui.forced };
       ui.listeners.forEach(function (l) { l(); });
     }
     function setPromptNick(nick) {
@@ -54,6 +54,60 @@
       if (ui.nick === next) return;
       ui.nick = next;
       notifyUi();
+    }
+    function setGuest(on) {
+      var next = !!on;
+      if (ui.guest === next) return;
+      ui.guest = next;
+      notifyUi();
+    }
+    function networkName() {
+      try {
+        var n = orbit.server && typeof orbit.server.network === 'function' && orbit.server.network();
+        if (n) return String(n);
+      } catch (e) { /* ignore */ }
+      var branding = (orbit.config() || {}).branding || {};
+      return branding.name || 'EntreNous.chat';
+    }
+    function badgeTargetRect() {
+      var nodes = document.querySelectorAll('.anope-guest-badge');
+      var vw = window.innerWidth || 0;
+      var vh = window.innerHeight || 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var r = nodes[i].getBoundingClientRect();
+        if (r.width > 1 && r.height > 1
+          && r.right > 0 && r.left < vw
+          && r.bottom > 0 && r.top < vh) return r;
+      }
+      return null;
+    }
+    function flyToBadge(fromEl) {
+      var src = fromEl && fromEl.getBoundingClientRect ? fromEl.getBoundingClientRect() : null;
+      var dest = badgeTargetRect();
+      if (!src || !dest) return;
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var sx = src.left + src.width / 2;
+      var sy = src.top + src.height / 2;
+      var dx = dest.left + dest.width / 2;
+      var dy = dest.top + dest.height / 2;
+      var fly = document.createElement('span');
+      fly.className = 'anope-guest-fly';
+      fly.setAttribute('aria-hidden', 'true');
+      fly.textContent = '🔐';
+      fly.style.left = sx + 'px';
+      fly.style.top = sy + 'px';
+      document.body.appendChild(fly);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          fly.style.left = dx + 'px';
+          fly.style.top = dy + 'px';
+          fly.style.transform = 'translate(-50%, -50%) scale(0.35)';
+          fly.style.opacity = '0.12';
+        });
+      });
+      setTimeout(function () {
+        if (fly.parentNode) fly.parentNode.removeChild(fly);
+      }, 640);
     }
     function setEnforce(next) {
       ui.enforce = next;
@@ -176,15 +230,17 @@
     }
 
     function onUnregistered(p) {
-      if (shownUnregistered || ui.nick || ui.enforce || ui.forced || dismissed()) return;
       if (orbit.state.account()) return;
       if ((orbit.config().features || {}).register === false) return;
+      setGuest(true);
+      if (shownUnregistered || ui.nick || ui.enforce || ui.forced || dismissed()) return;
       shownUnregistered = true;
       setPromptNick(p.nick || orbit.state.nick() || '…');
     }
 
     function onIdentified() {
       shownUnregistered = false;
+      setGuest(false);
       setPromptNick('');
       setForced(null);
       clearIdentifyTimer();
@@ -329,7 +385,14 @@
     }
 
     function onRaw(msg) {
-      if (!msg || String(msg.command || '').toUpperCase() !== 'NOTICE') return;
+      if (!msg) return;
+      var cmd = String(msg.command || '').toUpperCase();
+      if (cmd === '900') {
+        setGuest(false);
+        setPromptNick('');
+        return;
+      }
+      if (cmd !== 'NOTICE') return;
       if (!/^nickserv$/i.test(String(msg.nick || '').trim())) return;
       var text = stripIrc((msg.params && msg.params[1]) || '');
       if (!text.trim()) return;
@@ -372,7 +435,7 @@
           break;
         }
       }
-      if (kind === 'unregistered' && (shownUnregistered || ui.nick || ui.enforce || ui.forced || dismissed())) return;
+      if (kind === 'unregistered' && (shownUnregistered || ui.nick || ui.enforce || ui.forced)) return;
       if (kind === 'enforce' && ui.enforce) return;
       if (kind === 'forced' && ui.forced) return;
       if (kind !== 'other') applyKind(kind, chosen, ts, true);
@@ -385,6 +448,7 @@
       clearSuccessTimer();
       shownUnregistered = false;
       dismissedEnforce = false;
+      setGuest(false);
       setPromptNick('');
       setEnforce(null);
       setForced(null);
@@ -423,6 +487,17 @@
         '.anope-id__err{margin:.15rem 0 0;font-size:.84rem;font-weight:650;color:var(--danger,#dc2626);text-align:center}',
         '.anope-id__ok{margin:.35rem 0 0;font-size:.92rem;font-weight:750;color:var(--accent);text-align:center}',
         '.anope-id .guestprompt__primary:disabled{opacity:.65;cursor:wait}',
+        '.anope-guest-badge{flex:none;display:inline-flex;align-items:center;justify-content:center;',
+        'width:1.45rem;height:1.45rem;margin-left:.05rem;padding:0;border:0;border-radius:999px;',
+        'background:transparent;cursor:pointer;font-size:.95rem;line-height:1;',
+        'animation:anope-guest-twinkle 1.55s ease-in-out infinite}',
+        '.anope-guest-badge:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}',
+        '.anope-guest-fly{position:fixed;z-index:200;pointer-events:none;font-size:1.55rem;line-height:1;',
+        'transform:translate(-50%,-50%);transition:left .55s cubic-bezier(.2,.7,.15,1),',
+        'top .55s cubic-bezier(.2,.7,.15,1),transform .55s cubic-bezier(.2,.7,.15,1),opacity .55s ease}',
+        '@keyframes anope-guest-twinkle{0%,100%{opacity:1;filter:drop-shadow(0 0 0 transparent);transform:scale(1)}',
+        '50%{opacity:.45;filter:drop-shadow(0 0 7px rgba(245,158,11,.9));transform:scale(1.18)}}',
+        '@media (prefers-reduced-motion:reduce){.anope-guest-badge{animation:none}.anope-guest-fly{display:none}}',
       ].join('');
     }
     injectStyles();
@@ -430,28 +505,80 @@
     function GuestPrompt() {
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       var nick = s.nick;
+      var moreState = useState(false);
+      var more = moreState[0];
+      var setMore = moreState[1];
+      var boxRef = useRef(null);
+      useEffect(function () {
+        if (!nick) setMore(false);
+      }, [nick]);
       if (!nick || s.enforce || s.forced) return null;
       var cfg = orbit.config() || {};
       var registerUrl = (cfg.branding && cfg.branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
+      var net = networkName();
       var title = orbit.i18n.pick({ fr: 'Pseudo non enregistré', en: 'Nickname not registered' });
       var body = orbit.i18n.pick({
         fr: 'Tu es connecté en invité avec le pseudo « ' + nick + ' ». Enregistre-le via ton profil EntreNous pour le protéger et retrouver tes préférences.',
         en: 'You\'re connected as a guest with the nick “' + nick + '”. Register it via your EntreNous profile to protect it and keep your preferences.',
       });
+      var extraFree = orbit.i18n.pick({
+        fr: 'L’accès au tchat sur ' + net + ' reste gratuit, même sans enregistrement. Tu peux discuter tout de suite en invité.',
+        en: 'Chat on ' + net + ' stays free even without registering. You can talk as a guest right away.',
+      });
+      var extraWhy = orbit.i18n.pick({ fr: 'Pourquoi s’enregistrer ?', en: 'Why register?' });
+      var extraItems = [
+        orbit.i18n.pick({
+          fr: 'Ton pseudo est protégé : personne d’autre ne pourra l’utiliser.',
+          en: 'Your nick is protected: nobody else can take it.',
+        }),
+        orbit.i18n.pick({
+          fr: 'Tes préférences (thème, salons, etc.) te suivent d’une session à l’autre.',
+          en: 'Your preferences (theme, rooms, and so on) follow you from session to session.',
+        }),
+        orbit.i18n.pick({
+          fr: 'Tu pourras t’identifier plus tard, sur n’importe quel appareil.',
+          en: 'You can identify later, from any device.',
+        }),
+      ];
       var create = orbit.i18n.pick({ fr: 'Créer mon profil', en: 'Create my profile' });
       var login = orbit.i18n.pick({ fr: 'J’ai déjà un compte', en: 'I already have an account' });
       var later = orbit.i18n.pick({ fr: 'Plus tard', en: 'Later' });
+      var seeMore = orbit.i18n.pick({ fr: more ? 'Voir moins' : 'Voir plus', en: more ? 'See less' : 'See more' });
       var close = orbit.i18n.t('modals.closeButton');
+      var dismissLater = function () {
+        var ic = boxRef.current && boxRef.current.querySelector
+          ? boxRef.current.querySelector('.guestprompt__ic')
+          : boxRef.current;
+        flyToBadge(ic || boxRef.current);
+        markDismissed();
+      };
       var openSettings = function () {
         markDismissed();
         var st = orbit.state.get();
         if (st && typeof st.setModal === 'function') st.setModal('settings');
       };
-      return h('div', { className: 'guestprompt', role: 'dialog', 'aria-labelledby': 'guestprompt-title', 'aria-describedby': 'guestprompt-desc' },
-        h('button', { type: 'button', className: 'guestprompt__x', onClick: markDismissed, 'aria-label': close }, '×'),
+      var kids = [
+        h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissLater, 'aria-label': close }, '×'),
         h('div', { className: 'guestprompt__ic', 'aria-hidden': true }, '🔐'),
         h('h2', { id: 'guestprompt-title', className: 'guestprompt__title' }, title),
         h('p', { id: 'guestprompt-desc', className: 'guestprompt__txt' }, body),
+        h('button', {
+          type: 'button',
+          className: 'guestprompt__more',
+          'aria-expanded': more ? 'true' : 'false',
+          onClick: function () { setMore(function (v) { return !v; }); },
+        }, seeMore),
+      ];
+      if (more) {
+        kids.push(h('div', { className: 'guestprompt__extra' },
+          h('p', null, extraFree),
+          h('h3', null, extraWhy),
+          h('ul', null, extraItems.map(function (item, i) {
+            return h('li', { key: i }, item);
+          }))
+        ));
+      }
+      kids.push(
         h('div', { className: 'guestprompt__actions' },
           h('a', {
             className: 'guestprompt__primary',
@@ -462,8 +589,37 @@
           }, create),
           h('button', { type: 'button', className: 'guestprompt__secondary', onClick: openSettings }, login)
         ),
-        h('button', { type: 'button', className: 'guestprompt__later', onClick: markDismissed }, later)
+        h('button', { type: 'button', className: 'guestprompt__later', onClick: dismissLater }, later)
       );
+      return h('div', {
+        ref: boxRef,
+        className: 'guestprompt',
+        role: 'dialog',
+        'aria-labelledby': 'guestprompt-title',
+        'aria-describedby': 'guestprompt-desc',
+      }, kids);
+    }
+
+    function GuestBadge() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      if (!s.guest || orbit.state.account()) return null;
+      var title = orbit.i18n.pick({
+        fr: 'Connecté en invité — clique pour en savoir plus',
+        en: 'Connected as a guest — click to learn more',
+      });
+      var reopen = function (ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        if (ev && ev.preventDefault) ev.preventDefault();
+        if (s.nick || s.enforce || s.forced) return;
+        setPromptNick(orbit.state.nick() || '…');
+      };
+      return h('button', {
+        type: 'button',
+        className: 'anope-guest-badge',
+        title: title,
+        'aria-label': title,
+        onClick: reopen,
+      }, '🔐');
     }
 
     function formatRemain(sec) {
@@ -653,6 +809,9 @@
 
     orbit.addUi('overlay', function () {
       return h(Overlays);
+    });
+    orbit.addUi('user_badge', function () {
+      return h(GuestBadge);
     });
     log('anope notices → anope:unregistered | identified | registered | ghost | denied | enforce | forced');
   });

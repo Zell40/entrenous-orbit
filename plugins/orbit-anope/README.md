@@ -18,7 +18,8 @@ puis émet des événements Orbit. L’invité n’est plus déduit d’un compt
 | `anope:denied` | Mauvais mot de passe / accès refusé |
 
 `anope:unregistered` ouvre le popup **Pseudo non enregistré** (Créer mon profil /
-J’ai déjà un compte / Plus tard).
+J’ai déjà un compte / Voir plus / Plus tard). Après **Plus tard**, un cadenas
+scintillant reste à droite du pseudo (mode invité) ; un clic le rouvre.
 
 `anope:enforce` ouvre le popup **Identifie ton compte** : le délai affiché est
 lu dans la notice (1 minute, 20 secondes, … selon les réglages Anope), champ
@@ -43,7 +44,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=5"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=6"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`
