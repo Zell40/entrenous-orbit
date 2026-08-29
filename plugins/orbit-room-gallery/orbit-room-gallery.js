@@ -361,11 +361,18 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__bar{display:flex;gap:.5rem;align-items:center}
     .rg__search{flex:1;min-width:0;position:relative;display:flex;align-items:center}
     .rg__search input{width:100%;padding:.62rem .8rem;border-radius:11px;border:1px solid var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--ink,inherit);font:inherit;outline:none}
-    .rg__refresh{flex:none;width:42px;height:42px;border:1px solid var(--border,#333);border-radius:11px;background:var(--bg-soft,#0e0e12);color:var(--muted,#9aa);font-size:1.15rem;cursor:pointer}
-    .rg__refresh.spin{animation:rg-spin .8s linear infinite}
+    .rg__refresh{flex:none;width:42px;height:42px;border:1px solid var(--border,#333);border-radius:11px;background:var(--bg-soft,#0e0e12);color:var(--muted,#9aa);font-size:1.15rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+    .rg__refresh-ic{display:inline-block;line-height:1}
+    .rg__refresh.is-busy{pointer-events:none;color:var(--accent,#1452cc)}
+    .rg__refresh.is-busy .rg__refresh-ic{animation:rg-spin .8s linear infinite}
     @keyframes rg-spin{to{transform:rotate(360deg)}}
+    .rg__progress{height:3px;border-radius:99px;background:var(--border,#333);overflow:hidden}
+    .rg__progress i{display:block;height:100%;width:38%;border-radius:99px;background:var(--accent,#1452cc);animation:rg-indet 1.15s ease-in-out infinite}
+    @keyframes rg-indet{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
     .rg__meta{display:flex;align-items:center;gap:.85rem;font-size:.8rem;color:var(--muted,#9aa);padding:0 .1rem}
     .rg__stat{display:inline-flex;align-items:center;gap:.32rem;font-weight:600}
+    .rg__ico{flex:none;display:none}
+    .rg__seg-ico{display:none;align-items:center;justify-content:center;line-height:1}
     .rg__dot{width:7px;height:7px;border-radius:50%;background:var(--online,#1fd189);display:inline-block}
     .rg__seggroup{display:inline-flex;gap:2px;background:var(--bg-soft,#0e0e12);border-radius:9px;padding:2px}
     .rg__seggroup.push{margin-left:auto}
@@ -384,10 +391,13 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__grid::-webkit-scrollbar,.rg__list::-webkit-scrollbar{width:9px}
     .rg__grid::-webkit-scrollbar-thumb,.rg__list::-webkit-scrollbar-thumb{background:var(--border,#333);border-radius:6px;background-clip:padding-box}
     .rg__grid::-webkit-scrollbar-thumb:hover,.rg__list::-webkit-scrollbar-thumb:hover{background:var(--muted,#9aa);background-clip:padding-box}
-    .rg__tile{position:relative;height:128px;min-width:0;border-radius:13px;border:1px solid var(--border,#333);background-size:cover;background-position:center;cursor:pointer;overflow:hidden;padding:0;display:flex;align-items:flex-end;color:#fff;text-align:left}
+    .rg__tile{position:relative;height:128px;min-width:0;border-radius:13px;border:1px solid var(--border,#333);background-size:cover;background-position:center;cursor:pointer;overflow:hidden;padding:0;display:flex;flex-direction:column;justify-content:flex-end;color:#fff;text-align:left}
     .rg__tile-shade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 28%,rgba(0,0,0,.8));pointer-events:none}
-    .rg__tile-name{position:relative;padding:.5rem .6rem .1rem;font-weight:800;font-size:.85rem;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.7);width:100%;box-sizing:border-box;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-    .rg__tile-users{position:relative;display:inline-flex;align-items:center;gap:.3rem;padding:0 .6rem .5rem;font-size:.72rem;opacity:.95;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+    .rg__tile-foot{position:relative;display:flex;align-items:flex-end;justify-content:space-between;gap:.35rem;width:100%;box-sizing:border-box;padding:.45rem .5rem}
+    .rg__tile-name{flex:1;min-width:0;font-weight:800;font-size:.85rem;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.7);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+    .rg__tile-side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:.22rem}
+    .rg__tile-thumb{width:36px;height:36px;border-radius:9px;background-size:cover;background-position:center;border:1px solid rgba(255,255,255,.5);box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem;color:#fff}
+    .rg__tile-users{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;opacity:.95;text-shadow:0 1px 3px rgba(0,0,0,.6)}
     .rg__list{max-height:min(58vh,540px);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:.15rem;padding:.05rem .4rem .05rem .05rem}
     .rg__row{display:flex;align-items:center;gap:.7rem;padding:.55rem;border-radius:11px;border:1px solid transparent;background:transparent;color:var(--ink,inherit);cursor:pointer;text-align:left;width:100%;box-sizing:border-box}
     .rg__row:hover{background:var(--bg-soft,#0e0e12);border-color:var(--border,#333)}
@@ -398,10 +408,24 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__row-users{flex:none;display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;font-weight:700;color:var(--muted,#9aa)}
     .rg__create{margin-top:.1rem;display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;border:1px dashed var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--muted,#9aa);border-radius:11px;padding:.65rem;cursor:pointer;font:inherit;font-size:.85rem}
     .rg__pager{display:flex;align-items:center;justify-content:center;gap:.9rem;padding-top:.15rem}
-    .rg__pagebtn{border:1px solid var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--ink,inherit);font:inherit;font-size:.82rem;font-weight:700;padding:.45rem .9rem;border-radius:9px;cursor:pointer}
+    .rg__pagebtn{border:1px solid var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--ink,inherit);font:inherit;font-size:.82rem;font-weight:700;padding:.45rem .9rem;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:.25rem;line-height:1}
     .rg__pagebtn:disabled{opacity:.4;cursor:default}
     .rg__pagebtn:not(:disabled):hover{border-color:var(--accent,#1452cc)}
-    .rg__pageinfo{font-size:.8rem;color:var(--muted,#9aa);font-weight:700;min-width:4.5rem;text-align:center}
+    .rg__pageinfo{font-size:.8rem;color:var(--muted,#9aa);font-weight:700;min-width:4.5rem;text-align:center;white-space:nowrap}
+    @media (max-width: 880px) {
+      .rg__stat-lbl{display:none}
+      .rg__stat .rg__ico{display:block}
+      .rg__seg-txt{display:none}
+      .rg__seg-ico{display:inline-flex}
+      .rg__seg{padding:.34rem .42rem;min-width:34px}
+      .rg__meta{gap:.4rem;flex-wrap:nowrap}
+      .rg__stat{gap:.22rem}
+      .rg__pager{gap:.4rem}
+      .rg__pagelbl{display:none}
+      .rg__pagebtn{min-width:42px;width:42px;height:42px;padding:0;font-size:1.35rem}
+      .rg__pageinfo{min-width:0;flex:1}
+      .rg__tile{height:140px}
+    }
     .rg-ca-pic__row{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}
     .rg-ca-pic__thumb{flex:none;position:relative;width:54px;height:54px;border-radius:12px;background-size:cover;background-position:center;border:1px solid var(--border,#333);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden}
     .rg-ca-pic__thumb--busy::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45)}
@@ -428,10 +452,16 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   // ---- the gallery itself: a drop-in replacement for the core Explore window ----
   function GridTile({ c, img, onJoin }) {
-    return html`<button class="rg__tile" style=${img ? { backgroundImage: `url(${img})` } : { background: avatarBg(c.name || '?') }} onClick=${onJoin}>
+    const bg = img ? { backgroundImage: `url(${img})` } : { background: avatarBg(c.name || '?') };
+    return html`<button class="rg__tile" style=${bg} onClick=${onJoin}>
       <span class="rg__tile-shade"></span>
-      <span class="rg__tile-name">${c.name || '?'}</span>
-      <span class="rg__tile-users"><span class="rg__dot"></span>${c.users ?? 0}</span>
+      <span class="rg__tile-foot">
+        <span class="rg__tile-name">${c.name || '?'}</span>
+        <span class="rg__tile-side">
+          <span class="rg__tile-thumb" style=${bg}>${img ? '' : '#'}</span>
+          <span class="rg__tile-users"><span class="rg__dot"></span>${c.users ?? 0}</span>
+        </span>
+      </span>
     </button>`;
   }
   function ListRow({ c, img, onJoin }) {
@@ -450,7 +480,15 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   // fully-visible squares and a "page suivante" pager for the rest. The list
   // view — already compact, one line per room — keeps a bigger page too.
   const PAGE_SIZE_GRID = 9;
+  const PAGE_SIZE_GRID_NARROW = 6;
   const PAGE_SIZE_LIST = 20;
+
+  function IcoHash() {
+    return html`<svg class="rg__ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9h16M4 15h16M10 4 8 20M16 4l-2 16" /></svg>`;
+  }
+  function IcoUsers() {
+    return html`<svg class="rg__ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>`;
+  }
 
   function GalleryBody({ close }) {
     const [view, setView] = useState(() => orbit.storage.get('view', 'grid'));
@@ -520,7 +558,9 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const wanted = query && (query[0] === '#' || query[0] === '&' ? query : '#' + query);
     const canCreate = !!query && !channels.some((c) => c.name.toLowerCase() === wanted);
 
-    const pageSize = view === 'grid' ? PAGE_SIZE_GRID : PAGE_SIZE_LIST;
+    const pageSize = view === 'grid'
+      ? ((typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches) ? PAGE_SIZE_GRID_NARROW : PAGE_SIZE_GRID)
+      : PAGE_SIZE_LIST;
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
     const curPage = Math.min(page, totalPages - 1);
     const pageRows = rows.slice(curPage * pageSize, curPage * pageSize + pageSize);
@@ -535,16 +575,35 @@ Orbit.plugin('room-gallery', (orbit, log) => {
           <input placeholder=${t('modals.join.search')} value=${q}
             onInput=${(e) => onSearch(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') submitSearch(); }} />
         </div>
-        <button class=${'rg__refresh' + (st.listLoading ? ' spin' : '')} title=${t('modals.join.refresh')}
-          onClick=${() => { loadingSince.current = 0; requestRefresh(); loadImageMap(true); setPage(0); }}>⟳</button>
+        <button class=${'rg__refresh' + (st.listLoading ? ' is-busy' : '')} title=${t('modals.join.refresh')}
+          aria-label=${t('modals.join.refresh')}
+          onClick=${() => { if (st.listLoading) return; loadingSince.current = Date.now(); requestRefresh(); loadImageMap(true); }}>
+          <span class="rg__refresh-ic" aria-hidden="true">⟳</span>
+        </button>
       </div>
+      ${st.listLoading ? html`<div class="rg__progress" role="progressbar" aria-label=${t('modals.join.loading')}><i></i></div>` : null}
 
       <div class="rg__meta">
-        <span class="rg__stat">${channels.length}\u00A0${t('modals.join.rooms')}</span>
-        <span class="rg__stat"><span class="rg__dot"></span>${totalUsers}\u00A0${t('modals.join.online')}</span>
+        <span class="rg__stat" title=${`${channels.length} ${t('modals.join.rooms')}`}>
+          <${IcoHash} />
+          <span>${channels.length}</span>
+          <span class="rg__stat-lbl">${t('modals.join.rooms')}</span>
+        </span>
+        <span class="rg__stat" title=${`${totalUsers} ${t('modals.join.online')}`}>
+          <${IcoUsers} />
+          <span>${totalUsers}</span>
+          <span class="rg__stat-lbl">${t('modals.join.online')}</span>
+        </span>
         <div class="rg__seggroup">
-          <button class=${'rg__seg' + (sort === 'pop' ? ' on' : '')} onClick=${() => setSortMode('pop')}>${t('modals.join.sortPop')}</button>
-          <button class=${'rg__seg' + (sort === 'az' ? ' on' : '')} onClick=${() => setSortMode('az')}>A–Z</button>
+          <button class=${'rg__seg' + (sort === 'pop' ? ' on' : '')} title=${t('modals.join.sortPop')}
+            aria-label=${t('modals.join.sortPop')} onClick=${() => setSortMode('pop')}>
+            <span class="rg__seg-ico" aria-hidden="true">🔥</span>
+            <span class="rg__seg-txt">${t('modals.join.sortPop')}</span>
+          </button>
+          <button class=${'rg__seg' + (sort === 'az' ? ' on' : '')} title="A–Z" aria-label="A–Z" onClick=${() => setSortMode('az')}>
+            <span class="rg__seg-ico" aria-hidden="true">A↓</span>
+            <span class="rg__seg-txt">A–Z</span>
+          </button>
         </div>
         <div class="rg__seggroup push">
           <button class=${'rg__seg' + (view === 'list' ? ' on' : '')} title=${orbit.i18n.pick({ fr: 'Liste', en: 'List' })} onClick=${() => setViewMode('list')}>☰</button>
@@ -567,9 +626,17 @@ Orbit.plugin('room-gallery', (orbit, log) => {
         : null}
 
       ${totalPages > 1 ? html`<div class="rg__pager">
-        <button class="rg__pagebtn" disabled=${curPage === 0} onClick=${() => setPage(curPage - 1)}>‹ ${orbit.i18n.pick({ fr: 'Précédent', en: 'Previous' })}</button>
+        <button class="rg__pagebtn" disabled=${curPage === 0} title=${orbit.i18n.pick({ fr: 'Précédent', en: 'Previous' })}
+          aria-label=${orbit.i18n.pick({ fr: 'Page précédente', en: 'Previous page' })} onClick=${() => setPage(curPage - 1)}>
+          <span class="rg__pageico" aria-hidden="true">‹</span>
+          <span class="rg__pagelbl">${orbit.i18n.pick({ fr: 'Précédent', en: 'Previous' })}</span>
+        </button>
         <span class="rg__pageinfo">${orbit.i18n.pick({ fr: 'Page', en: 'Page' })} ${curPage + 1} / ${totalPages}</span>
-        <button class="rg__pagebtn" disabled=${curPage >= totalPages - 1} onClick=${() => setPage(curPage + 1)}>${orbit.i18n.pick({ fr: 'Suivant', en: 'Next' })} ›</button>
+        <button class="rg__pagebtn" disabled=${curPage >= totalPages - 1} title=${orbit.i18n.pick({ fr: 'Suivant', en: 'Next' })}
+          aria-label=${orbit.i18n.pick({ fr: 'Page suivante', en: 'Next page' })} onClick=${() => setPage(curPage + 1)}>
+          <span class="rg__pagelbl">${orbit.i18n.pick({ fr: 'Suivant', en: 'Next' })}</span>
+          <span class="rg__pageico" aria-hidden="true">›</span>
+        </button>
       </div>` : null}
 
       ${canCreate ? html`<button class="rg__create" onClick=${() => join(wanted)}>${t('modals.join.createRow')}\u00A0<b>${wanted}</b></button>` : null}
