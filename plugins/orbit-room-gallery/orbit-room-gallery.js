@@ -359,8 +359,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   css.textContent = `
     .rg{display:flex;flex-direction:column;gap:.55rem;min-height:0}
     .rg__bar{display:flex;gap:.5rem;align-items:center}
-    .rg__search{flex:1;min-width:0;position:relative;display:flex;align-items:center}
-    .rg__search input{width:100%;padding:.62rem .8rem;border-radius:11px;border:1px solid var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--ink,inherit);font:inherit;outline:none}
+    .rg__search{flex:1;min-width:0;position:relative;display:flex;align-items:center;container-type:inline-size}
+    .rg__search input{width:100%;min-width:0;padding:.62rem .8rem;border-radius:11px;border:1px solid var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--ink,inherit);font:inherit;font-size:clamp(.68rem,5.4cqi,1rem);outline:none}
     .rg__refresh{flex:none;width:42px;height:42px;border:1px solid var(--border,#333);border-radius:11px;background:var(--bg-soft,#0e0e12);color:var(--muted,#9aa);font-size:1.15rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
     .rg__refresh-ic{display:inline-block;line-height:1}
     .rg__refresh.is-busy{pointer-events:none;color:var(--accent,#1452cc)}
@@ -413,6 +413,11 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__pagebtn:not(:disabled):hover{border-color:var(--accent,#1452cc)}
     .rg__pageinfo{font-size:.8rem;color:var(--muted,#9aa);font-weight:700;min-width:4.5rem;text-align:center;white-space:nowrap}
     @media (max-width: 880px) {
+      .modal:has(.rg){padding:.95rem .85rem 1.05rem}
+      .modal:has(.rg) .modal__head h3{font-size:clamp(.95rem,4.6vw,1.2rem)}
+      .rg__search input{font-size:clamp(.68rem,3.4vw,1rem);padding:.52rem .6rem}
+      .rg__refresh{width:38px;height:38px}
+      .rg__stat{font-size:clamp(.7rem,3.1vw,.8rem)}
       .rg__stat-lbl{display:none}
       .rg__stat .rg__ico{display:block}
       .rg__seg-txt{display:none}
@@ -492,6 +497,31 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     return html`<svg class="rg__ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>`;
   }
 
+  // Shrink the search field's font until the placeholder fits on one line
+  // (phones otherwise clip "Rechercher ou créer #salon…").
+  function fitInputToPlaceholder(el) {
+    if (!el) return;
+    el.style.fontSize = '';
+    if (el.value) return;
+    const text = el.placeholder || '';
+    if (!text) return;
+    const cs = getComputedStyle(el);
+    const max = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    if (max <= 8) return;
+    let px = parseFloat(cs.fontSize) || 16;
+    const min = 11;
+    const probe = document.createElement('span');
+    probe.style.cssText = `position:absolute;left:-9999px;top:0;white-space:nowrap;font:${cs.fontWeight} ${px}px ${cs.fontFamily};letter-spacing:${cs.letterSpacing}`;
+    probe.textContent = text;
+    document.body.appendChild(probe);
+    while (px > min && probe.offsetWidth > max) {
+      px -= 0.5;
+      probe.style.fontSize = px + 'px';
+    }
+    document.body.removeChild(probe);
+    el.style.fontSize = px + 'px';
+  }
+
   function GalleryBody({ close }) {
     const [view, setView] = useState(() => orbit.storage.get('view', 'grid'));
     const [q, setQ] = useState('');
@@ -500,6 +530,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const [, force] = useState(0);
     const images = useImageMap();
     const loadingSince = useRef(0); // 0 = not currently loading; else Date.now() when it started
+    const searchRef = useRef(null);
 
     function requestRefresh() {
       const s = orbit.state.get();
@@ -532,6 +563,17 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       }, 2000);
       return () => { offRaw(); clearInterval(id); };
     }, []);
+
+    useEffect(() => {
+      const el = searchRef.current;
+      if (!el) return;
+      const fit = () => fitInputToPlaceholder(el);
+      fit();
+      if (typeof ResizeObserver === 'undefined') return;
+      const ro = new ResizeObserver(fit);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [q]);
 
     function setViewMode(v) { setView(v); orbit.storage.set('view', v); setPage(0); }
     function setSortMode(v) { setSort(v); setPage(0); }
@@ -574,7 +616,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     return html`<div class="rg">
       <div class="rg__bar">
         <div class="rg__search">
-          <input placeholder=${t('modals.join.search')} value=${q}
+          <input ref=${searchRef} placeholder=${t('modals.join.search')} value=${q}
             onInput=${(e) => onSearch(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') submitSearch(); }} />
         </div>
         <button class=${'rg__refresh' + (st.listLoading ? ' is-busy' : '')} title=${t('modals.join.refresh')}
