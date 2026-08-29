@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 73;
+  var PBAC_VER = 74;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -620,6 +620,47 @@
     return h;
   }
 
+  function resolveRejectCat(game, draft, catHint, word) {
+    draft = draft || {};
+    var w = String(word || '').toLowerCase();
+    function sameWord(val) {
+      return w && String(val || '').toLowerCase() === w;
+    }
+    var verifyingCat = '';
+    var verifyingCount = 0;
+    Object.keys(draft.rejected || {}).forEach(function (k) {
+      var e = draft.rejected[k];
+      if (!e || !e.verifying) return;
+      verifyingCount += 1;
+      if (!verifyingCat && (!w || sameWord(e.word))) verifyingCat = k;
+    });
+    if (verifyingCat) return verifyingCat;
+    if (!w && verifyingCount === 1) {
+      var onlyK = '';
+      Object.keys(draft.rejected || {}).forEach(function (k) {
+        if (draft.rejected[k] && draft.rejected[k].verifying) onlyK = k;
+      });
+      if (onlyK) return onlyK;
+    }
+    var pendingCat = '';
+    Object.keys(draft.pending || {}).forEach(function (k) {
+      if (!pendingCat && sameWord(draft.pending[k])) pendingCat = k;
+    });
+    if (pendingCat) return pendingCat;
+    var hinted = matchCatKey(game, catHint);
+    var cats = (game && game.categories) || [];
+    var hintedInRound = cats.some(function (c) {
+      return c.toLowerCase() === String(hinted || '').toLowerCase();
+    });
+    if (hintedInRound && !((draft.validated || {})[hinted])) return hinted;
+    var draftCat = '';
+    Object.keys(draft.drafts || {}).forEach(function (k) {
+      if (!draftCat && sameWord(draft.drafts[k]) && !((draft.validated || {})[k])) draftCat = k;
+    });
+    if (draftCat) return draftCat;
+    return hinted || '';
+  }
+
   function resolveCatName(game, catKey) {
     var k = String(catKey || '').toLowerCase();
     var cats = game.categories || [];
@@ -655,6 +696,11 @@
         return pick({ fr: 'Mot invalide pour cette catégorie.', en: 'Word invalid for this category.' });
       case 'excluded':
         return pick({ fr: 'Mot exclu du jeu.', en: 'Word excluded from the game.' });
+      case 'exists':
+        return pick({
+          fr: 'Ce mot existe déjà dans le dictionnaire — pas besoin de le reproposer.',
+          en: 'This word is already in the dictionary — no need to resubmit.',
+        });
       case 'multi_word':
         return pick({
           fr: 'Un seul mot par message. Les composés enregistrés (espaces ou tirets) sont acceptés.',
@@ -692,12 +738,19 @@
     meta = meta || {};
     var game = getChannelState(channel) || defaultState();
     var draft = getDraft(channel, game);
+    catKey = resolveRejectCat(game, draft, catKey, word);
     draft.rejected = draft.rejected || Object.create(null);
     var key = catKey || String(word || '').toLowerCase();
     var code = meta.code || '';
     var msg = reason;
     if (code && (!msg || msg === code)) msg = rejectMessageForCode(code, word);
     if (!msg) msg = pick({ fr: 'Mot non accepté', en: 'Word not accepted' });
+    var prev = draft.rejected[key];
+    if (prev && prev.word && !word) word = prev.word;
+    if (prev && prev.msg && !prev.verifying && String(prev.msg).length > String(msg).length) {
+      msg = prev.msg;
+      if (!code) code = prev.reason || '';
+    }
     draft.rejected[key] = {
       word: word,
       catKey: catKey,
@@ -843,29 +896,19 @@
 
     if (/❌|⛔/.test(msg)) {
       var word = extractQuotedWord(msg);
-      var catKey = '';
-      var catM = msg.match(/cat[ée]gorie\s+(\S+)/i);
-      if (catM) catKey = matchCatKey(game, catM[1]);
-      if (!catKey && word) {
-        Object.keys(draft.pending).forEach(function (k) {
-          if (!catKey && String(draft.pending[k]).toLowerCase() === word.toLowerCase()) catKey = k;
-        });
+      var hinted = '';
+      var catM = msg.match(/cat[ée]gorie(?:s)?\s+(\S+)/i);
+      if (catM && !/^du$/i.test(catM[1]) && !/^de$/i.test(catM[1]) && !/^s$/i.test(catM[1])) {
+        hinted = catM[1];
       }
-      if (!catKey && word) {
-        Object.keys(draft.drafts).forEach(function (k) {
-          if (!catKey && String(draft.drafts[k]).toLowerCase() === word.toLowerCase()) catKey = k;
-        });
-      }
-      if (!catKey && Object.keys(draft.pending).length === 1) {
-        catKey = Object.keys(draft.pending)[0];
-      }
-      var short = msg.replace(/^[^«"]*[«"]?[^»"]*[»"]?\s*/i, '').slice(0, 100);
+      var catKey = resolveRejectCat(game, draft, hinted, word);
+      var botMsg = String(msg || '').replace(/^[❌⛔⚠️ℹ️\s]+/, '').trim().slice(0, 180);
       markRejected(
         channel,
         catKey,
-        word || draft.drafts[catKey] || '',
-        short || msg.slice(0, 100),
-        { suggestInfo: shouldSuggestInfo('', short || msg) }
+        word || (catKey && draft.drafts[catKey]) || '',
+        botMsg || msg.slice(0, 180),
+        { suggestInfo: shouldSuggestInfo('', botMsg || msg) }
       );
       return;
     }
@@ -1818,9 +1861,14 @@
       var gameKo = getChannelState(channel) || defaultState();
       var koReason = tagVal(tags, '+reason') || 'invalid';
       var koWord = tagVal(tags, '+word');
-      var koCat = matchCatKey(gameKo, tagVal(tags, '+category'));
       var nickKo = tagVal(tags, '+nick') || tagVal(tags, '+player');
       if (nickKo && !isMyNick(nickKo)) return;
+      var koCat = resolveRejectCat(
+        gameKo,
+        getDraft(channel, gameKo),
+        tagVal(tags, '+category'),
+        koWord
+      );
       markRejected(
         channel,
         koCat,
@@ -1962,17 +2010,23 @@
     }
     if (ev === 'verify_pending' || ev === 'verify_ok' || ev === 'verify_ko') {
       var vWord = tagVal(tags, '+word');
-      var vCat = matchCatKey(getChannelState(channel) || defaultState(), tagVal(tags, '+category'));
+      var gameV = getChannelState(channel) || defaultState();
+      var vCat = resolveRejectCat(gameV, getDraft(channel, gameV), tagVal(tags, '+category'), vWord);
       if (ev === 'verify_ko') {
         markRejected(channel, vCat, vWord, rejectMessageForCode(tagVal(tags, '+reason') || 'not_found', vWord), {
           code: tagVal(tags, '+reason') || 'not_found',
           suggestInfo: true,
         });
       } else if (ev === 'verify_ok') {
-        markRejected(channel, vCat, vWord, pick({
-          fr: 'Ce mot existe déjà dans le dictionnaire — pas besoin de le reproposer.',
-          en: 'This word is already in the dictionary — no need to resubmit.',
-        }), { code: 'exists' });
+        var existing = tagVal(tags, '+existing');
+        var existsText = tagVal(tags, '+text');
+        var existsMsg = existsText || (existing
+          ? pick({
+            fr: 'Le mot existe déjà dans : ' + existing + ' — pas besoin de le reproposer.',
+            en: 'This word already exists in: ' + existing + ' — no need to resubmit.',
+          })
+          : rejectMessageForCode('exists', vWord));
+        markRejected(channel, vCat, vWord, existsMsg, { code: 'exists' });
       }
       return;
     }
@@ -2212,7 +2266,7 @@
       '.opbac-col__input:disabled{opacity:.65}',
       '.opbac-col__send{width:100%;border:0;border-radius:9px;padding:.48rem .5rem;font-size:.78rem;font-weight:800;cursor:pointer;background:#6366f1;color:#fff;min-height:40px}',
       '.opbac-col__send:disabled{opacity:.4;cursor:not-allowed}',
-      '.opbac-col__err{font-size:.65rem;font-weight:700;color:#dc2626;margin:0;line-height:1.25;text-align:center}',
+      '.opbac-col__err{font-size:.65rem;font-weight:700;color:#dc2626;margin:0;line-height:1.25;text-align:center;max-width:100%;overflow-wrap:anywhere}',
       '.opbac-info-hint{display:flex;align-items:center;gap:.45rem;margin-top:.15rem;padding:.45rem .5rem;border-radius:10px;background:color-mix(in srgb,#3b82f6 7%,var(--bg,#fff));border:1px solid color-mix(in srgb,#3b82f6 22%,var(--border,#ddd))}',
       '.opbac-info-hint__icon{font-size:1rem;line-height:1;flex-shrink:0}',
       '.opbac-info-hint__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.12rem}',
@@ -4054,6 +4108,26 @@
     var n = String(nick || '').replace(/^[@+%~&]/, '').toLowerCase();
     if (n !== 'bac' && n !== 'maitredujeu') return;
     if (rejectCompoundNotice(plain)) return;
+    if (/existe d[eé]j[aà] dans/.test(plain) || /pas n[eé]cessaire de le reproposer/i.test(plain)) {
+      var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
+        ? pluginOrbit.state.active()
+        : '';
+      if (buf && isBacChannel(pluginOrbit, buf)) {
+        var wordN = extractQuotedWord(plain);
+        var gameN = getChannelState(buf) || defaultState();
+        var catsStr = '';
+        var catsM = plain.match(/cat[ée]gorie\(s\)\s*:\s*(.+)$/i);
+        if (catsM) catsStr = catsM[1].replace(/\.+$/, '').trim();
+        var msgN = catsStr
+          ? pick({
+            fr: 'Le mot existe déjà dans : ' + catsStr + ' — pas besoin de le reproposer.',
+            en: 'This word already exists in: ' + catsStr + ' — no need to resubmit.',
+          })
+          : rejectMessageForCode('exists', wordN);
+        markRejected(buf, '', wordN, msgN, { code: 'exists' });
+      }
+      return;
+    }
     if (handleLobbyNotice(plain)) return;
     handleModeListLine(plain);
   }
@@ -5548,20 +5622,24 @@
       var verifyHtml = '';
       var errHtml = '';
       if (rej && !ok) {
-        if (rej.verifying) {
-          errHtml = '<p class="opbac-col__err">' + escHtml(pick({
-            fr: 'Proposition envoyée – un opérateur examinera votre mot.',
-            en: 'Proposal sent – an operator will review your word.',
-          })) + '</p>';
-        } else {
-          errHtml = '<p class="opbac-col__err">' + escHtml(pick({ fr: 'Mot refusé', en: 'Word refused' })) + '</p>';
-          if (verifyWord) {
-            verifyHtml =
-              '<button type="button" class="opbac-col__verify" data-verify-cat="' + escHtml(catKey) + '" ' +
-                'data-verify-word="' + escHtml(verifyWord) + '">' +
-                escHtml(pick({ fr: 'Vérifier ?', en: 'Verify?' })) +
-              '</button>';
-          }
+        var errTxt = String(rej.msg || '').trim();
+        if (!errTxt) {
+          errTxt = rej.verifying
+            ? pick({
+              fr: 'Proposition envoyée – un opérateur examinera votre mot.',
+              en: 'Proposal sent – an operator will review your word.',
+            })
+            : pick({ fr: 'Mot refusé', en: 'Word refused' });
+        }
+        errHtml = '<p class="opbac-col__err">' + escHtml(errTxt) + '</p>';
+        var skipVerify = rej.verifying
+          || /^(exists|excluded|already_used|already_round|multi_word|revoked)$/i.test(rej.reason || '');
+        if (verifyWord && !skipVerify) {
+          verifyHtml =
+            '<button type="button" class="opbac-col__verify" data-verify-cat="' + escHtml(catKey) + '" ' +
+              'data-verify-word="' + escHtml(verifyWord) + '">' +
+              escHtml(pick({ fr: 'Vérifier ?', en: 'Verify?' })) +
+            '</button>';
         }
       }
       var infoHtml = (rej && rej.suggestInfo && verifyWord && !ok && !rej.verifying)
