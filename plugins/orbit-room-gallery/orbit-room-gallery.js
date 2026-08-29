@@ -417,9 +417,11 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       .rg__stat .rg__ico{display:block}
       .rg__seg-txt{display:none}
       .rg__seg-ico{display:inline-flex}
-      .rg__seg{padding:.34rem .42rem;min-width:34px}
-      .rg__meta{gap:.4rem;flex-wrap:nowrap}
-      .rg__stat{gap:.22rem}
+      .rg__seg{display:inline-flex;padding:.34rem .2rem;min-width:0;flex:1;justify-content:center}
+      .rg__meta{width:100%;gap:0;flex-wrap:nowrap;justify-content:space-between}
+      .rg__seggroup{display:contents}
+      .rg__seggroup.push{margin-left:0}
+      .rg__stat{gap:.22rem;flex:1;justify-content:center;min-width:0}
       .rg__pager{gap:.4rem}
       .rg__pagelbl{display:none}
       .rg__pagebtn{min-width:42px;width:42px;height:42px;padding:0;font-size:1.35rem}
