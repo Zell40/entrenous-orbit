@@ -373,7 +373,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__stat{display:inline-flex;align-items:center;gap:.32rem;font-weight:600}
     .rg__ico{flex:none;display:none}
     .rg__seg-ico{display:none;align-items:center;justify-content:center;line-height:1}
-    .rg__dot{width:7px;height:7px;border-radius:50%;background:var(--online,#1fd189);display:inline-block}
+    .rg__dot{width:7px;height:7px;border-radius:50%;background:var(--online,#1fd189);display:inline-block;flex:none}
     .rg__seggroup{display:inline-flex;gap:2px;background:var(--bg-soft,#0e0e12);border-radius:9px;padding:2px}
     .rg__seggroup.push{margin-left:auto}
     .rg__seg{border:0;background:none;color:var(--muted,#9aa);font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .6rem;border-radius:7px;cursor:pointer;line-height:1}
@@ -492,9 +492,6 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   function IcoHash() {
     return html`<svg class="rg__ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9h16M4 15h16M10 4 8 20M16 4l-2 16" /></svg>`;
-  }
-  function IcoUsers() {
-    return html`<svg class="rg__ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>`;
   }
 
   // Shrink the search field's font until the placeholder fits on one line
@@ -633,8 +630,11 @@ Orbit.plugin('room-gallery', (orbit, log) => {
           <span>${channels.length}</span>
           <span class="rg__stat-lbl">${t('modals.join.rooms')}</span>
         </span>
-        <span class="rg__stat" title=${`${totalUsers} ${t('modals.join.online')}`}>
-          <${IcoUsers} />
+        <span class="rg__stat" title=${orbit.i18n.pick({
+          fr: `${totalUsers} utilisateur${totalUsers > 1 ? 's' : ''} en ligne`,
+          en: `${totalUsers} user${totalUsers > 1 ? 's' : ''} online`,
+        })}>
+          <span class="rg__dot" aria-hidden="true"></span>
           <span>${totalUsers}</span>
           <span class="rg__stat-lbl">${t('modals.join.online')}</span>
         </span>
