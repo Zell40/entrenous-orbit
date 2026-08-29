@@ -3,7 +3,7 @@
  * les salons" window: same search/sort/join/create-channel behaviour, plus a
  * grid view and a channel founder's picture on each tile/row. The founder
  * sets that picture from "Gérer mon chan" → Aperçu, just below "Accès & mot
- * de passe" — always restricted to +q, same as every other control there.
+ * de passe" — founders (+q / ~) and channel admins (+a / &).
  * Once set, that same picture also replaces the default "#" tile in the
  * channel's topic banner and in its row in the sidebar's list of open rooms —
  * see syncChannelPictures() near the bottom. The topbar keeps the classic "#"
@@ -73,11 +73,10 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   // Sibling PHP in this same deployed folder (Orbit base is /app/).
   const ROOM_IMAGES_ENDPOINT = '/app/plugins/third/orbit-room-gallery/room-images.php';
-  // Display prefix for "channel founder" on most networks (UnrealIRCd,
-  // Anope/Atheme default config) — used only to decide whether to *show* the
-  // picture button; the real authorization check happens server-side against
-  // the EXTJWT's signed `cmodes` claim, not this.
-  const FOUNDER_PREFIX = '~';
+  // Display prefixes for founder (~ / +q) and channel-admin (& / +a). Used
+  // only to decide whether to *show* the picture picker; the real write
+  // check happens server-side against the EXTJWT `cmodes` claim.
+  const MANAGE_PREFIXES = '~&';
   const MAX_BYTES = 8 * 1024 * 1024; // client-side courtesy cap; the uploader has its own limit too
 
   function hashHue(seed) { let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360; return h; }
@@ -85,11 +84,14 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   function stripMirc(s) {
     return (s || '').replace(/\x03(\d{1,2}(,\d{1,2})?)?/g, '').replace(/[\x02\x1D\x1F\x16\x0F]/g, '');
   }
-  function amFounder(chan) {
+  function canManageRoomPic(chan) {
     const st = orbit.state.get();
     const m = st.buffers[chan] && st.buffers[chan].members[st.nick];
     const pfx = (m && (m.prefixes || m.prefix)) || '';
-    return pfx.indexOf(FOUNDER_PREFIX) !== -1;
+    for (let i = 0; i < MANAGE_PREFIXES.length; i++) {
+      if (pfx.indexOf(MANAGE_PREFIXES[i]) !== -1) return true;
+    }
+    return false;
   }
 
   // ---- shared, lazily-loaded "channel -> image url" map (from the endpoint) ----
@@ -280,7 +282,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const table = {
       extjwt_unsupported: { fr: "Ton serveur IRC ne supporte pas la vérification d'identité nécessaire (EXTJWT)", en: "Your IRC server doesn't support the identity check this needs (EXTJWT)" },
       no_such_channel: { fr: 'Salon introuvable', en: 'No such channel' },
-      not_founder: { fr: "Le serveur ne t'a pas reconnu comme fondateur de ce salon", en: "The server didn't recognize you as this channel's founder" },
+      not_founder: { fr: "Le serveur ne t'a pas reconnu comme fondateur ou admin de ce salon", en: "The server didn't recognize you as this channel's founder or admin" },
       channel_mismatch: { fr: 'Jeton invalide pour ce salon', en: 'Token not valid for this channel' },
       invalid_token: { fr: "Vérification d'identité invalide", en: 'Identity check invalid' },
       upload_failed: { fr: "L'envoi du fichier a échoué côté serveur", en: 'The file upload failed server-side' },
@@ -647,8 +649,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const hint = document.createElement('div');
     hint.className = 'rg-ca-pic__hint';
     hint.textContent = orbit.i18n.pick({
-      fr: 'Visible par tous dans Explorer les salons — réservé au fondateur (+q).',
-      en: 'Shown to everyone in Explore rooms — founder (+q) only.',
+      fr: 'Visible par tous dans Explorer les salons — fondateur (+q) et admin (+a).',
+      en: 'Shown to everyone in Explore rooms — founder (+q) and admin (+a).',
     });
     row.appendChild(hint);
 
@@ -752,8 +754,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   function syncAdminPicSection(chanAdminOpen) {
     const active = orbit.state.active();
-    const founder = chanAdminOpen && !!active && (active[0] === '#' || active[0] === '&') && amFounder(active);
-    if (!founder) { teardownPicSection(); return; }
+    const canManage = chanAdminOpen && !!active && (active[0] === '#' || active[0] === '&') && canManageRoomPic(active);
+    if (!canManage) { teardownPicSection(); return; }
     const accessSec = findAccessSection();
     if (!accessSec) { teardownPicSection(); return; } // e.g. a different tab is active
     if (picSection && picSection.isConnected && picSection.previousElementSibling === accessSec) return; // already in place

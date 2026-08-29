@@ -28,10 +28,11 @@
  *      a sibling room-images.local.php instead of editing this file directly,
  *      since deploy.sh overwrites this file on every deploy (see the
  *      $__room_images_local block below).
- *   3. Set $FOUNDER_CMODE to your network's founder channel-mode LETTER
- *      (not the display prefix!) — check ISUPPORT's PREFIX token, e.g.
- *      "PREFIX=(qaohv)~&@%+" means the letter for the "~" founder prefix is
- *      the first letter, here 'q'.
+ *   3. Set $FOUNDER_CMODE / $ADMIN_CMODE to your network's founder and
+ *      channel-admin mode LETTERS (not the display prefixes!) — check
+ *      ISUPPORT's PREFIX token, e.g. "PREFIX=(qaohv)~&@%+" means "~" is
+ *      'q' (founder) and "&" is 'a' (admin). Both may add / change / remove
+ *      a room picture.
  *   4. Point the plugin's ROOM_IMAGES_ENDPOINT constant at this file's URL.
  *   5. Make sure PHP can create the `room-images-uploads/` directory next to
  *      this file (same permissions as for room-images.json), and that your
@@ -52,7 +53,8 @@
  */
 
 $EXTJWT_SECRET   = 'CHANGE_ME';   // must match your ircd's extjwt {} secret
-$FOUNDER_CMODE   = 'q';           // founder mode LETTER (see PREFIX in ISUPPORT)
+$FOUNDER_CMODE   = 'q';           // founder mode LETTER (PREFIX "~" on Unreal/Insp)
+$ADMIN_CMODE     = 'a';           // channel-admin LETTER (PREFIX "&") — same write rights as founder
 $MAX_URL_LEN     = 500;
 $UPLOAD_DIR      = __DIR__ . '/room-images-uploads';
 // The channel→url map used to live at WEBROOT/room-images.json. That path is
@@ -110,6 +112,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204);
 // picture looked "saved" (the POST succeeds) but never showed up anywhere.
 // Canonicalize to lowercase on every read/write so this can't happen.
 function canon_channel(string $c): string { return strtolower($c); }
+
+/** Normalize EXTJWT `cmodes` (array of letters, or a packed string like "qa"). */
+function extjwt_cmodes($raw): array {
+  if (is_string($raw)) {
+    return preg_split('//u', ltrim($raw, '+'), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+  }
+  if (!is_array($raw)) return [];
+  $out = [];
+  foreach ($raw as $m) {
+    $m = ltrim(trim((string)$m), '+');
+    if ($m !== '') $out[] = $m;
+  }
+  return $out;
+}
+
+function can_write_room_image(array $cmodes): bool {
+  global $FOUNDER_CMODE, $ADMIN_CMODE;
+  foreach ([$FOUNDER_CMODE, $ADMIN_CMODE] as $letter) {
+    $letter = trim((string)$letter);
+    if ($letter !== '' && in_array($letter, $cmodes, true)) return true;
+  }
+  return false;
+}
 
 // Auto-detects "scheme://host" from the request, same rationale as
 // filehost-upload.php: the URL handed back to the plugin is later reused
@@ -248,8 +273,8 @@ if ($method === 'POST') {
   if (strcasecmp((string)($claims['channel'] ?? ''), $channel) !== 0) {
     http_response_code(403); echo json_encode(['error' => 'channel_mismatch']); exit;
   }
-  $cmodes = is_array($claims['cmodes'] ?? null) ? $claims['cmodes'] : [];
-  if (!in_array($FOUNDER_CMODE, $cmodes, true)) {
+  $cmodes = extjwt_cmodes($claims['cmodes'] ?? null);
+  if (!can_write_room_image($cmodes)) {
     http_response_code(403); echo json_encode(['error' => 'not_founder']); exit;
   }
 
