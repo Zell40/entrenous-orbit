@@ -187,6 +187,16 @@
     return /^[#&+!]/.test(name || '');
   }
 
+  /** Status / notice inboxes are local buffers (`$server`, `$notice:Nick`), not IRC nicks. */
+  function isPseudoBuffer(name) {
+    var n = String(name || '');
+    return n.charAt(0) === '$' || n === 'Status';
+  }
+
+  function isQueryPeer(name) {
+    return !!(name && !isChannelName(name) && !isPseudoBuffer(name));
+  }
+
   function myUmodes(orbit) {
     try {
       var st = orbit.state.get();
@@ -336,7 +346,7 @@
 
   function probePeer(orbit, nick) {
     var key = pendingKey(nick);
-    if (!key || isChannelName(nick) || nick === 'Status') return;
+    if (!key || !isQueryPeer(nick)) return;
     if (peers.loading[key]) return;
     peers.loading[key] = true;
     requestWhois(orbit, nick);
@@ -554,7 +564,7 @@
     orbit.irc.msg = function (target, text) {
       var t = String(target || '').trim();
       var body = String(text || '');
-      if (t && body && !isChannelName(t)) outboundText[pendingKey(t)] = body;
+      if (t && body && isQueryPeer(t)) outboundText[pendingKey(t)] = body;
       return orig(target, text);
     };
     orbit.irc.__ocidHooked = true;
@@ -1015,7 +1025,7 @@
     );
 
     useEffect(function () {
-      if (!active || isChannelName(active) || active === 'Status') return;
+      if (!isQueryPeer(active)) return;
       probePeer(orbit, active);
     }, [active]);
 
@@ -1051,7 +1061,7 @@
       }
     }
 
-    if (active && !isChannelName(active) && active !== 'Status') {
+    if (isQueryPeer(active)) {
       var wait = getOutgoing(active);
       var peer = getPeer(active);
       // Never tell the requester this is « contrôle parental » — that would expose
@@ -1414,21 +1424,26 @@
       setParental(false);
       setCallerid(false);
       closeListView();
-      requestWhois(orbit);
-      try { orbit.irc.send('MODE ' + (orbit.state.nick() || '')); } catch (e) { /* ignore */ }
+      var me = orbit.state.nick();
+      if (me) {
+        requestWhois(orbit, me);
+        try { orbit.irc.send('MODE ' + me); } catch (e) { /* ignore */ }
+      }
       // +g alone → callerid only. Full mode package → parental.
       if (hasParentalModePackage(orbit)) activateParental(orbit, log, 'paquet-modes');
       else if (hasModeG(orbit)) activateCallerid(orbit, log, 'umodes');
       else window.setTimeout(function () { applyVoluntaryCallerid(orbit, log); }, 600);
     }
 
-    boot();
+    try {
+      if (orbit.state.get().status === 'registered') boot();
+    } catch (e) { /* ignore */ }
     orbit.on('connected', boot);
     hookOutboundCapture(orbit);
 
     orbit.on('buffer.active', function (name) {
       if (listView.open) closeListView();
-      if (name && !isChannelName(name) && name !== 'Status') probePeer(orbit, name);
+      if (isQueryPeer(name)) probePeer(orbit, name);
     });
 
     orbit.on('raw', function (msg) {
