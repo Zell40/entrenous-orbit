@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 75;
+  var PBAC_VER = 76;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -356,13 +356,17 @@
         unsub = orbit.on('raw', function (msg) {
           var cmd = String(msg.command || '').toUpperCase();
           if (cmd !== 'NOTICE') return;
-          var text = (msg.params && msg.params[1]) || '';
+          var text = (msg.params && msg.params[1])
+            || (msg.args && msg.args[1])
+            || msg.trailing
+            || '';
+          text = String(text);
           if (/must be logged in|Identifie-toi|not (logged|identif|authentic)/i.test(text)
               && /FILEHOST|file hosting|fichiers/i.test(text)) {
             finish(new Error('not_identified'));
             return;
           }
-          var tok = String(text).match(/[?&]token=([A-Za-z0-9._\-]+)/);
+          var tok = text.match(/[?&]token=([A-Za-z0-9._\-]+)/);
           if (tok) finish(null, tok[1]);
         });
       } catch (eOn) {
@@ -374,11 +378,135 @@
     });
   }
 
+  function guessImageType(file) {
+    var t = String((file && file.type) || '').toLowerCase();
+    if (t.indexOf('image/') === 0) return t;
+    var n = String((file && file.name) || '').toLowerCase();
+    if (/\.png$/i.test(n)) return 'image/png';
+    if (/\.gif$/i.test(n)) return 'image/gif';
+    if (/\.webp$/i.test(n)) return 'image/webp';
+    if (/\.(jpe?g|jfif)$/i.test(n)) return 'image/jpeg';
+    if (/\.(heic|heif)$/i.test(n)) return 'image/heic';
+    return '';
+  }
+
+  function isLikelyImageFile(file) {
+    return !!guessImageType(file) || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(String((file && file.name) || ''));
+  }
+
+  function makeNamedFile(bits, name, type) {
+    type = type || 'image/jpeg';
+    name = name || 'image.jpg';
+    try {
+      return new File(bits, name, { type: type });
+    } catch (eF) {
+      var blob = new Blob(bits, { type: type });
+      try { blob.name = name; } catch (eN) { /* ignore */ }
+      return blob;
+    }
+  }
+
+  function copyPickedFile(file) {
+    if (!file) return Promise.reject(new Error('no_file'));
+    var type = guessImageType(file) || 'image/jpeg';
+    var name = String(file.name || '').trim() || ('image.' + (type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : type === 'image/gif' ? 'gif' : 'jpg'));
+    if (typeof file.arrayBuffer === 'function') {
+      return file.arrayBuffer().then(function (buf) {
+        return makeNamedFile([buf], name, type);
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onerror = function () { reject(new Error('read_failed')); };
+      r.onload = function () {
+        resolve(makeNamedFile([r.result], name, type));
+      };
+      r.readAsArrayBuffer(file);
+    });
+  }
+
+  function transcodeToJpeg(file) {
+    var max = 1920;
+    function fromBitmap(bmp) {
+      var w = bmp.width;
+      var h = bmp.height;
+      if (w > max || h > max) {
+        var s = Math.min(max / w, max / h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('transcode');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) try { bmp.close(); } catch (eC) { /* ignore */ }
+      return new Promise(function (resolve, reject) {
+        canvas.toBlob(function (blob) {
+          if (!blob) { reject(new Error('transcode')); return; }
+          resolve(makeNamedFile([blob], 'image.jpg', 'image/jpeg'));
+        }, 'image/jpeg', 0.85);
+      });
+    }
+    if (typeof createImageBitmap === 'function') {
+      return createImageBitmap(file).then(fromBitmap);
+    }
+    return new Promise(function (resolve, reject) {
+      var url = '';
+      try { url = URL.createObjectURL(file); } catch (eU) { reject(new Error('transcode')); return; }
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth;
+        var h = img.naturalHeight;
+        if (w > max || h > max) {
+          var s = Math.min(max / w, max / h);
+          w = Math.round(w * s);
+          h = Math.round(h * s);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        try { URL.revokeObjectURL(url); } catch (eR) { /* ignore */ }
+        if (!ctx) { reject(new Error('transcode')); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(function (blob) {
+          if (!blob) { reject(new Error('transcode')); return; }
+          resolve(makeNamedFile([blob], 'image.jpg', 'image/jpeg'));
+        }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () {
+        try { URL.revokeObjectURL(url); } catch (eR2) { /* ignore */ }
+        reject(new Error('invalid_type'));
+      };
+      img.src = url;
+    });
+  }
+
+  function prepareFeedbackImage(file) {
+    return copyPickedFile(file).then(function (copied) {
+      var t = String(copied.type || '').toLowerCase();
+      var ok = t === 'image/jpeg' || t === 'image/png' || t === 'image/gif' || t === 'image/webp';
+      var needsJpeg = !ok || t === 'image/heic' || t === 'image/heif' || copied.size > 5 * 1024 * 1024;
+      if (!needsJpeg) return copied;
+      return transcodeToJpeg(copied).catch(function () {
+        if (ok) return copied;
+        throw new Error('invalid_type');
+      });
+    });
+  }
+
   function postFilehostFile(token, file) {
     var underApp = typeof location !== 'undefined' && String(location.pathname || '').indexOf('/app') === 0;
     var path = underApp ? '/app/upload' : '/upload';
-    var fd = new FormData();
-    fd.append('file', file);
+    var fname = String((file && file.name) || 'image.jpg');
+    function makeFd() {
+      var fd = new FormData();
+      fd.append('file', file, fname);
+      fd.append('ttl_hours', '24');
+      return fd;
+    }
     function parseRes(res) {
       if (!res.ok) {
         return res.json().then(function (j) {
@@ -387,10 +515,10 @@
       }
       return res.json();
     }
-    return fetch(path + '?token=' + encodeURIComponent(token), { method: 'POST', body: fd })
+    return fetch(path + '?token=' + encodeURIComponent(token), { method: 'POST', body: makeFd() })
       .then(function (res) {
         if (res.status === 404 && path.indexOf('/app/') === 0) {
-          return fetch('/upload?token=' + encodeURIComponent(token), { method: 'POST', body: fd }).then(parseRes);
+          return fetch('/upload?token=' + encodeURIComponent(token), { method: 'POST', body: makeFd() }).then(parseRes);
         }
         return parseRes(res);
       })
@@ -2408,9 +2536,10 @@
       '.opbac-fb-form__status--err{color:#b91c1c}',
       '.opbac-fb-form__status--ok{color:#15803d}',
       '.opbac-fb-form__attach{display:flex;flex-direction:column;align-items:flex-start;gap:.35rem}',
-      '.opbac-fb-form__attach-btn{display:inline-flex;align-items:center;gap:.35rem;border:1px dashed color-mix(in srgb,#6366f1 35%,var(--border,#ddd));background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));color:var(--ink,#222);border-radius:10px;padding:.38rem .7rem;font-size:.78rem;font-weight:800;cursor:pointer}',
+      '.opbac-fb-form__attach-btn{position:relative;display:inline-flex;align-items:center;gap:.35rem;border:1px dashed color-mix(in srgb,#6366f1 35%,var(--border,#ddd));background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));color:var(--ink,#222);border-radius:10px;padding:.38rem .7rem;font-size:.78rem;font-weight:800;cursor:pointer}',
       '.opbac-fb-form__attach-btn:hover{border-color:#6366f1}',
-      '.opbac-fb-form__attach-btn:disabled{opacity:.55;cursor:not-allowed}',
+      '.opbac-fb-form__attach-btn input[type=file]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px}',
+      '.opbac-fb-form__attach-btn--off{opacity:.55;pointer-events:none}',
       '.opbac-fb-form__note{margin:0;font-size:.72rem;font-weight:600;color:var(--muted,#666);line-height:1.35}',
       '.opbac-fb-thumbs{display:flex;flex-wrap:wrap;gap:.35rem}',
       '.opbac-fb-thumb{position:relative;width:4.4rem;height:4.4rem;border-radius:10px;overflow:hidden;border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:#0f172a}',
@@ -4555,7 +4684,9 @@
           '" aria-label="' + escHtml(pick({ fr: 'Retirer', en: 'Remove' })) + '">×</button></div>';
     }).join('');
     var attachBtn = overlay.querySelector('[data-act="fb-attach"]');
-    if (attachBtn) attachBtn.disabled = list.length >= FB_IMAGE_MAX;
+    if (attachBtn) attachBtn.classList.toggle('opbac-fb-form__attach-btn--off', list.length >= FB_IMAGE_MAX);
+    var fileInp = overlay.querySelector('[data-opbac-fb-file]');
+    if (fileInp) fileInp.disabled = list.length >= FB_IMAGE_MAX;
   }
 
   function addFeedbackImage(orbit, overlay, file) {
@@ -4565,7 +4696,7 @@
       setFeedbackStatus(pick({ fr: 'Maximum 3 images.', en: 'Maximum 3 images.' }), true);
       return;
     }
-    if (!String(file.type || '').startsWith('image/')) {
+    if (!isLikelyImageFile(file)) {
       setFeedbackStatus(pick({ fr: 'Seules les images sont acceptées.', en: 'Only images are accepted.' }), true);
       return;
     }
@@ -4586,25 +4717,34 @@
     overlay.__opbacFbImages = list;
     renderFbThumbs(overlay);
     setFeedbackStatus(pick({ fr: 'Envoi de l’image…', en: 'Uploading image…' }), false);
-    uploadFeedbackImage(orbit, file).then(function (url) {
+    prepareFeedbackImage(file).then(function (ready) {
+      if (ready.size > FB_IMAGE_BYTES) throw new Error('too_large');
+      return uploadFeedbackImage(orbit, ready);
+    }).then(function (url) {
       item.url = url;
       item.uploading = false;
       renderFbThumbs(overlay);
       setFeedbackStatus('', false);
     }).catch(function (err) {
-      var msg = String((err && err.message) || err || '');
-      var code = msg === 'not_identified' || msg === 'timeout' ? msg : 'upload';
+      var msg = String((err && err.message) || err || '').toLowerCase();
       var idx = list.indexOf(item);
       if (idx >= 0) list.splice(idx, 1);
       if (item.preview) try { URL.revokeObjectURL(item.preview); } catch (eR) { /* ignore */ }
       renderFbThumbs(overlay);
-      if (code === 'not_identified') {
+      if (msg === 'not_identified') {
         setFeedbackStatus(pick({
           fr: 'Connecte-toi avec ton compte pour joindre une image.',
           en: 'Sign in with your account to attach an image.',
         }), true);
-      } else if (code === 'timeout') {
+      } else if (msg === 'timeout') {
         setFeedbackStatus(pick({ fr: 'Délai dépassé pour l’image.', en: 'Image upload timed out.' }), true);
+      } else if (msg.indexOf('too_large') >= 0 || msg.indexOf('413') >= 0) {
+        setFeedbackStatus(pick({ fr: 'Image trop lourde (16 Mo max).', en: 'Image too large (16 MB max).' }), true);
+      } else if (msg.indexOf('invalid_type') >= 0 || msg.indexOf('415') >= 0) {
+        setFeedbackStatus(pick({
+          fr: 'Format non lu (HEIC/autre). Choisis une photo JPG ou PNG, ou « Capture d’écran ».',
+          en: 'Format not supported (HEIC/other). Pick a JPG or PNG, or a screenshot.',
+        }), true);
       } else {
         setFeedbackStatus(pick({ fr: 'Impossible d’envoyer l’image.', en: 'Could not upload the image.' }), true);
       }
@@ -4703,12 +4843,13 @@
     var canAttach = isOrbitAccount(orbit);
     var attachHtml = canAttach
       ? ('<div class="opbac-fb-form__attach">' +
-          '<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden data-opbac-fb-file>' +
-          '<button type="button" class="opbac-fb-form__attach-btn" data-act="fb-attach">📎 ' +
-            escHtml(pick({ fr: 'Joindre une image', en: 'Attach an image' })) + '</button>' +
+          '<label class="opbac-fb-form__attach-btn" data-act="fb-attach">' +
+            '<input type="file" accept="image/*" data-opbac-fb-file>' +
+            '📎 ' + escHtml(pick({ fr: 'Joindre une image', en: 'Attach an image' })) +
+          '</label>' +
           '<p class="opbac-fb-form__note">' + escHtml(pick({
-            fr: 'Jusqu’à 3 images (jpg, png, gif, webp). Elles sont envoyées via Orbit, comme dans le tchat.',
-            en: 'Up to 3 images (jpg, png, gif, webp). They use Orbit’s upload, like in chat.',
+            fr: 'Jusqu’à 3 images (jpg, png, gif, webp). Sur téléphone, préfère une capture d’écran ou une photo enregistrée en JPG.',
+            en: 'Up to 3 images (jpg, png, gif, webp). On a phone, prefer a screenshot or a JPG photo.',
           })) + '</p>' +
           '<div class="opbac-fb-thumbs" data-opbac-fb-thumbs></div>' +
         '</div>')
@@ -4744,11 +4885,7 @@
       var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-overlay"]') : null;
       if (closeBtn) closeOverlayModal('feedback');
       var attachBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="fb-attach"]') : null;
-      if (attachBtn) {
-        var fileInp = overlay.querySelector('[data-opbac-fb-file]');
-        if (fileInp) fileInp.click();
-        return;
-      }
+      if (attachBtn) return;
       var rm = ev.target && ev.target.closest ? ev.target.closest('[data-act="fb-img-del"]') : null;
       if (rm) {
         var idx = Number(rm.getAttribute('data-i'));
@@ -4764,9 +4901,14 @@
     if (fileInpBind) {
       fileInpBind.addEventListener('change', function () {
         var file = fileInpBind.files && fileInpBind.files[0];
-        fileInpBind.value = '';
         if (!file) return;
-        addFeedbackImage(orbit, overlay, file);
+        copyPickedFile(file).then(function (copied) {
+          try { fileInpBind.value = ''; } catch (eClr) { /* ignore */ }
+          addFeedbackImage(orbit, overlay, copied);
+        }).catch(function () {
+          try { fileInpBind.value = ''; } catch (eClr2) { /* ignore */ }
+          setFeedbackStatus(pick({ fr: 'Impossible de lire l’image.', en: 'Could not read the image.' }), true);
+        });
       });
     }
     overlay.addEventListener('submit', function (ev) {
