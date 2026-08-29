@@ -59,7 +59,14 @@
  * `FILEHOST` command, which most ircds don't have, so it just times out.
  *
  * Configure in config.json:
+ *   "roomGallery": { "writers": ["Founder", "Admin"] }
  *   "plugins": ["/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js"]
+ *
+ * `writers` lists who may add / change / remove a room picture. Any of these
+ * forms work (they all mean founder + admin): "qa", "~&", "Founder, Admin",
+ * ["Founder","Admin"], ["q","a"]. Roles: Founder, Admin, Op, HalfOp, Voice
+ * (letters qaohv / prefixes ~&@%+). Default: Founder + Admin. The PHP
+ * endpoint reads the same key.
  *
  * And deploy this folder's room-images.php next to the JS (see README).
  * Until the PHP is reachable, the gallery still works (grid/list browsing),
@@ -73,11 +80,62 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   // Sibling PHP in this same deployed folder (Orbit base is /app/).
   const ROOM_IMAGES_ENDPOINT = '/app/plugins/third/orbit-room-gallery/room-images.php';
-  // Display prefixes for founder (~ / +q) and channel-admin (& / +a). Used
-  // only to decide whether to *show* the picture picker; the real write
-  // check happens server-side against the EXTJWT `cmodes` claim.
-  const MANAGE_PREFIXES = '~&';
   const MAX_BYTES = 8 * 1024 * 1024; // client-side courtesy cap; the uploader has its own limit too
+  // PREFIX=(qaohv)~&@%+ — names, letters and prefixes all collapse to a letter.
+  const WRITER_ROLES = {
+    founder: 'q', q: 'q', '~': 'q',
+    admin: 'a', a: 'a', '&': 'a',
+    op: 'o', operator: 'o', o: 'o', '@': 'o',
+    halfop: 'h', 'half-op': 'h', hop: 'h', h: 'h', '%': 'h',
+    voice: 'v', v: 'v', '+': 'v',
+  };
+  const WRITER_PREFIX = { q: '~', a: '&', o: '@', h: '%', v: '+' };
+  const WRITER_LABEL = {
+    q: { fr: 'fondateur (+q)', en: 'founder (+q)' },
+    a: { fr: 'admin (+a)', en: 'admin (+a)' },
+    o: { fr: 'opérateur (+o)', en: 'op (+o)' },
+    h: { fr: 'half-op (+h)', en: 'half-op (+h)' },
+    v: { fr: 'voice (+v)', en: 'voice (+v)' },
+  };
+
+  function tokenizeWriters(item) {
+    const s = String(item || '').trim();
+    if (!s) return [];
+    if (/[,;\s]/.test(s)) return s.split(/[,;\s]+/).filter(Boolean).flatMap(tokenizeWriters);
+    const key = s.toLowerCase();
+    if (WRITER_ROLES[key]) return [key];
+    return Array.from(s);
+  }
+  function parseWriters(raw) {
+    const tokens = Array.isArray(raw) ? raw.flatMap(tokenizeWriters) : tokenizeWriters(raw);
+    const letters = [];
+    const seen = Object.create(null);
+    for (const t of tokens) {
+      const key = String(t).toLowerCase();
+      const letter = WRITER_ROLES[key];
+      if (!letter || seen[letter]) continue;
+      seen[letter] = true;
+      letters.push(letter);
+    }
+    return letters.length ? letters : ['q', 'a'];
+  }
+  function galleryWriters() {
+    const c = (orbit.config() && orbit.config().roomGallery) || {};
+    if (c.writers != null && c.writers !== '') return parseWriters(c.writers);
+    if (c.adminCanEdit === false) return ['q'];
+    return ['q', 'a'];
+  }
+  function managePrefixes() {
+    return galleryWriters().map((l) => WRITER_PREFIX[l]).join('');
+  }
+  function writersHint() {
+    const names = galleryWriters().map((l) => WRITER_LABEL[l] && orbit.i18n.pick(WRITER_LABEL[l])).filter(Boolean);
+    const list = names.join(', ');
+    return orbit.i18n.pick({
+      fr: `Visible par tous dans Explorer les salons — ${list}.`,
+      en: `Shown to everyone in Explore rooms — ${list}.`,
+    });
+  }
 
   function hashHue(seed) { let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360; return h; }
   function avatarBg(seed) { const h = hashHue(seed); return `linear-gradient(140deg, hsl(${h},62%,55%), hsl(${(h + 40) % 360},58%,46%))`; }
@@ -88,8 +146,9 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const st = orbit.state.get();
     const m = st.buffers[chan] && st.buffers[chan].members[st.nick];
     const pfx = (m && (m.prefixes || m.prefix)) || '';
-    for (let i = 0; i < MANAGE_PREFIXES.length; i++) {
-      if (pfx.indexOf(MANAGE_PREFIXES[i]) !== -1) return true;
+    const allowed = managePrefixes();
+    for (let i = 0; i < allowed.length; i++) {
+      if (pfx.indexOf(allowed[i]) !== -1) return true;
     }
     return false;
   }
@@ -648,10 +707,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
     const hint = document.createElement('div');
     hint.className = 'rg-ca-pic__hint';
-    hint.textContent = orbit.i18n.pick({
-      fr: 'Visible par tous dans Explorer les salons — fondateur (+q) et admin (+a).',
-      en: 'Shown to everyone in Explore rooms — founder (+q) and admin (+a).',
-    });
+    hint.textContent = writersHint();
     row.appendChild(hint);
 
     const fileInput = document.createElement('input');

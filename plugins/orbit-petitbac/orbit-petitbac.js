@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 76;
+  var PBAC_VER = 77;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -14,6 +14,7 @@
   var STORAGE_LIVE_OPEN = 'opbacLiveOpen';
   var STORAGE_SKIP_RULES = 'opbacSkipRules';
   var STORAGE_TOUR_DONE = 'opbacTourDone';
+  var STORAGE_EXTRA_MODES = 'opbacExtraModes';
   var PANEL_HEIGHT_MIN = 220;
   var PANEL_HEIGHT_MAX = 1200;
   var CHAT_RESERVE_MIN = 120; /* topic + composer at least */
@@ -121,6 +122,28 @@
 
   function isBacBotPresent(orbit, bufferKey) {
     return bacBotPresence(orbit, bufferKey) === 'present';
+  }
+
+  function canTalkToBac(orbit, bufferKey) {
+    return bacBotPresence(orbit, bufferKey) !== 'absent';
+  }
+
+  function loadCachedExtraModes(orbit) {
+    try {
+      var raw = orbit && orbit.storage ? orbit.storage.get(STORAGE_EXTRA_MODES, '') : '';
+      var arr = typeof raw === 'string' && raw ? JSON.parse(raw) : raw;
+      if (!Array.isArray(arr) || !arr.length) return;
+      extraModes = arr.filter(function (m) {
+        return m && m.id && !isBuiltinMode(m.id);
+      });
+      extraModesTick++;
+    } catch (eLoad) { /* ignore */ }
+  }
+
+  function saveCachedExtraModes(orbit) {
+    try {
+      if (orbit && orbit.storage) orbit.storage.set(STORAGE_EXTRA_MODES, JSON.stringify(extraModes || []));
+    } catch (eSave) { /* ignore */ }
   }
 
   function resolveChannelName(orbit, keyOrName) {
@@ -3958,10 +3981,16 @@
 
   function requestModeList(orbit, buffer, force) {
     if (!orbit || !buffer) return;
+    if (!canTalkToBac(orbit, buffer)) return;
     var now = Date.now();
+    if (!force && extraModes.length && now - listeAt < 45000) return;
     if (!force && now - listeAt < 8000) return;
     listeAt = now;
     waitingListe = true;
+    if (!extraModes.length) {
+      extraModesTick++;
+      bumpStore();
+    }
     sendPbCmd(orbit, buffer, 'jeu', 'liste');
   }
 
@@ -4321,7 +4350,6 @@
   function handleModeListLine(body) {
     if (/Modes disponibles/i.test(body)) {
       waitingListe = true;
-      extraModes = [];
       extraModesTick++;
       bumpStore();
       return true;
@@ -4340,6 +4368,7 @@
       if (/Tapez !jeu|sélectionner un mode/i.test(body)) {
         waitingListe = false;
         extraModesTick++;
+        saveCachedExtraModes(pluginOrbit);
         bumpStore();
         refreshPlayMenuCustom();
         return true;
@@ -4364,23 +4393,25 @@
 
   function applyModesList(tags) {
     waitingListe = false;
-    extraModes = [];
+    var next = [];
     String(tagVal(tags, '+modes') || '').split(',').forEach(function (chunk) {
       var p = String(chunk || '').split(':');
       if (p.length < 4) return;
-      var id = sanitizeModeId(p[0]);
-      var locked = p[4] === '1';
-      if (locked || isBuiltinMode(id)) return;
-      extraModes.push({
+      var rawId = String(p[0] || '').trim();
+      var id = sanitizeModeId(rawId);
+      if (!rawId || isBuiltinMode(rawId) || isBuiltinMode(id)) return;
+      next.push({
         id: id,
-        label: p[0],
+        label: rawId,
         cats: Number(p[1]) || 0,
         duration: Number(p[2]) || 0,
         rounds: Number(p[3]) || 0,
         custom: true,
       });
     });
+    extraModes = next;
     extraModesTick++;
+    saveCachedExtraModes(pluginOrbit);
     bumpStore();
     refreshPlayMenuCustom();
   }
@@ -6323,7 +6354,7 @@
     if (rebuild) {
       var bodyHtml = '';
       if (isIdle) {
-        if (isBacBotPresent(orbit, buffer)) {
+        if (canTalkToBac(orbit, buffer)) {
           requestModeList(orbit, buffer);
           if (recapSheetOpen) requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
         }
@@ -6383,6 +6414,7 @@
       syncCollapsedCta(root, collapsedCta);
       var customsEl = root.querySelector('[data-opbac-customs]');
       if (customsEl && (isIdle || isEnd)) {
+        if (isIdle && canTalkToBac(orbit, buffer)) requestModeList(orbit, buffer);
         customsEl.innerHTML = buildCustomModesHtml(defaultReplayMode(game, root, orbit));
       }
       if (isIdle) updateReplayModeUi(root, replayMode);
@@ -6483,6 +6515,7 @@
 
   Orbit.plugin('orbit-petitbac', function (orbit, log) {
     pluginOrbit = orbit;
+    loadCachedExtraModes(orbit);
     injectStyles();
     console.info('[orbit-petitbac] loaded v' + PBAC_VER);
     if (orbit.requireVisualDisplay) {
@@ -6530,6 +6563,7 @@
       if (isBacChannel(orbit, buf)) {
         var g = getChannelState(buf) || defaultState();
         if (isGameRunning(g) && !hasPlayableGrid(g)) maybeRequestGameSync(orbit, buf, g);
+        if (!isGameRunning(g) || g.phase === 'game_end') requestModeList(orbit, buf);
       }
       syncDom();
     });

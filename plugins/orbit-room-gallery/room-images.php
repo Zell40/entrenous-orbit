@@ -28,11 +28,10 @@
  *      a sibling room-images.local.php instead of editing this file directly,
  *      since deploy.sh overwrites this file on every deploy (see the
  *      $__room_images_local block below).
- *   3. Set $FOUNDER_CMODE / $ADMIN_CMODE to your network's founder and
- *      channel-admin mode LETTERS (not the display prefixes!) — check
- *      ISUPPORT's PREFIX token, e.g. "PREFIX=(qaohv)~&@%+" means "~" is
- *      'q' (founder) and "&" is 'a' (admin). Both may add / change / remove
- *      a room picture.
+ *   3. Who may write is `roomGallery.writers` in Orbit's config.json
+ *      (Founder / Admin / Op / HalfOp / Voice, or letters qaohv, or
+ *      prefixes ~&@%+). $FOUNDER_CMODE / $ADMIN_CMODE are the mode LETTERS
+ *      for "~" and "&" (ISUPPORT PREFIX, e.g. qaohv → ~&@%+).
  *   4. Point the plugin's ROOM_IMAGES_ENDPOINT constant at this file's URL.
  *   5. Make sure PHP can create the `room-images-uploads/` directory next to
  *      this file (same permissions as for room-images.json), and that your
@@ -53,8 +52,9 @@
  */
 
 $EXTJWT_SECRET   = 'CHANGE_ME';   // must match your ircd's extjwt {} secret
-$FOUNDER_CMODE   = 'q';           // founder mode LETTER (PREFIX "~" on Unreal/Insp)
-$ADMIN_CMODE     = 'a';           // channel-admin LETTER (PREFIX "&") — same write rights as founder
+$FOUNDER_CMODE   = 'q';           // founder mode LETTER (PREFIX "~")
+$ADMIN_CMODE     = 'a';           // channel-admin LETTER (PREFIX "&")
+$ROOM_GALLERY_WRITERS = ['Founder', 'Admin']; // default; config.json roomGallery.writers wins
 $MAX_URL_LEN     = 500;
 $UPLOAD_DIR      = __DIR__ . '/room-images-uploads';
 // The channel→url map used to live at WEBROOT/room-images.json. That path is
@@ -96,6 +96,30 @@ if (is_file($__room_images_local)
   error_log('room-images: refusing to require room-images.local.php — it looks like a full script copy, not a secrets stub');
 }
 
+// Who may write a room picture: config.json `roomGallery.writers` (same file
+// Orbit serves). Accepts names (Founder, Admin, Op, HalfOp, Voice), letters
+// (qaohv) or prefixes (~&@%+). Legacy `adminCanEdit` still maps if `writers`
+// is absent.
+$__orbit_cfg_candidates = [
+  __DIR__ . '/../../../config.json',                 // deploy: WEBROOT/config.json
+  dirname(__DIR__, 2) . '/config/config.json',       // git: entrenous-orbit/config/config.json
+];
+foreach ($__orbit_cfg_candidates as $__orbit_cfg_path) {
+  if (!is_file($__orbit_cfg_path) || !is_readable($__orbit_cfg_path)) continue;
+  $__orbit_cfg = json_decode((string)file_get_contents($__orbit_cfg_path), true);
+  if (!is_array($__orbit_cfg)) break;
+  $__rg = $__orbit_cfg['roomGallery'] ?? null;
+  if (is_array($__rg)) {
+    if (array_key_exists('writers', $__rg)) {
+      $ROOM_GALLERY_WRITERS = $__rg['writers'];
+    } elseif (array_key_exists('adminCanEdit', $__rg)) {
+      $ROOM_GALLERY_WRITERS = !empty($__rg['adminCanEdit']) ? ['Founder', 'Admin'] : ['Founder'];
+    }
+  }
+  break;
+}
+unset($__orbit_cfg_candidates, $__orbit_cfg_path, $__orbit_cfg, $__rg);
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store'); // this map changes at any time; never let a browser/proxy serve a stale GET
 // Uncomment and adjust if Orbit's static build is served from a different
@@ -113,6 +137,55 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204);
 // Canonicalize to lowercase on every read/write so this can't happen.
 function canon_channel(string $c): string { return strtolower($c); }
 
+/** PREFIX=(qaohv)~&@%+ — names, letters and prefixes all collapse to a letter. */
+function room_image_role_map(): array {
+  global $FOUNDER_CMODE, $ADMIN_CMODE;
+  $q = trim((string)$FOUNDER_CMODE) !== '' ? trim((string)$FOUNDER_CMODE) : 'q';
+  $a = trim((string)$ADMIN_CMODE) !== '' ? trim((string)$ADMIN_CMODE) : 'a';
+  return [
+    'founder' => $q, 'q' => $q, '~' => $q,
+    'admin' => $a, 'a' => $a, '&' => $a,
+    'op' => 'o', 'operator' => 'o', 'o' => 'o', '@' => 'o',
+    'halfop' => 'h', 'half-op' => 'h', 'hop' => 'h', 'h' => 'h', '%' => 'h',
+    'voice' => 'v', 'v' => 'v', '+' => 'v',
+  ];
+}
+
+function tokenize_room_image_writer(string $s): array {
+  $s = trim($s);
+  if ($s === '') return [];
+  if (preg_match('/[,;\s]/', $s)) {
+    $out = [];
+    foreach (preg_split('/[,;\s]+/', $s, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $p) {
+      foreach (tokenize_room_image_writer($p) as $t) $out[] = $t;
+    }
+    return $out;
+  }
+  $map = room_image_role_map();
+  $low = strtolower($s);
+  if (isset($map[$low])) return [$low];
+  return preg_split('//u', $s, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+}
+
+function parse_room_image_writers($raw): array {
+  $map = room_image_role_map();
+  $tokens = [];
+  if (is_array($raw)) {
+    foreach ($raw as $item) {
+      foreach (tokenize_room_image_writer((string)$item) as $t) $tokens[] = $t;
+    }
+  } else {
+    foreach (tokenize_room_image_writer((string)$raw) as $t) $tokens[] = $t;
+  }
+  $letters = [];
+  foreach ($tokens as $t) {
+    $letter = $map[strtolower((string)$t)] ?? null;
+    if ($letter) $letters[$letter] = true;
+  }
+  $out = array_keys($letters);
+  return $out ?: ['q', 'a'];
+}
+
 /** Normalize EXTJWT `cmodes` (array of letters, or a packed string like "qa"). */
 function extjwt_cmodes($raw): array {
   if (is_string($raw)) {
@@ -128,9 +201,8 @@ function extjwt_cmodes($raw): array {
 }
 
 function can_write_room_image(array $cmodes): bool {
-  global $FOUNDER_CMODE, $ADMIN_CMODE;
-  foreach ([$FOUNDER_CMODE, $ADMIN_CMODE] as $letter) {
-    $letter = trim((string)$letter);
+  global $ROOM_GALLERY_WRITERS;
+  foreach (parse_room_image_writers($ROOM_GALLERY_WRITERS) as $letter) {
     if ($letter !== '' && in_array($letter, $cmodes, true)) return true;
   }
   return false;

@@ -73,6 +73,9 @@
     "retentionHours": 24,
     "retentionChoices": [1, 6, 24, 72]
   },
+  "roomGallery": {
+    "writers": ["Founder", "Admin"]
+  },
   "conference": {
     "server": "visio.entrenous.chat",
     "secure": true,
@@ -130,11 +133,11 @@
     "/app/plugins/third/orbit-copy.js",
     "/app/plugins/third/orbit-invite.js",
     "/app/plugins/third/orbit-navbar.js",
-    "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=22",
+    "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=24",
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=5",
     "/app/plugins/third/orbit-anope/orbit-anope.js?v=9",
     "/app/plugins/third/orbit-conference/orbit-conference.js?v=13",
-    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=76",
+    "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=77",
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=52",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=3",
     "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=17",
