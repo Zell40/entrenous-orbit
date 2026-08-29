@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=9"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=10"]
  */
 (function () {
   'use strict';
@@ -253,17 +253,10 @@
       } catch (e) { /* ignore */ }
       return false;
     }
-    function probeAccount() {
-      try {
-        var nick = orbit.state.nick();
-        if (nick) orbit.irc.send('WHOIS ' + nick);
-      } catch (e) { /* ignore */ }
-    }
     function pollIdentified() {
       if (!ui.enforce || ui.enforce.success) { stopIdentifyPoll(); return; }
       if (isNowIdentified()) { onIdentified(); return; }
       if (ui.enforce.deadline && Date.now() >= ui.enforce.deadline) markGuest();
-      probeAccount();
     }
     function startIdentifyPoll() {
       if (identifyPollTimer) return;

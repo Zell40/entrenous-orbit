@@ -23,7 +23,7 @@ scintillant reste à droite du pseudo (mode invité) ; un clic le rouvre.
 
 `anope:enforce` ouvre le popup **Identifie ton compte** : le délai affiché est
 lu dans la notice (1 minute, 20 secondes, … selon les réglages Anope), champ
-mot de passe, bouton Valider. Succès (`anope:identified`, numeric 900, ACCOUNT, WHOIS, ou mode +r) ferme le popup,
+mot de passe, bouton Valider. Succès (`anope:identified`, numeric 900, ACCOUNT, ou mode +r) ferme le popup,
 y compris si l’identification a été faite hors du formulaire (IRC, opérateur).
 Échec (`anope:denied`) affiche l’erreur sans le fermer.
 
@@ -47,7 +47,7 @@ Orbit.plugin('autre', function (orbit) {
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=9"]
+"plugins": ["/app/plugins/third/orbit-anope/orbit-anope.js?v=10"]
 ```
 
 `branding.registerUrl` alimente **Créer mon profil**. `features.register: false`
