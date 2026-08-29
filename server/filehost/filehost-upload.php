@@ -78,9 +78,11 @@ $RETENTION_MAX_HOURS = 168;                // hard cap (7 days) even if the clie
 $ALLOWED_UPLOAD_MIME = [
   // Images — Orbit's composer button accepts any `image/*`.
   'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
-  // Voice messages — whichever the browser's MediaRecorder produced (see
-  // src/components/chat/composer/useVoiceRecorder.ts).
-  'audio/webm' => 'webm', 'audio/ogg' => 'ogg', 'audio/mp4' => 'm4a',
+  // Voice messages — MediaRecorder often wraps Opus in a WebM *container*
+  // that libmagic reports as video/webm, and Safari uses mp4/aac.
+  'audio/webm' => 'webm', 'video/webm' => 'webm',
+  'audio/ogg' => 'ogg', 'application/ogg' => 'ogg',
+  'audio/mp4' => 'm4a', 'video/mp4' => 'm4a', 'audio/aac' => 'm4a', 'audio/x-m4a' => 'm4a',
 ];
 
 // deploy.sh always overwrites THIS file with the latest version from git on
@@ -202,7 +204,18 @@ if (function_exists('finfo_open')) {
   finfo_close($finfo);
 }
 $ext = $ALLOWED_UPLOAD_MIME[$mime] ?? null;
-if ($ext === null) { http_response_code(415); echo json_encode(['detail' => 'invalid_type']); exit; }
+if ($ext === null) {
+  // libmagic sometimes yields application/octet-stream; trust the client
+  // filename only for the voice extensions the recorder actually sends.
+  $orig = strtolower((string)($file['name'] ?? ''));
+  if (str_ends_with($orig, '.webm')) $ext = 'webm';
+  elseif (str_ends_with($orig, '.ogg')) $ext = 'ogg';
+  elseif (str_ends_with($orig, '.m4a') || str_ends_with($orig, '.mp4')) $ext = 'm4a';
+}
+if ($ext === null) {
+  error_log('filehost-upload: invalid_type mime=' . ($mime ?? 'null') . ' name=' . ($file['name'] ?? ''));
+  http_response_code(415); echo json_encode(['detail' => 'invalid_type']); exit;
+}
 
 $freshDir = !is_dir($UPLOAD_DIR);
 if ($freshDir && !mkdir($UPLOAD_DIR, 0755, true) && !is_dir($UPLOAD_DIR)) {
