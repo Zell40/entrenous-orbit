@@ -161,25 +161,34 @@ function unfurl_parse(string $html, string $fallbackUrl): array {
     ];
 }
 
+function unfurl_attr(string $tag, string $attr): ?string {
+    $a = preg_quote($attr, '/');
+    // Match the opening quote and read until the SAME quote — `[^"']*` used to
+    // stop at an apostrophe inside content="l'été", which truncated previews.
+    if (preg_match('/\b' . $a . '\s*=\s*"([^"]*)"/i', $tag, $m)
+        || preg_match('/\b' . $a . '\s*=\s*\'([^\']*)\'/i', $tag, $m)) {
+        $v = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return $v !== '' ? $v : null;
+    }
+    return null;
+}
+
 function unfurl_meta(string $html, array $names): ?string {
+    if (!preg_match_all('/<meta\b[^>]*>/is', $html, $tags)) {
+        return null;
+    }
+    $want = [];
     foreach ($names as $name) {
-        $q = preg_quote($name, '/');
-        $re = '/<meta\b[^>]*(?:property|name)\s*=\s*["\']' . $q . '["\'][^>]*>/is';
-        if (!preg_match($re, $html, $m)) {
-            $re = '/<meta\b[^>]*content\s*=\s*["\']([^"\']+)["\'][^>]*(?:property|name)\s*=\s*["\']' . $q . '["\'][^>]*>/is';
-            if (preg_match($re, $html, $m2)) {
-                $v = html_entity_decode(trim($m2[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                if ($v !== '') {
-                    return $v;
-                }
-            }
+        $want[strtolower($name)] = true;
+    }
+    foreach ($tags[0] as $tag) {
+        $prop = unfurl_attr($tag, 'property') ?? unfurl_attr($tag, 'name');
+        if ($prop === null || !isset($want[strtolower($prop)])) {
             continue;
         }
-        if (preg_match('/content\s*=\s*["\']([^"\']*)["\']/i', $m[0], $c)) {
-            $v = html_entity_decode(trim($c[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            if ($v !== '') {
-                return $v;
-            }
+        $v = unfurl_attr($tag, 'content');
+        if ($v !== null) {
+            return $v;
         }
     }
     return null;
