@@ -395,9 +395,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__tile-shade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 28%,rgba(0,0,0,.8));pointer-events:none}
     .rg__tile-foot{position:relative;display:flex;align-items:flex-end;justify-content:space-between;gap:.35rem;width:100%;box-sizing:border-box;padding:.45rem .5rem}
     .rg__tile-name{flex:1;min-width:0;font-weight:800;font-size:.85rem;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.7);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-    .rg__tile-side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:.22rem}
-    .rg__tile-thumb{width:36px;height:36px;border-radius:9px;background-size:cover;background-position:center;border:1px solid rgba(255,255,255,.5);box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem;color:#fff}
-    .rg__tile-users{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;opacity:.95;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+    .rg__tile-users{flex:none;display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;opacity:.95;text-shadow:0 1px 3px rgba(0,0,0,.6)}
     .rg__list{max-height:min(58vh,540px);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:.15rem;padding:.05rem .4rem .05rem .05rem}
     .rg__row{display:flex;align-items:center;gap:.7rem;padding:.55rem;border-radius:11px;border:1px solid transparent;background:transparent;color:var(--ink,inherit);cursor:pointer;text-align:left;width:100%;box-sizing:border-box}
     .rg__row:hover{background:var(--bg-soft,#0e0e12);border-color:var(--border,#333)}
@@ -464,10 +462,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       <span class="rg__tile-shade"></span>
       <span class="rg__tile-foot">
         <span class="rg__tile-name">${c.name || '?'}</span>
-        <span class="rg__tile-side">
-          <span class="rg__tile-thumb" style=${bg}>${img ? '' : '#'}</span>
-          <span class="rg__tile-users"><span class="rg__dot"></span>${c.users ?? 0}</span>
-        </span>
+        <span class="rg__tile-users"><span class="rg__dot"></span>${c.users ?? 0}</span>
       </span>
     </button>`;
   }
