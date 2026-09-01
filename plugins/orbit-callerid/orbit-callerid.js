@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=16"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=18"]
  */
 (function () {
   'use strict';
@@ -87,7 +87,8 @@
   function getOutgoing(nick) { return outgoing.map[pendingKey(nick)] || null; }
 
   /** Target peer flags from WHOIS: nick → { g: bool, group: bool } */
-  var peers = { map: Object.create(null), rev: 0, listeners: new Set(), loading: Object.create(null) };
+  var peers = { map: Object.create(null), rev: 0, listeners: new Set(), loading: Object.create(null), probedAt: Object.create(null) };
+  var PEER_WHOIS_TTL = 10 * 60 * 1000;
   function subscribePeers(cb) { peers.listeners.add(cb); return function () { peers.listeners.delete(cb); }; }
   function getPeersSnap() { return peers.rev; }
   function bumpPeers() {
@@ -348,6 +349,8 @@
     var key = pendingKey(nick);
     if (!key || !isQueryPeer(nick)) return;
     if (peers.loading[key]) return;
+    var last = peers.probedAt[key] || 0;
+    if (last && (Date.now() - last) < PEER_WHOIS_TTL) return;
     peers.loading[key] = true;
     requestWhois(orbit, nick);
   }
@@ -1024,11 +1027,6 @@
       function () { return orbit.state.active(); }
     );
 
-    useEffect(function () {
-      if (!isQueryPeer(active)) return;
-      probePeer(orbit, active);
-    }, [active]);
-
     var nodes = [];
 
     if (gate.callerid || listPending().length) {
@@ -1421,6 +1419,8 @@
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
       outboundText = Object.create(null);
+      peers.probedAt = Object.create(null);
+      peers.loading = Object.create(null);
       setParental(false);
       setCallerid(false);
       closeListView();
@@ -1503,7 +1503,9 @@
         }
       }
       if (cmd === '318' && targetNick) {
-        delete peers.loading[pendingKey(targetNick)];
+        var doneKey = pendingKey(targetNick);
+        delete peers.loading[doneKey];
+        if (doneKey) peers.probedAt[doneKey] = Date.now();
         if (fold(targetNick) === fold(me)) syncFromWhois(orbit, log);
       }
 
