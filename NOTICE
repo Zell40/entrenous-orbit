@@ -1,0 +1,16 @@
+EntreNous Orbit overlay
+Copyright (C) EntreNous contributors
+
+This repository (plugins, PHP sidecars, config, and deploy scripts) is
+licensed under the GNU Affero General Public License v3.0 or later.
+See the file LICENSE.
+
+It is intended to run together with Orbit, which is also licensed under
+AGPL-3.0-or-later:
+
+  This overlay:  https://github.com/Zell40/entrenous-orbit
+  Orbit (fork):  https://github.com/Zell40/orbit
+  Orbit (upstream): https://git.devtronic.pro/orbit/orbit
+
+Do not commit secrets. Operator secrets live in `*.local.php` on the server
+(ignored by git). Use the `*.local.php.example` files as templates.

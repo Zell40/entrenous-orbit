@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# EntreNous deploy: build clean upstream Orbit, then overlay this repo's
+# EntreNous deploy: build Orbit (public fork), then overlay this repo's
 # plugins / PHP sidecars / config on top of the web root.
 #
+# AGPL: both clones must match GitHub (clean tree, HEAD == origin/branch).
+# The script writes WEBROOT/SOURCE.txt with the two commit URLs.
+#
 # Layout on the server (recommended):
-#   /home/chat/irc/sources/orbit              ← clean Orbit (matches GitHub name)
+#   /home/chat/irc/sources/orbit              ← fork Zell40/orbit
 #   /home/chat/irc/sources/entrenous-orbit   ← THIS repo
 #   /home/chat/irc/webchat-new               ← test (webapp2.entrenous.chat)
 #   /home/chat/irc/webchat                   ← prod (webapp.entrenous.chat)
@@ -123,6 +126,28 @@ fi
 ORBIT_HEAD=$(git -C "$ORBIT_REPO" rev-parse HEAD)
 PLUGINS_HEAD=$(git -C "$PLUGINS_REPO" rev-parse HEAD)
 
+# AGPL: only deploy the exact commits already on GitHub (no dirty tree, no
+# local-only commits). Untracked files on the server clone are ignored.
+require_published() {
+  local repo="$1" branch="$2" label="$3"
+  if [ -n "$(git -C "$repo" status --porcelain -uno)" ]; then
+    log "ERROR: $label has uncommitted changes — push or stash before deploy"
+    git -C "$repo" status --short -uno >&2
+    exit 1
+  fi
+  local head origin
+  head=$(git -C "$repo" rev-parse HEAD)
+  origin=$(git -C "$repo" rev-parse "refs/remotes/origin/$branch")
+  if [ "$head" != "$origin" ]; then
+    log "ERROR: $label HEAD is not origin/$branch — push to GitHub before deploy"
+    log "  HEAD   $head"
+    log "  origin $origin"
+    exit 1
+  fi
+}
+require_published "$ORBIT_REPO" "$ORBIT_BRANCH" "orbit"
+require_published "$PLUGINS_REPO" "$PLUGINS_BRANCH" "entrenous-orbit"
+
 COMBO="${ORBIT_HEAD}+${PLUGINS_HEAD}"
 LAST=""
 [ -f "$DEPLOYED_MARKER" ] && LAST=$(cat "$DEPLOYED_MARKER")
@@ -185,6 +210,8 @@ log "publish orbit dist to webroot"
 rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude='*.local.php' \
   --filter='P *.local.php' \
+  --filter='P /SOURCE.txt' \
+  --exclude='/SOURCE.txt' \
   --filter="P /$GALLERY_DIR/" \
   --exclude="/$GALLERY_DIR/" \
   --exclude="/$CONFERENCE_DIR/" \
@@ -424,6 +451,25 @@ if [ -f "$WEBROOT/$GALLERY_DIR/room-images.php" ]; then
     echo "$(date -Is) NOTE: WEBROOT/room-images-uploads/ still has files — migrate/merge then delete manually"
   fi
 fi
+
+log "write SOURCE.txt (AGPL corresponding-source offer)"
+cat > "$WEBROOT/SOURCE.txt" <<EOF
+Corresponding Source for this EntreNous webchat deployment
+GNU Affero General Public License v3.0 or later
+
+Orbit (modified client)
+  https://github.com/Zell40/orbit
+  commit ${ORBIT_HEAD}
+  https://github.com/Zell40/orbit/tree/${ORBIT_HEAD}
+
+EntreNous overlay (plugins, PHP sidecars, config)
+  https://github.com/Zell40/entrenous-orbit
+  commit ${PLUGINS_HEAD}
+  https://github.com/Zell40/entrenous-orbit/tree/${PLUGINS_HEAD}
+
+Upstream Orbit
+  https://git.devtronic.pro/orbit/orbit
+EOF
 
 log "write deployed marker"
 echo "$COMBO" > "$DEPLOYED_MARKER"

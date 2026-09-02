@@ -2,6 +2,8 @@
 
 Personnalisations **EntreNous** pour [Orbit](https://github.com/Zell40/orbit) — plugins, sidecars PHP, config et déploiement.
 
+Licence : **GNU Affero GPL v3.0 ou ultérieure** (`LICENSE`, `NOTICE`). Les secrets d’exploitation (`*.local.php`) ne sont **pas** dans ce dépôt.
+
 Ce dépôt est **volontairement séparé** du client Orbit amont, pour pouvoir :
 - recevoir les mises à jour du propriétaire d’Orbit sans conflit ;
 - développer / versionner nos plugins indépendamment.
@@ -100,6 +102,18 @@ git remote add upstream https://git.devtronic.pro/orbit/orbit.git   # une fois
 git fetch upstream
 git merge upstream/main
 ```
+
+## Licence
+
+AGPL-3.0-or-later — voir `LICENSE` et `NOTICE`.
+
+Sources correspondant à un déploiement (AGPL §13) :
+
+- Client : https://github.com/Zell40/orbit
+- Overlay (ce dépôt) : https://github.com/Zell40/entrenous-orbit
+- Amont Orbit : https://git.devtronic.pro/orbit/orbit
+
+`deploy.sh` refuse un working tree sale ou un commit non poussé, et écrit `SOURCE.txt` à la racine du webchat avec les deux SHAs.
 
 ## Secrets
 
