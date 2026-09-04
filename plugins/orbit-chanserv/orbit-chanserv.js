@@ -6,16 +6,20 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=2"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=3"]
+ *
+ * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
+ * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
  */
 (function () {
   'use strict';
   if (typeof Orbit === 'undefined' || !Orbit.plugin) return;
 
   var COALESCE_MS = 600;
-  var HIDE_MS = 8000;
+  var HIDE_MS = 12000;
   var CACHE_MS = 20000;
   var STYLE_ID = 'orbit-chanserv-css';
+  var RPC_PATH = '/app/plugins/third/orbit-chanserv/chanserv-rpc.php';
 
   var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, founder: 100 };
 
@@ -105,6 +109,45 @@
     function cs(cmd) { orbit.irc.msg('ChanServ', cmd); }
     function bs(cmd) { orbit.irc.msg('BotServ', cmd); }
 
+    var rpcState = 'try';
+    var rpcInflight = {};
+    function rpcPost(body) {
+      return fetch(RPC_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      }).then(function (r) {
+        if (!r.ok) throw new Error('http');
+        return r.json();
+      });
+    }
+    function rpcCall(action, chan) {
+      if (rpcState === 'off') return Promise.resolve(null);
+      var account = orbit.state.account();
+      if (!account) return Promise.resolve(null);
+      var key = action + ':' + String(chan || '').toLowerCase();
+      if (rpcInflight[key]) return rpcInflight[key];
+      var p = rpcPost({ account: account, channel: chan, action: action })
+        .then(function (data) {
+          if (data && data.ok) {
+            rpcState = 'on';
+            return data;
+          }
+          if (data && data.error === 'not_configured') rpcState = 'off';
+          return null;
+        })
+        .catch(function () {
+          rpcState = 'off';
+          return null;
+        })
+        .then(function (data) {
+          delete rpcInflight[key];
+          return data;
+        });
+      rpcInflight[key] = p;
+      return p;
+    }
+
     function rememberCache(chan) {
       if (!chan) return;
       cache[chan.toLowerCase()] = {
@@ -134,6 +177,34 @@
       if (coalesceTimer) { clearTimeout(coalesceTimer); coalesceTimer = 0; }
     }
 
+    function founderMatch(founder) {
+      var f = foldText(founder);
+      if (!f) return false;
+      var me = foldText(orbit.state.nick() || '');
+      var acc = foldText(orbit.state.account() || '');
+      return (me && f === me) || (acc && f === acc);
+    }
+
+    function applyProbeTexts(chan, infoText, statusText) {
+      var info = parseInfo(infoText || '');
+      var acc = 'none';
+      if (info.registered) {
+        acc = parseAccess(statusText || '') || 'none';
+        if (founderMatch(info.founder)) acc = 'founder';
+      }
+      patchUi({
+        loading: false,
+        registered: info.registered,
+        founder: info.founder,
+        bot: info.bot,
+        infoText: info.infoText,
+        access: acc,
+      });
+      rememberCache(chan);
+      expectKind = '';
+      if (ui.open && can(ACCESS_RANK.sop) && !ui.bot && !ui.bots.length) queryBotlist();
+    }
+
     function queryInfo(chan) {
       if (!isChannel(chan) || !identified()) {
         patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '' });
@@ -141,8 +212,15 @@
       }
       if (applyCache(chan)) return;
       patchUi({ chan: chan, loading: true, flash: '' });
-      beginExpect('info', chan);
-      cs('INFO ' + chan);
+      rpcCall('probe', chan).then(function (data) {
+        if (ui.chan !== chan) return;
+        if (data && data.ok && (data.info || data.status)) {
+          applyProbeTexts(chan, data.info, data.status);
+          return;
+        }
+        beginExpect('info', chan);
+        cs('INFO ' + chan);
+      });
     }
 
     function queryStatus(chan) {
@@ -151,8 +229,16 @@
     }
 
     function queryBotlist() {
-      beginExpect('botlist', expectChan || ui.chan);
-      bs('BOTLIST');
+      var chan = expectChan || ui.chan;
+      rpcCall('botlist', chan).then(function (data) {
+        if (data && data.ok && data.bots != null) {
+          patchUi({ bots: parseBotlist(data.bots), loading: false });
+          expectKind = '';
+          return;
+        }
+        beginExpect('botlist', chan);
+        bs('BOTLIST');
+      });
     }
 
     function parseAccess(text) {
@@ -264,12 +350,14 @@
     }
 
     function onRaw(msg) {
-      if (!msg || String(msg.command || '').toUpperCase() !== 'NOTICE') return;
+      if (!msg) return;
+      var cmd = String(msg.command || '').toUpperCase();
+      if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return;
       var from = String(msg.nick || '').trim();
       if (!/^(chanserv|botserv)$/i.test(from)) return;
       if (Date.now() > hideUntil && !expectKind) return;
       var text = stripIrc((msg.params && msg.params[1]) || '');
-      if (!text.trim()) return;
+      if (!text.trim() || text.charCodeAt(0) === 1) return;
       if (pendingFrom && pendingFrom !== from.toLowerCase()) {
         flush();
       }
@@ -279,8 +367,10 @@
       coalesceTimer = setTimeout(flush, COALESCE_MS);
     }
 
-    function shouldHideNotice(m) {
+    function shouldHideServiceReply(m) {
       if (Date.now() > hideUntil && !expectKind) return false;
+      var cmd = String(m.command || '').toUpperCase();
+      if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return false;
       return /^(chanserv|botserv)$/i.test(String(m.nick || ''));
     }
 
@@ -342,12 +432,17 @@
     }
     injectStyles();
 
-    function ShieldIcon() {
+    function ChanIcon() {
       return h('svg', {
         viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
         stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
         'aria-hidden': 'true',
-      }, h('path', { d: 'M12 3 5 6.5v5.2c0 4.2 2.9 7.3 7 8.8 4.1-1.5 7-4.6 7-8.8V6.5L12 3z' }));
+      },
+        h('line', { x1: '4', y1: '9', x2: '20', y2: '9' }),
+        h('line', { x1: '4', y1: '15', x2: '20', y2: '15' }),
+        h('line', { x1: '10', y1: '3', x2: '8', y2: '21' }),
+        h('line', { x1: '16', y1: '3', x2: '14', y2: '21' })
+      );
     }
 
     function useActiveBuffer() {
@@ -381,7 +476,7 @@
         'aria-label': title,
         'aria-pressed': on,
         onClick: toggleOpen,
-      }, h(ShieldIcon));
+      }, h(ChanIcon));
     }
 
     function MoreMenuItem() {
@@ -396,7 +491,7 @@
         role: 'menuitem',
         onClick: toggleOpen,
       },
-        h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(ShieldIcon)),
+        h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(ChanIcon)),
         h('span', { className: 'nmenu__txt' }, h('b', null, on ? pick('Fermer les services', 'Close services') : label))
       );
     }
@@ -584,8 +679,7 @@
       patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false });
     });
     orbit.addMessageFilter(function (m) {
-      if (String(m.command || '').toUpperCase() !== 'NOTICE') return false;
-      return shouldHideNotice(m);
+      return shouldHideServiceReply(m);
     });
     orbit.addUi('topbar_item', function () { return h(HeaderButton); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });

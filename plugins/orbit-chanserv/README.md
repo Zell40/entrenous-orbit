@@ -2,13 +2,15 @@
 
 Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
-L’icône (bouclier) est dans la **barre du salon** (bureau) et dans le menu **⋮** (mobile).
+L’icône **#** est dans la **barre du salon** (bureau) et dans le menu **⋮** (mobile).
 Elle n’apparaît que si tu es **identifié** NickServ, et :
 
 - le salon **n’est pas enregistré** → bouton pour l’enregistrer, ou
 - tu as un **accès ChanServ** (VOP ou plus) → commandes filtrées.
 
-Les notices INFO / STATUS / BOTLIST liées au panneau sont masquées du tchat et résumées dans le panneau.
+INFO / STATUS / BOTLIST passent par **JSON-RPC Anope** (`chanserv-rpc.php`, même API que wp_anope_sync). Aucun MP IRC pour ces lectures.
+
+Les réponses IRC (PRIVMSG ou NOTICE) aux commandes du panneau (OP, KICK, …) sont masquées du tchat et résumées dans le panneau.
 
 ## Commandes (v1)
 
@@ -25,5 +27,7 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=1"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=3"]
 ```
+
+Créer une fois `plugins/third/orbit-chanserv/chanserv-rpc.local.php` (même URL + jeton que `WP_ANOPE_RPC_URL` / `WP_ANOPE_RPC_TOKEN`). `deploy.sh` ne l’écrase pas.

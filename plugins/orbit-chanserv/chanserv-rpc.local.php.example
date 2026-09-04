@@ -1,0 +1,8 @@
+<?php
+// plugins/third/orbit-chanserv/chanserv-rpc.local.php
+// Never commit the real file; deploy.sh preserves it across updates.
+// Same URL + token as wp_anope_sync (WP_ANOPE_RPC_URL / WP_ANOPE_RPC_TOKEN).
+
+$ANOPE_RPC_URL = 'https://anoperpc.reseau-entrenous.fr';
+$ANOPE_RPC_TOKEN = 'CHANGE_ME_SAME_AS_WP_ANOPE_RPC_TOKEN';
+$ANOPE_RPC_BEARER_B64 = true; // AnopeRPC.php: Authorization Bearer base64(token)

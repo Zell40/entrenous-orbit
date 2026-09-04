@@ -335,6 +335,17 @@ CHANSERV_DIR="plugins/third/orbit-chanserv"
 mkdir -p "$WEBROOT/$CHANSERV_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/orbit-chanserv.js" \
       "$WEBROOT/$CHANSERV_DIR/"
+if [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.php" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.php" \
+        "$WEBROOT/$CHANSERV_DIR/"
+fi
+if [ -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php" ]; then
+  echo "$(date -Is) keep $WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php.example" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php.example" \
+        "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php.example"
+  echo "$(date -Is) NOTE: create $WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php (Anope JSON-RPC URL + token = wp_anope_sync)"
+fi
 
 # Helpdesk bottom-nav (AideMoi / SignalMoi / EcoutE)
 HELPDESK_DIR="plugins/third/orbit-helpdesk"
@@ -526,6 +537,10 @@ if ! grep -q 'orbit-chanserv' "$WEBROOT/config.json"; then
   log "ERROR: config.json missing orbit-chanserv plugin entry"
   exit 1
 fi
-log "verified orbit-chanserv (plugin file + config.json entry)"
+if [ ! -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.php" ]; then
+  log "ERROR: missing $WEBROOT/$CHANSERV_DIR/chanserv-rpc.php after overlay"
+  exit 1
+fi
+log "verified orbit-chanserv (plugin file + config.json entry + rpc sidecar)"
 
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD) webroot=$WEBROOT"
