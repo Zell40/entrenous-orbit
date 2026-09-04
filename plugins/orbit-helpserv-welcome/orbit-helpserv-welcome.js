@@ -1,6 +1,6 @@
 /*
- * Orbit ↔ HelpServ welcome — when the user opens a query (PV) with AideMoi
- * or SignalMoi, inject local PRIVMSG-looking lines from the bot (no IRC).
+ * Orbit ↔ HelpServ welcome — when the user opens a query (PV) with a configured
+ * HelpServ desk bot, inject local PRIVMSG-looking lines from the bot (no IRC).
  *
  * Profile "Signaler" uses config.report.query (SignalMoi): openQuery + a
  * natural-language draft naming the nick (no REPORT command). The bot opens
@@ -8,11 +8,19 @@
  *
  * config.json:
  *   "report": { "query": "SignalMoi", ... }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=5"]
+ *   "helpservWelcome": {
+ *     "bots": [
+ *       { "nick": "AideMoi", "needle": "…", "lines": ["…", "…"] },
+ *       { "nick": "SignalMoi", "needle": "…", "lines": ["…"] },
+ *       { "nick": "EcoutE", "needle": "…", "lines": ["…"] }
+ *     ]
+ *   }
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=6"]
+ *
+ * In lines, {{nick}} is replaced with the user's nick. Omit helpservWelcome
+ * (or bots) to use the built-in AideMoi / SignalMoi / EcoutE defaults.
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
-  const AIDE = 'aidemoi';
-  const SIGNAL = 'signalmoi';
   const B = '\x02'; // IRC bold
   const R = '\x0f'; // IRC reset
 
@@ -21,17 +29,6 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
   function fold(name) {
     return String(name || '').replace(/^[@+%~&]/, '').trim().toLowerCase();
-  }
-
-  function whichDesk(name) {
-    const n = fold(name);
-    if (n === AIDE) return 'aide';
-    if (n === SIGNAL) return 'signal';
-    return null;
-  }
-
-  function botLabel(desk) {
-    return desk === 'aide' ? 'AideMoi' : 'SignalMoi';
   }
 
   function aideGuide() {
@@ -58,21 +55,63 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     ].join('\n');
   }
 
-  function linesFor(desk, nick) {
-    const who = (nick || '').trim() || 'toi';
-    if (desk === 'aide') {
-      return [
-        `Bonjour ${who}, comment puis-je vous aider ?`,
-        aideGuide(),
-      ];
-    }
+  /** Built-in desks when config.helpservWelcome.bots is absent/empty. */
+  function defaultBots() {
     return [
-      `Bonjour ${who}, comment puis-je vous aider pour ce signalement ?`,
-      'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\nNe discutez pas des signalements en public.',
+      {
+        nick: 'AideMoi',
+        needle: 'reseau-entrenous.fr/aide/',
+        lines: [
+          'Bonjour {{nick}}, comment puis-je vous aider ?',
+          aideGuide(),
+        ],
+      },
+      {
+        nick: 'SignalMoi',
+        needle: 'Ne discutez pas des signalements en public',
+        lines: [
+          'Bonjour {{nick}}, comment puis-je vous aider pour ce signalement ?',
+          'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\nNe discutez pas des signalements en public.',
+        ],
+      },
+      {
+        nick: 'EcoutE',
+        needle: 'idée ou un avis',
+        lines: [
+          'Bonjour {{nick}}, merci de partager une idée ou un avis.',
+          'Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que le message sera clair.\n\nL\'équipe lit toutes les idées via HelpServ.',
+        ],
+      },
     ];
   }
 
+  function loadBots() {
+    const cfg = (orbit.config() && orbit.config().helpservWelcome) || {};
+    const raw = Array.isArray(cfg.bots) ? cfg.bots : null;
+    const list = (raw && raw.length) ? raw : defaultBots();
+    /** @type {Map<string, { nick: string, needle: string, lines: string[] }>} */
+    const map = new Map();
+    for (const b of list) {
+      if (!b || !b.nick) continue;
+      const nick = String(b.nick).trim();
+      const lines = Array.isArray(b.lines) ? b.lines.map(String).filter(Boolean) : [];
+      if (!nick || !lines.length) continue;
+      map.set(fold(nick), {
+        nick,
+        needle: String(b.needle || lines[0] || nick),
+        lines,
+      });
+    }
+    return map;
+  }
+
+  function expandLines(lines, nick) {
+    const who = (nick || '').trim() || 'toi';
+    return lines.map((l) => l.replace(/\{\{\s*nick\s*\}\}/gi, who));
+  }
+
   function bufferHasNeedle(st, key, needle) {
+    if (!needle) return false;
     const buffers = (st && st.buffers) || {};
     for (const k of Object.keys(buffers)) {
       if (fold(k) !== key && fold(buffers[k] && buffers[k].name) !== key) continue;
@@ -110,28 +149,24 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
   }
 
   function showWelcome(target) {
-    const desk = whichDesk(target);
-    if (!desk) return;
+    const bots = loadBots();
     const key = fold(target);
+    const desk = bots.get(key);
+    if (!desk) return;
     if (welcomed.has(key)) return;
 
-    const bot = botLabel(desk);
     const nick = orbit.state.nick() || '';
-    // Keep URL needle so an older welcome already in the buffer still suppresses a re-inject.
-    const needle = desk === 'aide'
-      ? 'reseau-entrenous.fr/aide/'
-      : 'Ne discutez pas des signalements en public';
 
     // Defer so openQuery/setActive (and setDraft from reportUser) have committed.
     setTimeout(() => {
       if (welcomed.has(key)) return;
       const st = orbit.state.get();
-      if (bufferHasNeedle(st, key, needle)) {
+      if (bufferHasNeedle(st, key, desk.needle)) {
         welcomed.add(key);
         return;
       }
       const name = resolveName(st, target, key);
-      const ok = injectLines(name, bot, linesFor(desk, nick));
+      const ok = injectLines(name, desk.nick, expandLines(desk.lines, nick));
       welcomed.add(key);
       if (ok) log('welcome privmsg for', name);
     }, 0);
@@ -144,5 +179,5 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
   const cur = orbit.state.active();
   if (cur) showWelcome(cur);
-  log('helpserv-welcome ready (privmsg)');
+  log('helpserv-welcome ready (privmsg), desks=', [...loadBots().keys()].join(','));
 });
