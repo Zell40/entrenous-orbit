@@ -113,8 +113,9 @@
       startPrefixes: c.startPrefixes || '~&@',
       denyGroups: c.denyGroups || [],
       requireGroups: c.requireGroups || [],
-      maxParticipantsChannel: c.maxParticipantsChannel || 25,
+      maxParticipantsChannel: c.maxParticipantsChannel || 20,
       maxParticipantsQuery: c.maxParticipantsQuery || 2,
+      channelRules: c.channelRules && typeof c.channelRules === 'object' ? c.channelRules : {},
       publicLinkInInvite: c.publicLinkInInvite !== false,
       hideInviteForOrbit: c.hideInviteForOrbit !== false,
     };
@@ -126,6 +127,32 @@
   }
 
   function isChannelName(name) { return /^[#&+!]/.test(name || ''); }
+
+  function channelRule(cfg, buffer) {
+    var rules = (cfg && cfg.channelRules) || {};
+    var want = String(buffer || '').toLowerCase();
+    if (!want) return {};
+    for (var k in rules) {
+      if (Object.prototype.hasOwnProperty.call(rules, k) && String(k).toLowerCase() === want) {
+        return rules[k] && typeof rules[k] === 'object' ? rules[k] : {};
+      }
+    }
+    return {};
+  }
+
+  function requireOpToStart(cfg, buffer) {
+    var rule = channelRule(cfg, buffer);
+    if (typeof rule.requireChannelOp === 'boolean') return rule.requireChannelOp;
+    return !!cfg.requireChannelOp;
+  }
+
+  function maxParticipantsFor(cfg, buffer) {
+    if (!isChannelName(buffer)) return cfg.maxParticipantsQuery;
+    var rule = channelRule(cfg, buffer);
+    var n = Number(rule.maxParticipants);
+    if (isFinite(n) && n > 0) return n;
+    return cfg.maxParticipantsChannel;
+  }
 
   function bufferAllowed(orbit, name) {
     var cfg = confCfg(orbit);
@@ -202,7 +229,7 @@
     var join = canJoin(orbit, buffer);
     if (!join.ok) return join;
     var cfg = confCfg(orbit);
-    if (isChannelName(buffer) && cfg.requireChannelOp) {
+    if (isChannelName(buffer) && requireOpToStart(cfg, buffer)) {
       var pref = myPrefixIn(orbit, buffer);
       var allowed = cfg.startPrefixes || '~&@';
       var ok = false;
@@ -660,8 +687,7 @@
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
       var room = meetRoomFor(orbit, buffer);
       var nick = orbit.state.nick() || 'user';
-      var isChan = isChannelName(buffer);
-      var maxP = isChan ? live.maxParticipantsChannel : live.maxParticipantsQuery;
+      var maxP = maxParticipantsFor(live, buffer);
       var timers = [];
 
       function mountApi(jwt) {
