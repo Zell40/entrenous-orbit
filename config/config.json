@@ -59,6 +59,7 @@
   },
   "features": {
     "push": true,
+    "pushRequireAccount": true,
     "imageUpload": true,
     "register": true,
     "linkPreviews": true,
