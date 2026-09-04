@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=6"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=8"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -152,7 +152,7 @@
         });
       });
     }
-    function rpcCall(action, chan) {
+    function rpcCall(action, chan, extra) {
       if (rpcState === 'off') {
         statusLog('RPC ignoré (désactivé pour cette session)');
         return Promise.resolve(null);
@@ -161,7 +161,13 @@
       if (!account) return Promise.resolve(null);
       var key = action + ':' + String(chan || '').toLowerCase();
       if (rpcInflight[key]) return rpcInflight[key];
-      var p = rpcPost({ account: account, channel: chan, action: action })
+      var body = Object.assign({
+        account: account,
+        channel: chan,
+        action: action,
+        nick: orbit.state.nick() || '',
+      }, extra || {});
+      var p = rpcPost(body)
         .then(function (data) {
           if (data && data.ok) {
             rpcState = 'on';
@@ -171,10 +177,10 @@
           if (err === 'not_configured') {
             statusLog('RPC non configuré detail=' + (data.detail || '?') + ' dir=' + (data.dir || '?'));
             rpcState = 'off';
-          } else {
-            statusLog('RPC échec: ' + err);
+            return null;
           }
-          return null;
+          statusLog('RPC échec: ' + err);
+          return data || null;
         })
         .catch(function (err) {
           statusLog('RPC fetch KO: ' + (err && err.message ? err.message : err));
@@ -752,6 +758,6 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v6 — traces RPC/IRC ici (Status)');
+    statusLog('chargé v8 — traces RPC/IRC ici (Status)');
   });
 })();

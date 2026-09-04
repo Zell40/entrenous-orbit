@@ -6,7 +6,8 @@
  *   /app/plugins/third/orbit-chanserv/chanserv-rpc.php
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
- * Read-only: the browser cannot run OP/KICK/REGISTER through this endpoint.
+ * Read-only: INFO / STATUS / BOTLIST. REGISTER stays on IRC so Anope
+ * maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
 
@@ -183,6 +184,7 @@ try {
     echo json_encode(['ok' => true, 'bots' => $bots], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
+
   $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
     $account, 'ChanServ', 'INFO', $channel,
   ]));
