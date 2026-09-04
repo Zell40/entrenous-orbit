@@ -27,7 +27,7 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=5"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=6"]
 ```
 
 Créer une fois le fichier **sur le webroot** (pas seulement dans le clone git) :

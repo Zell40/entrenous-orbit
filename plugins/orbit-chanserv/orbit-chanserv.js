@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=5"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=6"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -246,13 +246,15 @@
       if (ui.open && can(ACCESS_RANK.sop) && !ui.bot && !ui.bots.length) queryBotlist();
     }
 
-    function queryInfo(chan) {
+    function queryInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) {
         patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '' });
         return;
       }
       if (applyCache(chan)) return;
-      patchUi({ chan: chan, loading: true, flash: '' });
+      var next = { chan: chan, loading: true };
+      if (!(opts && opts.keepFlash)) next.flash = '';
+      patchUi(next);
       rpcCall('probe', chan).then(function (data) {
         if (ui.chan !== chan) return;
         if (data && data.ok && (data.info || data.status)) {
@@ -286,7 +288,15 @@
       });
     }
 
-    function parseAccess(text) {
+    function looksLikeServOk(text) {
+      var t = foldText(text);
+      return /a ete enregistre|has been registered|enregistre avec succes|registered successfully|sujet (modifie|change|a ete)|topic (is now|changed|set)|est maintenant|is now (the )?(op|hop|voice|aop|sop)|bot (assigne|assigned|unassign)/.test(t);
+    }
+    function looksLikeServError(text) {
+      var t = foldText(text);
+      if (!t || looksLikeServOk(t)) return false;
+      return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|interdit|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
+    }
       var t = foldText(text);
       if (/pas (d[' ]?)?acces|no(t)? (have )?access|don't have access|dont have access|aucun acces/.test(t)
         && !/fondateur|founder|sop|aop|hop|vop|niveau|level/.test(t)) {
@@ -376,12 +386,14 @@
         return;
       }
       if (kind === 'cmd') {
-        var folded = foldText(text);
-        var err = /permission|access denied|acces refuse|vous ne pouvez|you cannot|isn't registered|pas enregistre/.test(folded);
-        patchUi({ flash: stripIrc(text).replace(/\s+/g, ' ').trim().slice(0, 280), flashErr: err, loading: false });
+        var raw = stripIrc(text).replace(/\s+/g, ' ').trim().slice(0, 400);
+        var err = looksLikeServError(raw);
+        patchUi({ flash: raw, flashErr: err || !looksLikeServOk(raw), loading: false });
         expectKind = '';
         cache = {};
-        if (ui.chan) setTimeout(function () { queryInfo(ui.chan); }, 400);
+        if (!err && ui.chan) {
+          setTimeout(function () { queryInfo(ui.chan, { keepFlash: true }); }, 500);
+        }
       }
     }
 
@@ -470,8 +482,11 @@
         'background:var(--bg-soft);color:var(--ink);font:inherit;font-weight:700;font-size:.82rem;cursor:pointer}',
         '.ocs-btn:hover{background:var(--bg-soft-2,var(--bg))}',
         '.ocs-btn--primary{background:var(--accent);color:#fff;border:0}',
-        '.ocs-flash{font-size:.82rem;line-height:1.4;padding:.45rem .55rem;border-radius:10px;background:var(--bg-soft)}',
-        '.ocs-flash.is-err{color:var(--danger,#dc2626);font-weight:650}',
+        '.ocs-flash{font-size:.88rem;line-height:1.45;padding:.6rem .75rem;border-radius:12px;',
+        'background:var(--bg-soft);border:1px solid var(--border)}',
+        '.ocs-flash.is-err{color:var(--danger,#b91c1c);font-weight:700;',
+        'background:color-mix(in srgb,var(--danger,#dc2626) 14%,var(--bg));',
+        'border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
         '.ocs-h{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}',
         '.ocs-info{white-space:pre-wrap;font-size:.78rem;line-height:1.4;color:var(--muted);max-height:7rem;overflow:auto}',
         '@media (max-width:880px){.ocs-panel{top:auto;bottom:72px;right:8px;left:8px;width:auto}}',
@@ -592,6 +607,12 @@
         ),
         h('p', { className: 'ocs-sub' }, ch),
       ];
+      if (s.flash) {
+        kids.push(h('div', {
+          className: 'ocs-flash' + (s.flashErr ? ' is-err' : ''),
+          role: s.flashErr ? 'alert' : 'status',
+        }, s.flash));
+      }
       if (s.loading) kids.push(h('p', { className: 'ocs-sub' }, pick('Interrogation de ChanServ…', 'Asking ChanServ…')));
       if (s.registered === false) {
         kids.push(h(Field, { label: pick('Description (optionnel)', 'Description (optional)') },
@@ -713,7 +734,6 @@
           ));
         }
       }
-      if (s.flash) kids.push(h('div', { className: 'ocs-flash' + (s.flashErr ? ' is-err' : ''), role: 'status' }, s.flash));
       return h('div', { className: 'ocs-panel', role: 'dialog', 'aria-label': pick('Services du salon', 'Channel services') }, kids);
     }
 
@@ -732,6 +752,6 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v5 — traces RPC/IRC ici (Status)');
+    statusLog('chargé v6 — traces RPC/IRC ici (Status)');
   });
 })();
