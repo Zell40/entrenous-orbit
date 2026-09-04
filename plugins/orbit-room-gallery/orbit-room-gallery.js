@@ -11,7 +11,9 @@
  * also posts a "/me a mis à jour l'image du salon : <url>" line in the
  * channel itself (announcePictureChange()) so members actually notice —
  * unlike the picture's storage (see below), this line DOES travel over IRC
- * like any other message, by design.
+ * like any other message, by design. Other Orbit clients parse that same
+ * /me and update sidebar / topic banner immediately (they used to wait
+ * up to 60s for the next JSON poll).
  *
  * Nothing here patches, wraps, or imports any core Orbit file — it only uses
  * the public window.Orbit plugin API. Two bits of behaviour aren't covered by
@@ -334,6 +336,37 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       ? `${orbit.i18n.pick({ fr: "a mis à jour l'image du salon", en: 'updated the room picture' })}\u00A0: ${url}`
       : orbit.i18n.pick({ fr: "a retiré l'image du salon", en: 'removed the room picture' });
     orbit.irc.say(`/me ${text}`);
+  }
+
+  const PIC_UPDATE_RE = /(?:a mis à jour l['’]image du salon|updated the room picture)\s*[\u00A0:\s]+<?(https?:\/\/[^>\s]+)>?/i;
+  const PIC_REMOVE_RE = /(?:a retiré l['’]image du salon|removed the room picture)/i;
+
+  function channelFromIrcTarget(target) {
+    let t = String(target || '');
+    if (/^[@%+~&][#&+]/.test(t)) t = t.slice(1);
+    return t;
+  }
+
+  function pictureUrlFromAnnounce(text) {
+    const raw = String(text || '').replace(/^\x01ACTION\s+/i, '').replace(/\x01\s*$/, '').trim();
+    if (!raw) return undefined;
+    const m = raw.match(PIC_UPDATE_RE);
+    if (m) return m[1].replace(/[).,;]+$/, '');
+    if (PIC_REMOVE_RE.test(raw)) return null;
+    return undefined;
+  }
+
+  function applyLivePictureAnnounce(target, text) {
+    const chan = channelFromIrcTarget(target);
+    if (!chan || (chan[0] !== '#' && chan[0] !== '&')) return;
+    const url = pictureUrlFromAnnounce(text);
+    if (url === undefined) return;
+    setLocalImage(chan, url);
+    if (url) {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    }
   }
 
   function errorLabel(err) {
@@ -973,6 +1006,16 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   hydrateCachedMap();
   loadImageMap(true);
   setInterval(() => loadImageMap(true), 60000);
+
+  orbit.on('message', (m) => {
+    if (!m || !m.target) return;
+    const stamp = m.tags && (m.tags.time || m.tags['+time']);
+    if (stamp) {
+      const ts = Date.parse(stamp);
+      if (isFinite(ts) && Date.now() - ts > 30000) return;
+    }
+    applyLivePictureAnnounce(m.target, m.text);
+  });
 
   log('room-gallery ready');
 });
