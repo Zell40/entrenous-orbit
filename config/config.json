@@ -128,6 +128,19 @@
     "modes": "+ixIgcRw",
     "autoMode": true
   },
+  "helpservWelcome": {
+    "bots": [
+      {
+        "nick": "EcoutE",
+        "needle": "idée ou un avis",
+        "lines": [
+          "Bonjour {{nick}}, merci de partager une idée ou un avis.",
+          "Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que votre message sera suffisamment clair.",
+          "Vous pouvez également ajouter des photos si vous le souhaitez."
+        ]
+      }
+    ]
+  },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js?v=2", "sandbox": true, "permissions": ["storage", "irc"] },
