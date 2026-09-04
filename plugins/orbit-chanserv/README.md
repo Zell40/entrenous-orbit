@@ -27,7 +27,11 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=4"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=5"]
 ```
 
-Créer une fois `plugins/third/orbit-chanserv/chanserv-rpc.local.php` (même URL + jeton que `WP_ANOPE_RPC_URL` / `WP_ANOPE_RPC_TOKEN`). `deploy.sh` ne l’écrase pas.
+Créer une fois le fichier **sur le webroot** (pas seulement dans le clone git) :
+
+`/home/chat/irc/webchat-new/plugins/third/orbit-chanserv/chanserv-rpc.local.php`
+
+Même URL + jeton que `WP_ANOPE_RPC_URL` / `WP_ANOPE_RPC_TOKEN`. Variables attendues : `$ANOPE_RPC_URL` et `$ANOPE_RPC_TOKEN`. `deploy.sh` ne l’écrase pas ; s’il n’existe que dans le clone sources, le deploy le copie vers le webroot.

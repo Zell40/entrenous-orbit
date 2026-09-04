@@ -15,10 +15,26 @@ $ANOPE_RPC_TOKEN = '';
 $ANOPE_RPC_BEARER_B64 = true;
 
 $__local = __DIR__ . '/chanserv-rpc.local.php';
-if (is_file($__local)
-    && filesize($__local) < 4096
-    && !str_contains((string) @file_get_contents($__local), 'function anope_rpc')) {
-  require $__local;
+$__local_state = 'missing';
+if (!is_file($__local)) {
+  $__local_state = 'missing';
+} elseif (filesize($__local) >= 8192) {
+  $__local_state = 'too_large';
+} else {
+  $__local_raw = (string) @file_get_contents($__local);
+  // A full copy of this script would recurse; secrets-only files are fine.
+  if (str_contains($__local_raw, 'function anope_rpc') || str_contains($__local_raw, 'function flatten_rpc')) {
+    $__local_state = 'skipped_copy';
+  } else {
+    require $__local;
+    $__local_state = 'loaded';
+  }
+}
+if ($ANOPE_RPC_URL === '' && defined('WP_ANOPE_RPC_URL')) {
+  $ANOPE_RPC_URL = (string) WP_ANOPE_RPC_URL;
+}
+if ($ANOPE_RPC_TOKEN === '' && defined('WP_ANOPE_RPC_TOKEN')) {
+  $ANOPE_RPC_TOKEN = (string) WP_ANOPE_RPC_TOKEN;
 }
 
 header('Content-Type: application/json; charset=utf-8');
@@ -127,10 +143,19 @@ function anope_rpc(string $url, string $token, bool $bearerB64, string $method, 
 }
 
 $url = trim((string) $ANOPE_RPC_URL);
-$token = (string) $ANOPE_RPC_TOKEN;
+$token = trim((string) $ANOPE_RPC_TOKEN);
+if (stripos($token, 'CHANGE_ME') !== false) {
+  $token = '';
+}
 if ($url === '' || $token === '') {
   http_response_code(200);
-  echo json_encode(['ok' => false, 'error' => 'not_configured']);
+  echo json_encode([
+    'ok' => false,
+    'error' => 'not_configured',
+    'detail' => $__local_state,
+    'dir' => __DIR__,
+    'file' => is_file($__local) ? 'chanserv-rpc.local.php' : '',
+  ], JSON_UNESCAPED_SLASHES);
   exit;
 }
 

@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=4"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=5"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -169,7 +169,7 @@
           }
           var err = (data && data.error) || 'unknown';
           if (err === 'not_configured') {
-            statusLog('RPC non configuré — créer chanserv-rpc.local.php (jeton wp_anope_sync)');
+            statusLog('RPC non configuré detail=' + (data.detail || '?') + ' dir=' + (data.dir || '?'));
             rpcState = 'off';
           } else {
             statusLog('RPC échec: ' + err);
@@ -732,6 +732,6 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v4 — traces RPC/IRC ici (Status)');
+    statusLog('chargé v5 — traces RPC/IRC ici (Status)');
   });
 })();

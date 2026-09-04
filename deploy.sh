@@ -341,6 +341,11 @@ if [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.php" ]; then
 fi
 if [ -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php" ]; then
   echo "$(date -Is) keep $WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php" ]; then
+  # Operator often creates the secrets file in the git clone; PHP reads WEBROOT.
+  cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php" \
+        "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php"
+  echo "$(date -Is) seeded $WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php from sources clone"
 elif [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php.example" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php.example" \
         "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php.example"
