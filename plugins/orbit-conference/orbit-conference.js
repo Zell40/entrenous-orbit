@@ -162,10 +162,10 @@
   }
 
   function requireAccountFor(cfg, buffer) {
-    if (inChanList(cfg.anyoneCanStartIn || [], buffer)) return false;
+    // Account is global: anyoneCanStartIn / channelRules cannot drop it.
+    if (cfg.requireAccount) return true;
     var rule = channelRule(cfg, buffer);
-    if (typeof rule.requireAccount === 'boolean') return rule.requireAccount;
-    return !!cfg.requireAccount;
+    return !!rule.requireAccount;
   }
 
   function maxParticipantsFor(cfg, buffer) {

@@ -10,4 +10,3 @@ $JWT_AUDIENCE = ''; // empty = default to JITSI_APP_ID (recommended)
 $JWT_TTL = 300;
 $ALLOWED_CLOCK_SKEW = 30;
 $START_CMODES = ['q', 'a', 'o']; // ~ founder, & admin, @ op
-$GUEST_OK_CHANNELS = ['#Visio.chat'];
