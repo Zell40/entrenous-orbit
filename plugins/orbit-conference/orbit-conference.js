@@ -54,7 +54,7 @@
   var invites = { map: Object.create(null), rev: 0, listeners: new Set() };
   function subscribeInvites(cb) { invites.listeners.add(cb); return function () { invites.listeners.delete(cb); }; }
   function getInvitesSnap() { return invites.rev; }
-  function inviteKey(buffer) { return String(buffer || '').toLowerCase(); }
+  function inviteKey(buffer) { return chanKey(buffer) || String(buffer || '').toLowerCase(); }
   function getInviteFor(buffer) {
     if (!buffer) return null;
     return invites.map[inviteKey(buffer)] || null;
@@ -115,6 +115,7 @@
       requireGroups: c.requireGroups || [],
       maxParticipantsChannel: c.maxParticipantsChannel || 20,
       maxParticipantsQuery: c.maxParticipantsQuery || 2,
+      anyoneCanStartIn: Array.isArray(c.anyoneCanStartIn) ? c.anyoneCanStartIn : [],
       channelRules: c.channelRules && typeof c.channelRules === 'object' ? c.channelRules : {},
       publicLinkInInvite: c.publicLinkInInvite !== false,
       hideInviteForOrbit: c.hideInviteForOrbit !== false,
@@ -128,12 +129,25 @@
 
   function isChannelName(name) { return /^[#&+!]/.test(name || ''); }
 
+  function chanKey(name) {
+    return String(name || '').replace(/^[#&+!]/, '').toLowerCase();
+  }
+
+  function inChanList(list, buffer) {
+    var want = chanKey(buffer);
+    if (!want || !list || !list.length) return false;
+    for (var i = 0; i < list.length; i++) {
+      if (chanKey(list[i]) === want) return true;
+    }
+    return false;
+  }
+
   function channelRule(cfg, buffer) {
     var rules = (cfg && cfg.channelRules) || {};
-    var want = String(buffer || '').toLowerCase();
+    var want = chanKey(buffer);
     if (!want) return {};
     for (var k in rules) {
-      if (Object.prototype.hasOwnProperty.call(rules, k) && String(k).toLowerCase() === want) {
+      if (Object.prototype.hasOwnProperty.call(rules, k) && chanKey(k) === want) {
         return rules[k] && typeof rules[k] === 'object' ? rules[k] : {};
       }
     }
@@ -141,9 +155,17 @@
   }
 
   function requireOpToStart(cfg, buffer) {
+    if (inChanList(cfg.anyoneCanStartIn || [], buffer)) return false;
     var rule = channelRule(cfg, buffer);
     if (typeof rule.requireChannelOp === 'boolean') return rule.requireChannelOp;
     return !!cfg.requireChannelOp;
+  }
+
+  function requireAccountFor(cfg, buffer) {
+    if (inChanList(cfg.anyoneCanStartIn || [], buffer)) return false;
+    var rule = channelRule(cfg, buffer);
+    if (typeof rule.requireAccount === 'boolean') return rule.requireAccount;
+    return !!cfg.requireAccount;
   }
 
   function maxParticipantsFor(cfg, buffer) {
@@ -161,18 +183,31 @@
     if (chan && !cfg.channels) return false;
     if (!chan && !cfg.queries) return false;
     if (!chan) return true;
-    var low = String(name).toLowerCase();
-    var disabled = (cfg.disabledInChannels || []).map(function (x) { return String(x).toLowerCase(); });
-    if (disabled.indexOf(low) > -1) return false;
-    var list = (cfg.enabledInChannels || ['*']).map(function (x) { return String(x).toLowerCase(); });
+    var disabled = cfg.disabledInChannels || [];
+    if (inChanList(disabled, name)) return false;
+    var list = cfg.enabledInChannels || ['*'];
     if (list.indexOf('*') > -1) return true;
-    return list.indexOf(low) > -1;
+    return inChanList(list, name);
+  }
+
+  function findBuffer(st, buffer) {
+    var buffers = st && st.buffers;
+    if (!buffers) return null;
+    if (buffers[buffer]) return buffers[buffer];
+    var want = chanKey(buffer);
+    var low = String(buffer || '').toLowerCase();
+    for (var k in buffers) {
+      if (!Object.prototype.hasOwnProperty.call(buffers, k)) continue;
+      var b = buffers[k];
+      if (k.toLowerCase() === low || chanKey(k) === want || chanKey(b && b.name) === want) return b;
+    }
+    return null;
   }
 
   function myPrefixIn(orbit, buffer) {
     try {
       var st = orbit.state.get();
-      var b = st.buffers && st.buffers[buffer];
+      var b = findBuffer(st, buffer);
       var members = b && b.members;
       var nick = orbit.state.nick();
       var m = members && nick ? members[nick] : null;
@@ -212,7 +247,7 @@
   function canJoin(orbit, buffer) {
     var cfg = confCfg(orbit);
     if (!bufferAllowed(orbit, buffer)) return { ok: false, reason: 'Salon non autorisé pour la visio.' };
-    if (cfg.requireAccount && !orbit.state.account()) {
+    if (requireAccountFor(cfg, buffer) && !orbit.state.account()) {
       return { ok: false, reason: 'Compte IRC enregistré requis pour la visio.' };
     }
     var g = groupsBlocked(orbit, cfg);
@@ -537,7 +572,7 @@
     if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
     var joinGate = canJoin(orbit, activeBuf);
     if (!openBuf && !joinGate.ok && !hasInvite) return null;
-    var needsRegister = !!(cfg.requireAccount && !orbit.state.account());
+    var needsRegister = !!(requireAccountFor(cfg, activeBuf) && !orbit.state.account());
     var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
     var on = openBuf === activeBuf;
     var label = on
@@ -592,7 +627,7 @@
     if (dismissed[inviteKey(activeBuf)]) return null;
     var joinGate = canJoin(orbit, activeBuf);
     var cfg = confCfg(orbit);
-    var needsRegister = !!(cfg.requireAccount && !orbit.state.account());
+    var needsRegister = !!(requireAccountFor(cfg, activeBuf) && !orbit.state.account());
     var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
     var joinLabel = (cfg.joinButtonText || 'Rejoindre');
     if (/^rejoindre$/i.test(joinLabel)) joinLabel = 'Rejoindre la visio';

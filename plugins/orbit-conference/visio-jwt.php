@@ -26,6 +26,8 @@ $ALLOWED_CLOCK_SKEW = 30;
 // Channel mode letters that grant Jitsi moderator (ISUPPORT PREFIX, not display chars).
 // PREFIX=(qaohv)~&@%+  →  q=~  a=&  o=@  — matches conference.startPrefixes ~&@
 $START_CMODES = ['q', 'a', 'o'];
+// Channels where an unregistered nick may still receive a Jitsi JWT (nick as id).
+$GUEST_OK_CHANNELS = ['#Visio.chat'];
 
 $__local = __DIR__ . '/visio-jwt.local.php';
 if (is_file($__local)
@@ -108,6 +110,19 @@ function is_jitsi_moderator(array $claims, array $startCmodes): bool {
   return false;
 }
 
+function chan_key(string $name): string {
+  return strtolower(ltrim($name, '#&+!'));
+}
+
+function guest_ok_for_channel(string $channel, array $list): bool {
+  $want = chan_key($channel);
+  if ($want === '') return false;
+  foreach ($list as $c) {
+    if (chan_key((string)$c) === $want) return true;
+  }
+  return false;
+}
+
 if ($EXTJWT_SECRET === 'CHANGE_ME_EXTJWT_SECRET' || $JITSI_APP_ID === 'CHANGE_ME_JITSI_APP_ID' || $JITSI_APP_SECRET === 'CHANGE_ME_JITSI_APP_SECRET') {
   http_response_code(500);
   echo json_encode(['error' => 'server_not_configured']);
@@ -141,19 +156,24 @@ if (!room_ok($room)) {
 }
 
 $proofChannel = trim((string)($claims['channel'] ?? ''));
-if ($channel !== '' && $proofChannel !== '' && strcasecmp($channel, $proofChannel) !== 0) {
+if ($channel !== '' && $proofChannel !== '' && $proofChannel !== '*'
+    && strcasecmp(chan_key($channel), chan_key($proofChannel)) !== 0) {
   http_response_code(403);
   echo json_encode(['error' => 'channel_mismatch']);
   exit;
 }
 $account = trim((string)($claims['account'] ?? ''));
-if ($account === '') {
-  http_response_code(403);
-  echo json_encode(['error' => 'account_required']);
-  exit;
-}
-
 $nick = trim((string)($claims['sub'] ?? $account));
+$guestChan = $proofChannel !== '' && $proofChannel !== '*' ? $proofChannel : $channel;
+$guestOk = is_array($GUEST_OK_CHANNELS ?? null) ? $GUEST_OK_CHANNELS : [];
+if ($account === '') {
+  if ($nick === '' || !guest_ok_for_channel($guestChan, $guestOk)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'account_required']);
+    exit;
+  }
+  $account = 'guest:' . $nick;
+}
 $startCmodes = is_array($START_CMODES) ? $START_CMODES : ['q', 'a', 'o'];
 $isMod = is_jitsi_moderator($claims, $startCmodes);
 $now = time();
