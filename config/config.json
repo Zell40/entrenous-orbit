@@ -147,9 +147,47 @@
       }
     ]
   },
+  "helpdesk": {
+    "label": "Aide",
+    "title": "Aide, signalement, idées",
+    "desks": [
+      {
+        "id": "aide",
+        "label": "Aide",
+        "title": "Demander de l’aide",
+        "bot": "AideMoi",
+        "channel": "#Aide.chat",
+        "links": [
+          { "label": "Aide sur le site", "url": "https://www.reseau-entrenous.fr/aide/" },
+          { "label": "Page du salon", "url": "https://www.reseau-entrenous.fr/salons/salon-aide/" }
+        ]
+      },
+      {
+        "id": "signal",
+        "label": "Signaler",
+        "title": "Signaler un problème",
+        "bot": "SignalMoi",
+        "channel": "#Signalement.chat",
+        "links": [
+          { "label": "Aide signalement", "url": "https://www.reseau-entrenous.fr/salons/salon-signalement/" }
+        ]
+      },
+      {
+        "id": "idees",
+        "label": "Idées",
+        "title": "Idées et suggestions",
+        "bot": "EcoutE",
+        "channel": "#Idees.chat",
+        "links": [
+          { "label": "Le réseau EntreNous", "url": "https://www.reseau-entrenous.fr/" }
+        ]
+      }
+    ]
+  },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js?v=5", "sandbox": true, "permissions": ["storage", "irc"] },
+    "/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=2",
     "/app/plugins/third/orbit-copy.js",
     "/app/plugins/third/orbit-invite.js",
     "/app/plugins/third/orbit-navbar.js",
