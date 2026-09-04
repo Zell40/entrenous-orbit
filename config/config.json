@@ -130,7 +130,7 @@
   },
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
-    { "url": "/app/plugins/third/orbit-radio.js", "sandbox": true, "permissions": ["storage"] },
+    { "url": "/app/plugins/third/orbit-radio.js?v=2", "sandbox": true, "permissions": ["storage", "irc"] },
     "/app/plugins/third/orbit-copy.js",
     "/app/plugins/third/orbit-invite.js",
     "/app/plugins/third/orbit-navbar.js",
