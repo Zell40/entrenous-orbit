@@ -17,8 +17,8 @@
  *   }
  *   "plugins": [".../orbit-helpserv-welcome.js?v=6"]
  *
- * In lines, {{nick}} is replaced with the user's nick. Omit helpservWelcome
- * (or bots) to use the built-in AideMoi / SignalMoi / EcoutE defaults.
+ * In lines, {{nick}} is replaced with the user's nick. Config bots overlay
+ * the built-in AideMoi / SignalMoi / EcoutE list by nick (they do not replace it).
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const B = '\x02'; // IRC bold
@@ -87,11 +87,12 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
   function loadBots() {
     const cfg = (orbit.config() && orbit.config().helpservWelcome) || {};
-    const raw = Array.isArray(cfg.bots) ? cfg.bots : null;
-    const list = (raw && raw.length) ? raw : defaultBots();
+    const raw = Array.isArray(cfg.bots) ? cfg.bots : [];
     /** @type {Map<string, { nick: string, needle: string, lines: string[] }>} */
     const map = new Map();
-    for (const b of list) {
+    // Defaults first; config overlays by nick so a single custom desk (EcoutE)
+    // does not drop AideMoi / SignalMoi.
+    for (const b of [...defaultBots(), ...raw]) {
       if (!b || !b.nick) continue;
       const nick = String(b.nick).trim();
       const lines = Array.isArray(b.lines) ? b.lines.map(String).filter(Boolean) : [];
@@ -176,6 +177,7 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     if (!name || String(name).charAt(0) === '#' || String(name).charAt(0) === '&') return;
     showWelcome(name);
   });
+  orbit.on('helpserv:welcome', (name) => { if (name) showWelcome(name); });
 
   const cur = orbit.state.active();
   if (cur) showWelcome(cur);

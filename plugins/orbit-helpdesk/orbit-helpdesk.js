@@ -6,7 +6,7 @@
  * config.json:
  *   "helpdesk": { "label", "title", "desks": [ { "id", "label", "title", "bot",
  *     "channel", "links": [ { "label", "url" } ] } ] }
- *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=2"]
+ *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=3"]
  *
  * Omit helpdesk.desks to use the EntreNous defaults.
  */
@@ -84,8 +84,18 @@ Orbit.plugin('helpdesk', (orbit, log) => {
   const tabTitle = String(cfg.title || pick({ fr: 'Aide, signalement, idées', en: 'Help, report, ideas' }));
 
   const css = document.createElement('style');
-  css.textContent = '.hdk-row:hover{background:rgba(128,128,128,.13)}'
-    + '.hdk-sec+.hdk-sec{margin-top:8px;padding-top:8px;border-top:1px solid var(--border,#8884)}';
+  css.textContent = [
+    '.hdk-sec{border-radius:12px;padding:8px;margin-top:8px;border:1px solid transparent}',
+    '.hdk-sec:first-child{margin-top:0}',
+    '.hdk-head{display:flex;align-items:center;gap:6px;padding:1px 4px 5px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}',
+    '.hdk-sec--aide{background:color-mix(in srgb,#2563eb 12%,var(--bg,#fff));border-color:color-mix(in srgb,#2563eb 32%,transparent)}',
+    '.hdk-sec--aide .hdk-head{color:#1d4ed8}',
+    '.hdk-sec--signal{background:color-mix(in srgb,#e11d48 11%,var(--bg,#fff));border-color:color-mix(in srgb,#e11d48 32%,transparent)}',
+    '.hdk-sec--signal .hdk-head{color:#be123c}',
+    '.hdk-sec--idees{background:color-mix(in srgb,#d97706 13%,var(--bg,#fff));border-color:color-mix(in srgb,#d97706 36%,transparent)}',
+    '.hdk-sec--idees .hdk-head{color:#b45309}',
+    '.hdk-row:hover{background:color-mix(in srgb,var(--ink,#111) 6%,transparent)}',
+  ].join('');
   document.head.appendChild(css);
 
   const store = { open: false, anchor: null, subs: new Set() };
@@ -114,6 +124,7 @@ Orbit.plugin('helpdesk', (orbit, log) => {
   function goBot(desk) {
     if (!desk.bot) return;
     openQuery(desk.bot);
+    try { orbit.emit('helpserv:welcome', desk.bot); } catch (e) { /* ignore */ }
     closeMenu();
   }
   function goChan(desk) {
@@ -179,9 +190,10 @@ Orbit.plugin('helpdesk', (orbit, log) => {
 
   function DeskBlock({ desk }) {
     const Ic = SEC_ICONS[desk.id] || IconHelpSm;
-    return html`<div className="hdk-sec">
-      <div style=${{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 .35rem .2rem', color: 'var(--muted,#888)', fontSize: '11px', fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase' }}>
-        <span style=${{ display: 'inline-flex', color: 'var(--ink,inherit)' }}><${Ic} /></span>
+    const tone = (desk.id === 'signal' || desk.id === 'idees') ? desk.id : 'aide';
+    return html`<div className=${'hdk-sec hdk-sec--' + tone}>
+      <div className="hdk-head">
+        <span style=${{ display: 'inline-flex' }}><${Ic} /></span>
         <span>${desk.label}</span>
       </div>
       ${desk.bot ? html`<${MenuRow} title=${pick({ fr: 'Discuter avec ' + desk.bot, en: 'Chat with ' + desk.bot })}
@@ -214,7 +226,9 @@ Orbit.plugin('helpdesk', (orbit, log) => {
           <button type="button" onClick=${closeMenu} aria-label=${pick({ fr: 'Fermer', en: 'Close' })}
             style=${{ border: 0, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: '15px', width: '24px', height: '24px', borderRadius: '8px' }}>✕</button>
         </div>
-        ${desks.map((d) => html`<${DeskBlock} key=${d.id} desk=${d} />`)}
+        <div style=${{ display: 'flex', flexDirection: 'column' }}>
+          ${desks.map((d) => html`<${DeskBlock} key=${d.id} desk=${d} />`)}
+        </div>
       </div>
     </div>`;
   }
