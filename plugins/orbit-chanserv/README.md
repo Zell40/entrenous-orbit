@@ -27,7 +27,7 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=3"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=4"]
 ```
 
 Créer une fois `plugins/third/orbit-chanserv/chanserv-rpc.local.php` (même URL + jeton que `WP_ANOPE_RPC_URL` / `WP_ANOPE_RPC_TOKEN`). `deploy.sh` ne l’écrase pas.
