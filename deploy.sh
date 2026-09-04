@@ -223,6 +223,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-callerid/" \
   --exclude="/plugins/third/orbit-asl/" \
   --exclude="/plugins/third/orbit-anope/" \
+  --exclude="/plugins/third/orbit-chanserv/" \
   --exclude="/plugins/third/orbit-helpdesk/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-purge.php" \
@@ -328,6 +329,12 @@ ANOPE_DIR="plugins/third/orbit-anope"
 mkdir -p "$WEBROOT/$ANOPE_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-anope/orbit-anope.js" \
       "$WEBROOT/$ANOPE_DIR/"
+
+# ChanServ / BotServ panel
+CHANSERV_DIR="plugins/third/orbit-chanserv"
+mkdir -p "$WEBROOT/$CHANSERV_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-chanserv/orbit-chanserv.js" \
+      "$WEBROOT/$CHANSERV_DIR/"
 
 # Helpdesk bottom-nav (AideMoi / SignalMoi / EcoutE)
 HELPDESK_DIR="plugins/third/orbit-helpdesk"
@@ -510,5 +517,15 @@ if ! grep -q 'orbit-harrypotter' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-harrypotter (plugin file + config.json entry)"
+
+if [ ! -f "$WEBROOT/$CHANSERV_DIR/orbit-chanserv.js" ]; then
+  log "ERROR: missing $WEBROOT/$CHANSERV_DIR/orbit-chanserv.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-chanserv' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-chanserv plugin entry"
+  exit 1
+fi
+log "verified orbit-chanserv (plugin file + config.json entry)"
 
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD) webroot=$WEBROOT"

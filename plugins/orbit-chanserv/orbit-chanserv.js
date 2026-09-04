@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=1"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=2"]
  */
 (function () {
   'use strict';
@@ -97,9 +97,9 @@
 
     function iconVisible(s, chan) {
       if (!isChannel(chan) || !identified()) return false;
-      if (s.registered === false) return true;
-      if (s.registered === true && s.access && s.access !== 'none') return true;
-      return false;
+      // Hide only once INFO/STATUS says registered + no ChanServ access.
+      if (s.registered === true && s.access === 'none') return false;
+      return true;
     }
 
     function cs(cmd) { orbit.irc.msg('ChanServ', cmd); }

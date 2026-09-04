@@ -16,7 +16,9 @@ $bundles = @(
   @{ Name = "orbit-petitbac"; File = "orbit-petitbac.js" },
   @{ Name = "orbit-echecs"; File = "orbit-echecs.js" },
   @{ Name = "orbit-harrypotter"; File = "orbit-harrypotter.js" },
-  @{ Name = "orbit-callerid"; File = "orbit-callerid.js" }
+  @{ Name = "orbit-callerid"; File = "orbit-callerid.js" },
+  @{ Name = "orbit-anope"; File = "orbit-anope.js" },
+  @{ Name = "orbit-chanserv"; File = "orbit-chanserv.js" }
 )
 
 if (-not (Test-Path $OrbitRoot)) {
