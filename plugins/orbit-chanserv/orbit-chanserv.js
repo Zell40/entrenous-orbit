@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=11"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=12"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -99,14 +99,6 @@
     function can(min) { return rank() >= min; }
     function identified() { return !!orbit.state.account(); }
 
-    function statusLog(line) {
-      var txt = '[orbit-chanserv] ' + String(line || '');
-      try {
-        var st = orbit.state.get();
-        if (st && typeof st.pushSystem === 'function') st.pushSystem('$server', txt);
-      } catch (e) { /* ignore */ }
-      log(line);
-    }
     function isServNick(name) {
       return /^(chanserv|botserv)$/i.test(String(name || '').trim());
     }
@@ -115,27 +107,18 @@
       return isChannel(chan) && identified();
     }
 
-    function cs(cmd) {
-      statusLog('IRC → ChanServ ' + cmd);
-      orbit.irc.msg('ChanServ', cmd);
-    }
-    function bs(cmd) {
-      statusLog('IRC → BotServ ' + cmd);
-      orbit.irc.msg('BotServ', cmd);
-    }
+    function cs(cmd) { orbit.irc.msg('ChanServ', cmd); }
+    function bs(cmd) { orbit.irc.msg('BotServ', cmd); }
 
     var rpcState = 'try';
     var rpcInflight = {};
     function rpcPost(body) {
-      statusLog('RPC ' + (body.action || '') + ' ' + (body.channel || '') + ' compte=' + (body.account || ''));
       return fetch(RPC_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
       }).then(function (r) {
         return r.text().then(function (txt) {
-          var clip = String(txt || '').replace(/\s+/g, ' ').slice(0, 360);
-          statusLog('RPC HTTP ' + r.status + (clip ? ' ' + clip : ' (vide)'));
           var data = null;
           try { data = txt ? JSON.parse(txt) : null; } catch (e) {
             return { ok: false, error: 'bad_json' };
@@ -150,10 +133,7 @@
       });
     }
     function rpcCall(action, chan, extra) {
-      if (rpcState === 'off') {
-        statusLog('RPC ignoré (désactivé pour cette session)');
-        return Promise.resolve(null);
-      }
+      if (rpcState === 'off') return Promise.resolve(null);
       var account = orbit.state.account();
       if (!account) return Promise.resolve(null);
       var key = action + ':' + String(chan || '').toLowerCase();
@@ -172,15 +152,15 @@
           }
           var err = (data && data.error) || 'unknown';
           if (err === 'not_configured') {
-            statusLog('RPC non configuré detail=' + (data.detail || '?') + ' dir=' + (data.dir || '?'));
+            log('RPC non configuré');
             rpcState = 'off';
             return null;
           }
-          statusLog('RPC échec: ' + err);
+          log('RPC échec: ' + err);
           return data || null;
         })
         .catch(function (err) {
-          statusLog('RPC fetch KO: ' + (err && err.message ? err.message : err));
+          log('RPC fetch KO: ' + (err && err.message ? err.message : err));
           rpcState = 'off';
           return null;
         })
@@ -262,11 +242,9 @@
       rpcCall('probe', chan).then(function (data) {
         if (ui.chan !== chan) return;
         if (data && data.ok && (data.info || data.status)) {
-          statusLog('RPC OK ' + chan + ' registered=' + String(parseInfo(data.info || '').registered) + ' access≈' + (parseAccess(data.status || '') || '?'));
           applyProbeTexts(chan, data.info, data.status);
           return;
         }
-        statusLog('RPC inutilisable → INFO via IRC ' + chan);
         beginExpect('info', chan);
         cs('INFO ' + chan);
       });
@@ -281,12 +259,10 @@
       var chan = expectChan || ui.chan;
       rpcCall('botlist', chan).then(function (data) {
         if (data && data.ok && data.bots != null) {
-          statusLog('RPC BOTLIST OK (' + parseBotlist(data.bots).length + ')');
           patchUi({ bots: parseBotlist(data.bots), loading: false });
           expectKind = '';
           return;
         }
-        statusLog('RPC BOTLIST KO → IRC');
         beginExpect('botlist', chan);
         bs('BOTLIST');
       });
@@ -424,7 +400,6 @@
       if (Date.now() > hideUntil && !expectKind) return;
       var text = stripIrc((msg.params && msg.params[1]) || '');
       if (!text.trim() || text.charCodeAt(0) === 1) return;
-      statusLog('IRC ← ' + from + ' ' + text.slice(0, 220));
       if (pendingFrom && pendingFrom !== from.toLowerCase()) {
         flush();
       }
@@ -761,6 +736,5 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v11 — traces RPC/IRC ici (Status)');
   });
 })();
