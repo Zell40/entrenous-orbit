@@ -6,7 +6,7 @@
  * config.json:
  *   "helpdesk": { "label", "title", "desks": [ { "id", "label", "title", "bot",
  *     "channel", "links": [ { "label", "url" } ] } ] }
- *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=3"]
+ *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=4"]
  *
  * Omit helpdesk.desks to use the EntreNous defaults.
  */
@@ -85,6 +85,10 @@ Orbit.plugin('helpdesk', (orbit, log) => {
 
   const css = document.createElement('style');
   css.textContent = [
+    '.hdk-panel{position:relative;overflow:visible}',
+    '.hdk-panel__bar{display:flex;justify-content:flex-end;margin:-4px -4px 2px}',
+    '.hdk-panel__x{border:0;background:transparent;color:var(--muted,#888);cursor:pointer;font-size:15px;width:28px;height:28px;border-radius:8px;line-height:1}',
+    '.hdk-panel__x:hover,.hdk-panel__x:focus-visible{background:color-mix(in srgb,var(--ink,#111) 10%,transparent);color:var(--ink,#111);outline:none}',
     '.hdk-sec{border-radius:12px;padding:8px;margin-top:8px;border:1px solid transparent}',
     '.hdk-sec:first-child{margin-top:0}',
     '.hdk-head{display:flex;align-items:center;gap:6px;padding:1px 4px 5px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}',
@@ -94,7 +98,11 @@ Orbit.plugin('helpdesk', (orbit, log) => {
     '.hdk-sec--signal .hdk-head{color:#be123c}',
     '.hdk-sec--idees{background:color-mix(in srgb,#d97706 13%,var(--bg,#fff));border-color:color-mix(in srgb,#d97706 36%,transparent)}',
     '.hdk-sec--idees .hdk-head{color:#b45309}',
-    '.hdk-row:hover{background:color-mix(in srgb,var(--ink,#111) 6%,transparent)}',
+    '.hdk-row{display:flex;flex-direction:column;gap:1px;padding:.45rem .55rem;border:0;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%;text-decoration:none;transition:background .12s ease,box-shadow .12s ease}',
+    '.hdk-row:hover,.hdk-row:focus-visible{outline:none;box-shadow:inset 3px 0 0 currentColor}',
+    '.hdk-sec--aide .hdk-row:hover,.hdk-sec--aide .hdk-row:focus-visible{background:color-mix(in srgb,#2563eb 22%,transparent);color:#1d4ed8}',
+    '.hdk-sec--signal .hdk-row:hover,.hdk-sec--signal .hdk-row:focus-visible{background:color-mix(in srgb,#e11d48 20%,transparent);color:#be123c}',
+    '.hdk-sec--idees .hdk-row:hover,.hdk-sec--idees .hdk-row:focus-visible{background:color-mix(in srgb,#d97706 22%,transparent);color:#b45309}',
   ].join('');
   document.head.appendChild(css);
 
@@ -176,16 +184,11 @@ Orbit.plugin('helpdesk', (orbit, log) => {
 
   function MenuRow({ title, sub, onClick, href }) {
     const inner = html`<span style=${{ fontWeight: 700, fontSize: '12.5px' }}>${title}</span>
-      ${sub ? html`<small style=${{ fontSize: '10.5px', color: 'var(--muted,#888)' }}>${sub}</small>` : null}`;
-    const style = {
-      display: 'flex', flexDirection: 'column', gap: '1px', padding: '.4rem .5rem',
-      border: 0, borderRadius: '10px', background: 'transparent', color: 'inherit',
-      font: 'inherit', textAlign: 'left', cursor: 'pointer', width: '100%', textDecoration: 'none',
-    };
+      ${sub ? html`<small className="hdk-row__sub" style=${{ fontSize: '10.5px', opacity: .75 }}>${sub}</small>` : null}`;
     if (href) {
-      return html`<a className="hdk-row" href=${href} target="_blank" rel="noopener noreferrer" style=${style} onClick=${() => closeMenu()}>${inner}</a>`;
+      return html`<a className="hdk-row" href=${href} target="_blank" rel="noopener noreferrer" onClick=${() => closeMenu()}>${inner}</a>`;
     }
-    return html`<button className="hdk-row" type="button" style=${style} onClick=${onClick}>${inner}</button>`;
+    return html`<button className="hdk-row" type="button" onClick=${onClick}>${inner}</button>`;
   }
 
   function DeskBlock({ desk }) {
@@ -214,17 +217,15 @@ Orbit.plugin('helpdesk', (orbit, log) => {
       : { right: '14px', bottom: '74px' };
     return html`<div>
       <div style=${{ position: 'fixed', inset: 0, zIndex: 59 }} onClick=${closeMenu}></div>
-      <div role="menu" aria-label=${tabTitle} style=${{
-        position: 'fixed', ...pos, zIndex: 60, width: PW + 'px', maxHeight: 'min(78vh, 520px)', overflowY: 'auto',
+      <div className="hdk-panel" role="menu" aria-label=${tabLabel} style=${{
+        position: 'fixed', ...pos, zIndex: 60, width: PW + 'px',
         background: 'var(--bg,#15151a)', color: 'var(--ink,#eee)',
         border: '1px solid var(--border,#333)', borderRadius: '16px',
         boxShadow: '0 20px 50px -12px rgba(0,0,0,.55), 0 3px 10px -3px rgba(0,0,0,.35)',
         padding: '12px', animation: 'rise .18s ease both',
       }}>
-        <div style=${{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '6px' }}>
-          <strong style=${{ flex: 1, fontWeight: 800, fontSize: '13px' }}>${tabTitle}</strong>
-          <button type="button" onClick=${closeMenu} aria-label=${pick({ fr: 'Fermer', en: 'Close' })}
-            style=${{ border: 0, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: '15px', width: '24px', height: '24px', borderRadius: '8px' }}>✕</button>
+        <div className="hdk-panel__bar">
+          <button className="hdk-panel__x" type="button" onClick=${closeMenu} aria-label=${pick({ fr: 'Fermer', en: 'Close' })}>✕</button>
         </div>
         <div style=${{ display: 'flex', flexDirection: 'column' }}>
           ${desks.map((d) => html`<${DeskBlock} key=${d.id} desk=${d} />`)}
