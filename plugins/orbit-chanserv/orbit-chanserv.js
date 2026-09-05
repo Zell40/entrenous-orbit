@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=15"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=17"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -30,6 +30,7 @@
     var useSyncExternalStore = React.useSyncExternalStore;
     var useState = React.useState;
     var useEffect = React.useEffect;
+    var useLayoutEffect = React.useLayoutEffect;
     var useRef = React.useRef;
 
     var pending = [];
@@ -525,9 +526,10 @@
         '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700}',
         '.ocs-mm__chev{opacity:.55;font-size:.95rem;line-height:1}',
         '.ocs-mm.is-open .ocs-mm__trig,.ocs-mm:hover .ocs-mm__trig{background:var(--accent);color:#fff}',
-        '.ocs-mm__fly{position:absolute;right:calc(100% + 6px);top:-4px;z-index:220;min-width:196px;max-width:260px;',
-        'padding:4px;border-radius:10px;background:var(--bg);color:var(--ink);border:1px solid var(--border-2);',
-        'box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45))}',
+        '.ocs-mm__bridge{position:absolute;right:100%;top:-80px;bottom:-80px;width:18px;z-index:219}',
+        '.ocs-mm__fly{position:absolute;right:calc(100% - 2px);top:-4px;z-index:220;min-width:196px;max-width:260px;',
+        'max-height:min(70vh,420px);overflow-y:auto;padding:4px;border-radius:10px;background:var(--bg);color:var(--ink);',
+        'border:1px solid var(--border-2);box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45))}',
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;font-size:.8rem;',
         'width:calc(100% - .9rem);box-sizing:border-box}',
@@ -662,6 +664,43 @@
       var reasonSt = useState('');
       var reason = reasonSt[0];
       var setReason = reasonSt[1];
+      var closeT = useRef(0);
+      var flyRef = useRef(null);
+      function keepOpen() {
+        if (closeT.current) { clearTimeout(closeT.current); closeT.current = 0; }
+        setOpen(true);
+      }
+      function delayClose() {
+        if (closeT.current) clearTimeout(closeT.current);
+        closeT.current = setTimeout(function () { closeT.current = 0; setOpen(false); }, 280);
+      }
+      useEffect(function () {
+        return function () { if (closeT.current) clearTimeout(closeT.current); };
+      }, []);
+      useLayoutEffect(function () {
+        if (!open) return undefined;
+        var el = flyRef.current;
+        if (!el) return undefined;
+        el.style.top = '-4px';
+        el.style.bottom = 'auto';
+        el.style.maxHeight = '';
+        var pad = 8;
+        var r = el.getBoundingClientRect();
+        if (r.bottom > window.innerHeight - pad) {
+          el.style.top = 'auto';
+          el.style.bottom = '0px';
+          r = el.getBoundingClientRect();
+        }
+        if (r.top < pad) {
+          el.style.top = 'auto';
+          el.style.bottom = '0px';
+          r = el.getBoundingClientRect();
+          if (r.top < pad) {
+            el.style.maxHeight = Math.max(120, window.innerHeight - pad * 2) + 'px';
+          }
+        }
+        return undefined;
+      }, [open, nick]);
       useEffect(function () {
         if (!isChannel(chan) || !identified()) return undefined;
         if (s.chan === chan && s.registered !== null) return undefined;
@@ -741,8 +780,8 @@
       }
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
-        onMouseEnter: function () { setOpen(true); },
-        onMouseLeave: function () { setOpen(false); },
+        onMouseEnter: keepOpen,
+        onMouseLeave: delayClose,
       },
         h('button', {
           type: 'button',
@@ -750,12 +789,17 @@
           role: 'menuitem',
           'aria-haspopup': 'menu',
           'aria-expanded': open,
-          onClick: function (e) { e.stopPropagation(); setOpen(!open); },
+          onClick: function (e) {
+            e.stopPropagation();
+            if (open) { if (closeT.current) clearTimeout(closeT.current); setOpen(false); }
+            else keepOpen();
+          },
         },
           h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
           h('span', null, title)
         ),
-        open ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': title }, fly) : null
+        open ? h('div', { className: 'ocs-mm__bridge', 'aria-hidden': true }) : null,
+        open ? h('div', { ref: flyRef, className: 'ocs-mm__fly', role: 'menu', 'aria-label': title }, fly) : null
       );
     }
 
