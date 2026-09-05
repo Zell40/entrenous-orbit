@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 52;
+  var OEC_VER = 53;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -29,6 +29,10 @@
   var syncRequestAt = Object.create(null);
   var viewMode = VIEW_FULL;
   var viewListeners = new Set();
+  var botReachable = false;
+  var botSyncFailed = false;
+  var botSyncTimer = 0;
+  var lastBotEventAt = 0;
 
   var store = { byChannel: Object.create(null), rev: 0, listeners: new Set() };
   var ui = {
@@ -132,7 +136,73 @@
       channels: channels.map(normChan),
       channelsAll: channels.some(function (ch) { return ch === '*'; }),
       showWhenIdle: c.showWhenIdle !== false,
+      botNicks: Array.isArray(c.botNicks) && c.botNicks.length
+        ? c.botNicks.map(function (n) { return String(n || '').toLowerCase(); })
+        : ['capechecs', 'jeuechecs'],
     };
+  }
+
+  function ecBotNicks(orbit) {
+    return cfg(orbit).botNicks;
+  }
+
+  /** @returns {'present'|'absent'|'unknown'} */
+  function ecBotPresence(orbit, bufferKey) {
+    if (!orbit || !bufferKey) return 'unknown';
+    var st = orbit.state.get();
+    var buf = st && st.buffers && st.buffers[bufferKey];
+    if (!buf) return 'unknown';
+    var members = buf.members || {};
+    var keys = Object.keys(members);
+    var bots = ecBotNicks(orbit);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      if (bots.indexOf(String(keys[i]).toLowerCase().replace(/^[@+%~&]/, '')) >= 0) return 'present';
+    }
+    var me = String(st.nick || '').toLowerCase();
+    var hasMe = me && keys.some(function (k) { return String(k).toLowerCase() === me; });
+    if (hasMe || (buf.joined && keys.length > 0)) return 'absent';
+    return 'unknown';
+  }
+
+  /** @returns {'ok'|'absent'|'down'|'unknown'} */
+  function botStatus(orbit, bufferKey) {
+    var p = ecBotPresence(orbit, bufferKey);
+    if (p === 'absent') {
+      botReachable = false;
+      botSyncFailed = false;
+      if (botSyncTimer) {
+        clearTimeout(botSyncTimer);
+        botSyncTimer = 0;
+      }
+      return 'absent';
+    }
+    if (p === 'unknown') return 'unknown';
+    if (botReachable) return 'ok';
+    if (botSyncFailed) return 'down';
+    return 'unknown';
+  }
+
+  function noteBotAlive() {
+    var was = botReachable;
+    botReachable = true;
+    botSyncFailed = false;
+    lastBotEventAt = Date.now();
+    if (botSyncTimer) {
+      clearTimeout(botSyncTimer);
+      botSyncTimer = 0;
+    }
+    if (!was) bump();
+  }
+
+  function armBotSyncWatch() {
+    if (botReachable || botSyncTimer) return;
+    botSyncTimer = setTimeout(function () {
+      botSyncTimer = 0;
+      if (botReachable) return;
+      botSyncFailed = true;
+      bump();
+    }, 10000);
   }
 
   function resolveChannelName(orbit, keyOrName) {
@@ -193,6 +263,9 @@
 
   function sendEcCmd(orbit, buffer, name, arg) {
     if (!orbit || !buffer || !name) return false;
+    var st = botStatus(orbit, buffer);
+    if (st === 'absent') return false;
+    if (st !== 'ok' && name !== 'sync' && name !== 'etat' && name !== 'manche') return false;
     var target = resolveChannelName(orbit, buffer) || buffer;
     var tags = '+ec=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
@@ -209,12 +282,14 @@
 
   function maybeRequestSync(orbit, buffer, game) {
     if (!orbit || !buffer || !isChessChannel(orbit, buffer)) return;
+    if (ecBotPresence(orbit, buffer) === 'absent') return;
     if (game && game.status && game.status !== 'idle') return;
     var key = normChan(resolveChannelName(orbit, buffer) || buffer);
     var now = Date.now();
     if (syncRequestAt[key] && now - syncRequestAt[key] < 12000) return;
     syncRequestAt[key] = now;
     sendEcCmd(orbit, buffer, 'sync');
+    armBotSyncWatch();
     armCcBoot(buffer);
   }
 
@@ -922,6 +997,7 @@
     if (tagVal(tags, EC) !== 'v1') return;
     var ev = tagVal(tags, EV);
     if (!ev || ev === 'cmd') return;
+    noteBotAlive();
     if (ev === 'waiting' || ev === 'game_start' || ev === 'game_end' || ev === 'draw_offer') {
       clearCmdBusy();
     }
@@ -1419,6 +1495,7 @@
   function maybeFirstVisitGame(orbit) {
     if (!orbit || hasOnboarded(orbit)) return;
     if (ui.tour) return;
+    if (botStatus(orbit, orbit.state.active()) !== 'ok') return;
     ui.tour = true;
     viewMode = VIEW_FULL;
     try { orbit.storage.set(STORAGE_VIEW, VIEW_FULL); } catch (e) { /* ignore */ }
@@ -1785,6 +1862,12 @@
       '.oec-game-actions .oec-spin,.oec-btn--pri .oec-spin,.oec-btn--danger .oec-spin{border-color:rgba(255,255,255,.32);border-top-color:#fff}',
       '.oec-hist .oec-spin{width:14px;height:14px;border-color:#d7ccb8;border-top-color:#166534}',
       '.oec-idle{text-align:left;width:100%;max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;flex:1 1 auto;box-sizing:border-box}',
+      '.oec-offline{text-align:center;width:100%;max-width:28rem;margin:1.2rem auto;padding:.4rem .8rem 1.2rem;color:#3f3a32}',
+      '.oec-offline__badge{display:inline-flex;align-items:center;gap:.35rem;margin:.2rem 0 .55rem;padding:.28rem .7rem;border-radius:999px;font-size:.72rem;font-weight:800;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca}',
+      '.oec-offline__badge--wait{background:#ecfccb;color:#3f6212;border-color:#d9f99d}',
+      '.oec-offline__title{margin:.2rem 0 .4rem;font-size:1.05rem;font-weight:800;color:#14532d}',
+      '.oec-offline__txt{margin:0 auto;font-size:.84rem;line-height:1.45;color:#5c564c}',
+      '.oec-offline__wait{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;margin-top:.75rem;font-size:.82rem;font-weight:700;color:#5c564c}',
       '.oec-hero{position:relative;border-radius:14px;overflow:hidden;margin:0;flex:0 1 auto;min-height:clamp(5.5rem,14vh,9.5rem);max-height:min(16vh,9.5rem);background:#e8dcc4}',
       '.oec-hero img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}',
       '.oec-hero__label{position:absolute;left:.8rem;bottom:.5rem;margin:0;color:#fff;font-size:clamp(1rem,2vh,1.35rem);font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.45)}',
@@ -2493,12 +2576,53 @@
       escHtml(san) + '</button>';
   }
 
+  function renderOffline(availability) {
+    var connecting = availability === 'unknown';
+    var down = availability === 'down';
+    var title = connecting
+      ? pick({ fr: 'Connexion au jeu…', en: 'Connecting to the game…' })
+      : pick({ fr: 'Le jeu n’est pas disponible actuellement', en: 'The game is not available right now' });
+    var text = connecting
+      ? pick({ fr: 'Recherche du robot d’échecs dans le salon…', en: 'Looking for the chess bot in the channel…' })
+      : down
+        ? pick({
+          fr: 'Le robot est dans le salon mais le jeu ne répond pas. Un redémarrage est peut-être en cours. Réessaie dans un moment.',
+          en: 'The bot is in the channel but the game is not responding. It may be restarting. Try again shortly.',
+        })
+        : pick({
+          fr: 'Le robot d’échecs n’est pas présent dans ce salon. Réessaie plus tard, ou contacte un opérateur si le problème continue.',
+          en: 'The chess bot is not in this channel. Try again later, or ask an operator if this persists.',
+        });
+    var badge = connecting
+      ? ''
+      : ('<span class="oec-offline__badge">⚠ ' +
+        escHtml(down
+          ? pick({ fr: 'Maintenance', en: 'Maintenance' })
+          : pick({ fr: 'Bot absent', en: 'Bot offline' })) +
+        '</span>');
+    var wait = connecting
+      ? ('<p class="oec-offline__wait"><span class="oec-spin" aria-hidden="true"></span>' +
+        escHtml(text) + '</p>')
+      : ('<p class="oec-offline__txt">' + escHtml(text) + '</p>');
+    return '<div class="oec-offline" role="status">' +
+      '<div class="oec-hero"><img src="' + HOME_IMG + '" alt="">' +
+      '<p class="oec-hero__label">Échecs</p></div>' +
+      badge +
+      '<p class="oec-offline__title">' + escHtml(title) + '</p>' +
+      wait +
+      '</div>';
+  }
+
   function renderPanel(orbit, root, buffer) {
     var live = getState(buffer);
     var game = archiveGame || live;
+    var availability = botStatus(orbit, buffer);
+    var offline = availability !== 'ok' && !archiveGame && (!game || game.status === 'idle');
     var view = viewingGame(game);
     var mode = getViewMode(orbit);
-    var badge = game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
+    var badge = offline
+      ? (availability === 'unknown' ? 'Connexion…' : 'Indisponible')
+      : game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
       : game.status === 'waiting' ? 'En attente'
       : game.status === 'ended' ? (game.reason === 'timeout' ? 'Non rejoint' : escHtml(game.result || 'Fin'))
       : 'Prêt';
@@ -2510,10 +2634,13 @@
     var metaY = meta ? meta.scrollTop : 0;
     var head = '<div class="oec-head"><span class="oec-head__title">Échecs</span>' +
       '<span class="oec-head__badge">' + badge + '</span>' + viewBtns(mode) +
-      renderSettings(game) + renderTour() + '</div>';
+      (offline ? '' : renderSettings(game) + renderTour()) + '</div>';
 
     var body = '<div class="oec-stage">';
-    if (game.status === 'idle') {
+    if (offline) {
+      body += renderOffline(availability);
+      body += '</div>';
+    } else if (game.status === 'idle') {
       body += renderHome(orbit, game);
       body += '</div>' + renderHomeLaunch(game);
     } else {
@@ -2572,7 +2699,7 @@
       body += '</div></div>' + renderGameFooter(orbit, game);
     }
     root.innerHTML = head + body;
-    root.classList.toggle('oec-panel--home', game.status === 'idle');
+    root.classList.toggle('oec-panel--home', game.status === 'idle' || offline);
     root.classList.toggle('oec-panel--menu', !!(ui.settings || ui.tour));
     var stage2 = root.querySelector('.oec-stage');
     var meta2 = root.querySelector('.oec-meta');
@@ -2780,6 +2907,11 @@
     if ({
       'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
       join: 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
+      lier: 1, 'lier-oui': 1, 'lier-non': 1, 'lier-skip': 1, 'cc-toggle': 1, elo: 1,
+    }[act] && botStatus(orbit, buffer) !== 'ok') return;
+    if ({
+      'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
+      join: 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
     }[act] && ui.cmdBusy) return;
 
     if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc' || act === 'setup-duo') {
@@ -2979,13 +3111,14 @@
     }
     maybeFirstVisitGame(orbit);
     applyViewMode(orbit, getViewMode(orbit));
+    if (on) maybeRequestSync(orbit, buf, getState(buf));
     if (ui.drag) return;
     var g = archiveGame || getState(buf);
     var live = getState(buf);
     var tick = (live.status === 'playing' && live.tc && live.tc !== 'casual') ? Math.floor(Date.now() / 400) : 0;
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
-      (ui.tour ? 't' : '0') + '|' +
+      (ui.tour ? 't' : '0') + '|' + botStatus(orbit, buf) + '|' +
       (ui.ccBusy ? '1' : '0') + '|' + (ui.cmdBusy || '') + (ui.cmdBusyVal || '') + '|' +
       (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
       'u' + chatUnread + '|' +
