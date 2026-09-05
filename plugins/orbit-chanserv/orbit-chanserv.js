@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=9"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=11"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -301,6 +301,7 @@
       if (!t || looksLikeServOk(t)) return false;
       return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|interdit|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
     }
+    function parseAccess(text) {
       var t = foldText(text);
       if (/pas (d[' ]?)?acces|no(t)? (have )?access|don't have access|dont have access|aucun acces/.test(t)
         && !/fondateur|founder|sop|aop|hop|vop|niveau|level/.test(t)) {
@@ -760,6 +761,6 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v9 — traces RPC/IRC ici (Status)');
+    statusLog('chargé v11 — traces RPC/IRC ici (Status)');
   });
 })();
