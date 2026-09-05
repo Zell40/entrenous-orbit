@@ -2,8 +2,7 @@
 
 Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
-L’icône **#** est dans la **barre du salon** (bureau) et dans le menu **⋮** (mobile).
-Elle apparaît dès que tu es **identifié** NickServ et dans un salon.
+L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
 
 Le panneau du haut ne gère que le **salon** (onglets Salon / Sujet / Bot).
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic sur un pseudo) :
@@ -30,7 +29,7 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=13"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=14"]
 ```
 
 Créer une fois le fichier **sur le webroot** (pas seulement dans le clone git) :

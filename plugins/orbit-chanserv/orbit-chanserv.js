@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=13"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=14"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -498,22 +498,64 @@
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;font-size:.8rem;',
         'width:calc(100% - .9rem);box-sizing:border-box}',
+        '.topbar__search.ocs-tb--ok{color:var(--accent)}',
+        '.topbar__search.ocs-tb--free,.topbar__search.ocs-tb--none,.topbar__search.ocs-tb--wait{color:var(--muted)}',
+        '.nmenu__ic .ocs-ic--ok{color:var(--accent)}',
+        '.nmenu__ic .ocs-ic--free,.nmenu__ic .ocs-ic--none,.nmenu__ic .ocs-ic--wait{color:var(--muted)}',
         '@media (max-width:880px){.ocs-panel{top:auto;bottom:72px;right:8px;left:8px;width:auto}}',
       ].join('');
     }
     injectStyles();
 
-    function ChanIcon() {
+    function iconKind(s, chan) {
+      if (!isChannel(chan) || s.chan !== chan || s.registered == null) return 'wait';
+      if (s.registered === false) return 'free';
+      if ((ACCESS_RANK[s.access] || 0) >= ACCESS_RANK.vop) return 'ok';
+      return 'none';
+    }
+    function iconTitle(kind, access) {
+      if (kind === 'free') return pick('Salon non enregistré — cliquer pour l’enregistrer', 'Unregistered channel — click to register');
+      if (kind === 'none') return pick('Salon enregistré — pas d’accès ChanServ', 'Registered channel — no ChanServ access');
+      if (kind === 'ok') {
+        var lvl = String(access || '').toUpperCase();
+        return pick('Services du salon (' + lvl + ')', 'Channel services (' + lvl + ')');
+      }
+      return pick('Services du salon (ChanServ)', 'Channel services (ChanServ)');
+    }
+
+    function ChanIcon(props) {
+      var kind = props.kind || 'wait';
+      var dash = kind === 'free' ? '3 2.5' : undefined;
+      var hash = [
+        h('line', { key: 'a', x1: '3.5', y1: '9', x2: '18', y2: '9', strokeDasharray: dash }),
+        h('line', { key: 'b', x1: '3.5', y1: '15', x2: '18', y2: '15', strokeDasharray: dash }),
+        h('line', { key: 'c', x1: '9.5', y1: '3', x2: '7.6', y2: '21', strokeDasharray: dash }),
+        h('line', { key: 'd', x1: '15.2', y1: '3', x2: '13.3', y2: '21', strokeDasharray: dash }),
+      ];
+      var badge = null;
+      if (kind === 'free') {
+        badge = h('g', { key: 'badge', transform: 'translate(13,13)' },
+          h('circle', { cx: '5', cy: '5', r: '5.3', fill: 'var(--bg,#fff)', stroke: 'currentColor', strokeWidth: '1.6', strokeDasharray: undefined }),
+          h('path', { d: 'M5 2.5v5M2.5 5h5', fill: 'none', stroke: 'currentColor', strokeWidth: '1.7' })
+        );
+      } else if (kind === 'none') {
+        badge = h('g', { key: 'badge', transform: 'translate(12.2,12.2)' },
+          h('circle', { cx: '5.6', cy: '5.6', r: '5.5', fill: 'var(--bg,#fff)', stroke: 'currentColor', strokeWidth: '1.5' }),
+          h('path', { d: 'M4.1 5.1V4a1.5 1.5 0 0 1 3 0v1.1', fill: 'none', stroke: 'currentColor', strokeWidth: '1.45' }),
+          h('rect', { x: '3.2', y: '5', width: '4.8', height: '3.5', rx: '0.7', fill: 'currentColor', stroke: 'none' })
+        );
+      } else if (kind === 'ok') {
+        badge = h('g', { key: 'badge', transform: 'translate(12.2,12.2)' },
+          h('circle', { cx: '5.6', cy: '5.6', r: '5.5', fill: 'currentColor', stroke: 'none' }),
+          h('path', { d: 'M3.3 5.7l1.6 1.7 3.1-3.3', fill: 'none', stroke: 'var(--bg,#fff)', strokeWidth: '1.8' })
+        );
+      }
       return h('svg', {
         viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
         stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
         'aria-hidden': 'true',
-      },
-        h('line', { x1: '4', y1: '9', x2: '20', y2: '9' }),
-        h('line', { x1: '4', y1: '15', x2: '20', y2: '15' }),
-        h('line', { x1: '10', y1: '3', x2: '8', y2: '21' }),
-        h('line', { x1: '16', y1: '3', x2: '14', y2: '21' })
-      );
+        className: 'ocs-ic ocs-ic--' + kind,
+      }, badge ? hash.concat([badge]) : hash);
     }
 
     function useActiveBuffer() {
@@ -538,22 +580,24 @@
         return undefined;
       }, [chan, identified()]);
       if (!iconVisible(s, chan)) return null;
+      var kind = iconKind(s, chan);
       var on = s.open && s.chan === chan;
-      var title = pick('Services du salon (ChanServ)', 'Channel services (ChanServ)');
+      var title = iconTitle(kind, s.access);
       return h('button', {
         type: 'button',
-        className: 'topbar__search' + (on ? ' is-on' : ''),
+        className: 'topbar__search ocs-tb ocs-tb--' + kind + (on ? ' is-on' : ''),
         title: title,
         'aria-label': title,
         'aria-pressed': on,
         onClick: toggleOpen,
-      }, h(ChanIcon));
+      }, h(ChanIcon, { kind: kind }));
     }
 
     function MoreMenuItem() {
       var chan = useActiveBuffer();
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       if (!iconVisible(s, chan)) return null;
+      var kind = iconKind(s, chan);
       var on = s.open && s.chan === chan;
       var label = pick('Services du salon', 'Channel services');
       return h('button', {
@@ -562,7 +606,7 @@
         role: 'menuitem',
         onClick: toggleOpen,
       },
-        h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(ChanIcon)),
+        h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(ChanIcon, { kind: kind })),
         h('span', { className: 'nmenu__txt' }, h('b', null, on ? pick('Fermer les services', 'Close services') : label))
       );
     }
