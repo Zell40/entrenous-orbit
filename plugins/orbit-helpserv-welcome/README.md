@@ -56,9 +56,11 @@ Dans `config.json` :
 
 - `nick` : pseudo du bot (insensible à la casse)
 - `lines` : une bulle par entrée ; `{{nick}}` → pseudo de l’utilisateur
-- `needle` : sous-chaîne déjà présente dans le buffer → pas de réinjection (ex. après reconnect)
+- `needle` : sous-chaîne déjà présente dans le buffer → pas de réinjection (changement d’onglet sans fermer le PV)
 
 Sans bloc `helpservWelcome`, les 3 bots par défaut (ci-dessus) s’appliquent.
+
+**Fermer le PV** (croix) puis le **rouvrir** réaffiche l’accueil. Changer d’onglet sans fermer ne le duplique pas.
 
 Après modification du `.js`, incrémenter `?v=` dans `plugins` pour forcer le cache navigateur.
 

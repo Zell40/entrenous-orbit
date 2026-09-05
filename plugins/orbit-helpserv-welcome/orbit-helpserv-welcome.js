@@ -15,17 +15,19 @@
  *       { "nick": "EcoutE", "needle": "…", "lines": ["…"] }
  *     ]
  *   }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=6"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=7"]
  *
- * In lines, {{nick}} is replaced with the user's nick. Config bots overlay
- * the built-in AideMoi / SignalMoi / EcoutE list by nick (they do not replace it).
+ * Closing the PV drops the buffer; the welcome is shown again on reopen.
+ * Switching away without closing keeps a single welcome (no spam).
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const B = '\x02'; // IRC bold
   const R = '\x0f'; // IRC reset
 
-  /** @type {Set<string>} */
+  /** @type {Set<string>} desks already welcomed while their PV buffer is open */
   const welcomed = new Set();
+  /** @type {Set<string>} in-flight inject (avoids double fire on the same tick) */
+  const pending = new Set();
 
   function fold(name) {
     return String(name || '').replace(/^[@+%~&]/, '').trim().toLowerCase();
@@ -149,31 +151,62 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     return false;
   }
 
+  /** Drop welcome locks for desks whose PV was closed (buffer removed). */
+  function forgetClosedDesks() {
+    const bots = loadBots();
+    const st = orbit.state.get();
+    const open = new Set();
+    const buffers = (st && st.buffers) || {};
+    for (const k of Object.keys(buffers)) {
+      const name = fold(k);
+      const display = fold(buffers[k] && buffers[k].name);
+      if (bots.has(name)) open.add(name);
+      if (display && bots.has(display)) open.add(display);
+    }
+    for (const key of [...welcomed]) {
+      if (!open.has(key)) welcomed.delete(key);
+    }
+    for (const key of [...pending]) {
+      if (!open.has(key)) pending.delete(key);
+    }
+  }
+
   function showWelcome(target) {
+    forgetClosedDesks();
     const bots = loadBots();
     const key = fold(target);
     const desk = bots.get(key);
     if (!desk) return;
-    if (welcomed.has(key)) return;
+    if (welcomed.has(key) || pending.has(key)) return;
 
     const nick = orbit.state.nick() || '';
 
     // Defer so openQuery/setActive (and setDraft from reportUser) have committed.
+    pending.add(key);
     setTimeout(() => {
-      if (welcomed.has(key)) return;
-      const st = orbit.state.get();
-      if (bufferHasNeedle(st, key, desk.needle)) {
-        welcomed.add(key);
-        return;
+      try {
+        forgetClosedDesks();
+        if (welcomed.has(key)) return;
+        const st = orbit.state.get();
+        // Still open and already showing the welcome (tab switch without close).
+        if (bufferHasNeedle(st, key, desk.needle)) {
+          welcomed.add(key);
+          return;
+        }
+        const name = resolveName(st, target, key);
+        const ok = injectLines(name, desk.nick, expandLines(desk.lines, nick));
+        if (ok) {
+          welcomed.add(key);
+          log('welcome privmsg for', name);
+        }
+      } finally {
+        pending.delete(key);
       }
-      const name = resolveName(st, target, key);
-      const ok = injectLines(name, desk.nick, expandLines(desk.lines, nick));
-      welcomed.add(key);
-      if (ok) log('welcome privmsg for', name);
     }, 0);
   }
 
   orbit.on('buffer.active', (name) => {
+    forgetClosedDesks();
     if (!name || String(name).charAt(0) === '#' || String(name).charAt(0) === '&') return;
     showWelcome(name);
   });
