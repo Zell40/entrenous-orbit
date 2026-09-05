@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=17"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=19"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -53,7 +53,7 @@
       infoText: '',
       flash: '',
       flashErr: false,
-      tab: 'salon',
+      reasonAsk: null,
       listeners: new Set(),
     };
     var snap = copyUi();
@@ -61,7 +61,7 @@
       return {
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
-        infoText: ui.infoText, flash: ui.flash, flashErr: ui.flashErr, tab: ui.tab,
+        infoText: ui.infoText, flash: ui.flash, flashErr: ui.flashErr, tab: ui.tab, reasonAsk: ui.reasonAsk,
       };
     }
     function subscribeUi(cb) { ui.listeners.add(cb); return function () { ui.listeners.delete(cb); }; }
@@ -661,9 +661,6 @@
       var openSt = useState(false);
       var open = openSt[0];
       var setOpen = openSt[1];
-      var reasonSt = useState('');
-      var reason = reasonSt[0];
-      var setReason = reasonSt[1];
       var closeT = useRef(0);
       var flyRef = useRef(null);
       function keepOpen() {
@@ -729,17 +726,11 @@
       var aop = serv ? can(ACCESS_RANK.aop) : ircOp;
       var vop = serv ? can(ACCESS_RANK.vop) : ircOp;
       var hopOk = hop && (serv ? can(ACCESS_RANK.hop) : ircOp);
-      var fly = [];
-      if (aop) {
-        fly.push(h('input', {
-          key: 'reason',
-          className: 'ocs-mm__reason',
-          value: reason,
-          placeholder: pick('Motif (kick / ban)', 'Reason (kick / ban)'),
-          onClick: function (e) { e.stopPropagation(); },
-          onChange: function (e) { setReason(e.target.value); },
-        }));
+      function askReason(kind) {
+        patchUi({ reasonAsk: { nick: nick, chan: ch, kind: kind, serv: !!serv } });
+        close();
       }
+      var fly = [];
       if (vop) {
         fly.push(h('button', { key: 'v', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
           serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick);
@@ -765,18 +756,16 @@
         } }, pick('Retirer op', 'Deop')));
         fly.push(h('button', {
           key: 'k', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-          onClick: function () {
-            var r = reason.trim();
-            serv ? go('KICK ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('KICK ' + ch + ' ' + nick + (r ? ' :' + r : ''));
-          },
+          onClick: function () { askReason('kick'); },
         }, pick('Expulser', 'Kick')));
         fly.push(h('button', {
           key: 'b', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-          onClick: function () {
-            var r = reason.trim();
-            serv ? go('BAN ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('MODE ' + ch + ' +b ' + nick + '!*@*');
-          },
+          onClick: function () { askReason('ban'); },
         }, pick('Bannir', 'Ban')));
+        fly.push(h('button', {
+          key: 'bk', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
+          onClick: function () { askReason('bankick'); },
+        }, pick('Bannir + éjecter', 'Ban + kick')));
       }
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
@@ -800,6 +789,71 @@
         ),
         open ? h('div', { className: 'ocs-mm__bridge', 'aria-hidden': true }) : null,
         open ? h('div', { ref: flyRef, className: 'ocs-mm__fly', role: 'menu', 'aria-label': title }, fly) : null
+      );
+    }
+
+    function ReasonAsk() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      var reasonSt = useState('');
+      var reason = reasonSt[0];
+      var setReason = reasonSt[1];
+      var ask = s.reasonAsk;
+      useEffect(function () {
+        setReason('');
+      }, [ask && ask.nick, ask && ask.kind, ask && ask.chan]);
+      if (!ask) return null;
+      var n = ask.nick;
+      var ch = ask.chan;
+      var title = ask.kind === 'kick'
+        ? pick('Motif de l’expulsion de ', 'Kick reason for ') + n
+        : ask.kind === 'bankick'
+          ? pick('Motif du bannir + éjecter ', 'Ban + kick reason for ') + n
+          : pick('Motif du bannissement de ', 'Ban reason for ') + n;
+      function run() {
+        var r = reason.trim() || pick('motif de kick', 'kick reason');
+        patchUi({ reasonAsk: null });
+        if (ask.serv) {
+          if (ask.kind === 'kick') runCmd('ChanServ', 'KICK ' + ch + ' ' + n + ' ' + r);
+          else if (ask.kind === 'ban') runCmd('ChanServ', 'BAN ' + ch + ' ' + n + ' ' + r);
+          else {
+            runCmd('ChanServ', 'BAN ' + ch + ' ' + n + ' ' + r);
+            runCmd('ChanServ', 'KICK ' + ch + ' ' + n + ' ' + r);
+          }
+        } else if (ask.kind === 'kick') {
+          orbit.irc.send('KICK ' + ch + ' ' + n + ' :' + r);
+        } else if (ask.kind === 'ban') {
+          orbit.irc.send('MODE ' + ch + ' +b ' + n + '!*@*');
+        } else {
+          orbit.irc.send('MODE ' + ch + ' +b ' + n + '!*@*');
+          orbit.irc.send('KICK ' + ch + ' ' + n + ' :' + r);
+        }
+      }
+      return h('div', {
+        className: 'memberrsn-scrim',
+        onMouseDown: function (e) { if (e.target === e.currentTarget) patchUi({ reasonAsk: null }); },
+      },
+        h('div', { className: 'memberrsn', role: 'dialog', 'aria-label': title },
+          h('div', { className: 'memberrsn__head' }, title),
+          h('input', {
+            className: 'memberrsn__in',
+            autoFocus: true,
+            value: reason,
+            placeholder: pick('Raison (sinon : motif de kick)', 'Reason (default: kick reason)'),
+            onChange: function (e) { setReason(e.target.value); },
+            onKeyDown: function (e) {
+              if (e.key === 'Enter') run();
+              if (e.key === 'Escape') patchUi({ reasonAsk: null });
+            },
+          }),
+          h('div', { className: 'memberrsn__row' },
+            h('button', { type: 'button', className: 'memberrsn__btn', onClick: function () { patchUi({ reasonAsk: null }); } }, pick('Annuler', 'Cancel')),
+            h('button', {
+              type: 'button',
+              className: 'memberrsn__btn memberrsn__btn--go',
+              onClick: run,
+            }, pick('Confirmer', 'Confirm'))
+          )
+        )
       );
     }
 
@@ -979,7 +1033,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'salon' });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'salon', reasonAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
@@ -987,6 +1041,7 @@
     orbit.addUi('topbar_item', function () { return h(HeaderButton); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
+    orbit.addUi('overlay', function () { return h(ReasonAsk); });
     if (typeof orbit.addMemberMenu === 'function') {
       orbit.addMemberMenu(function (ctx) {
         return h(MemberServMenu, { nick: ctx.nick, close: ctx.close });
