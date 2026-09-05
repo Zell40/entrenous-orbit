@@ -29,8 +29,13 @@ Hors v1 : ACCESS, AKICK, SET, DROP.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=19"]
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=21"],
+"chanserv": {
+  "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
+}
 ```
+
+Kick / ban / kickban : le motif est facultatif. S’il est vide, `chanserv.kickReason` est envoyé (menu liste native + Commandes bot).
 
 Créer une fois le fichier **sur le webroot** (pas seulement dans le clone git) :
 

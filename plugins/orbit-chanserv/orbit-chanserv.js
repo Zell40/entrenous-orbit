@@ -7,7 +7,8 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=19"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=21"]
+ *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -77,6 +78,14 @@
 
     function pick(fr, en) {
       return orbit.i18n.pick({ fr: fr, en: en });
+    }
+    function defaultKickReason() {
+      try {
+        var c = orbit.config && orbit.config();
+        var r = c && c.chanserv && String(c.chanserv.kickReason || '').trim();
+        if (r) return r;
+      } catch (e) { /* ignore */ }
+      return pick("Vous n'êtes pas le bienvenu sur ce salon", 'You are not welcome in this channel');
     }
     function isChannel(name) {
       return !!name && (name[0] === '#' || name[0] === '&');
@@ -496,7 +505,7 @@
         'border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45));',
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.65rem}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
-        '.ocs-title{margin:0;font-size:1.02rem;font-weight:800}',
+        '.ocs-title{margin:0;font-size:1.02rem;font-weight:800;display:flex;align-items:center;gap:.45rem}',
         '.ocs-x{border:0;background:transparent;color:var(--muted);font-size:1.3rem;cursor:pointer;border-radius:8px;padding:.1rem .35rem}',
         '.ocs-x:hover{background:var(--bg-soft);color:var(--ink)}',
         '.ocs-sub{font-size:.8rem;color:var(--muted);margin:0}',
@@ -508,6 +517,7 @@
         '.ocs-input,.ocs-select{width:100%;box-sizing:border-box;min-height:38px;padding:.45rem .65rem;border-radius:10px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit}',
         '.ocs-btn{min-height:36px;padding:.4rem .7rem;border-radius:10px;border:1px solid var(--border);',
+        'display:inline-flex;align-items:center;justify-content:center;gap:.4rem;',
         'background:var(--bg-soft);color:var(--ink);font:inherit;font-weight:700;font-size:.82rem;cursor:pointer}',
         '.ocs-btn:hover{background:var(--bg-soft-2,var(--bg))}',
         '.ocs-btn--primary{background:var(--accent);color:#fff;border:0}',
@@ -520,10 +530,14 @@
         '.ocs-info{white-space:pre-wrap;font-size:.78rem;line-height:1.4;color:var(--muted);max-height:7rem;overflow:auto}',
         '.ocs-tabs{display:flex;flex-wrap:wrap;gap:.15rem;border-bottom:1px solid var(--border);padding:0 0 .2rem}',
         '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.76rem;',
-        'padding:.4rem .6rem;border-radius:8px;cursor:pointer}',
+        'display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .6rem;border-radius:8px;cursor:pointer}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
         '.ocs-mm{position:relative;padding:.1rem 0 .15rem}',
         '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700}',
+        '.memberctx__item.ocs-mirow{display:flex;align-items:center;gap:.5rem}',
+        '.ocs-miwrap{display:inline-flex;flex:none;line-height:0}',
+        '.ocs-mi{flex:none;display:block;opacity:.88}',
+        '.memberctx__item:hover .ocs-mi,.ocs-mm.is-open .ocs-mm__trig .ocs-mi,.ocs-tab.is-on .ocs-mi{opacity:1}',
         '.ocs-mm__chev{opacity:.55;font-size:.95rem;line-height:1}',
         '.ocs-mm.is-open .ocs-mm__trig,.ocs-mm:hover .ocs-mm__trig{background:var(--accent);color:#fff}',
         '.ocs-mm__bridge{position:absolute;right:100%;top:-80px;bottom:-80px;width:18px;z-index:219}',
@@ -591,6 +605,52 @@
         'aria-hidden': 'true',
         className: 'ocs-ic ocs-ic--' + kind,
       }, badge ? hash.concat([badge]) : hash);
+    }
+
+    function Mi(name, size) {
+      var k = 0;
+      function p(d) { return h('path', { key: 'p' + (++k), d: d }); }
+      function c(cx, cy, r, fill) {
+        return h('circle', { key: 'c' + (++k), cx: cx, cy: cy, r: r, fill: fill || 'none', stroke: fill ? 'none' : undefined });
+      }
+      function l(x1, y1, x2, y2) { return h('line', { key: 'l' + (++k), x1: x1, y1: y1, x2: x2, y2: y2 }); }
+      var kids;
+      if (name === 'voice') kids = [h('polygon', { key: 'poly', points: '11 5 6 9 2 9 2 15 6 15 11 19 11 5' }), p('M15.54 8.46a5 5 0 0 1 0 7.07'), p('M19.07 4.93a10 10 0 0 1 0 14.14')];
+      else if (name === 'novoice') kids = [h('polygon', { key: 'poly', points: '11 5 6 9 2 9 2 15 6 15 11 19 11 5' }), l(22, 9, 16, 15), l(16, 9, 22, 15)];
+      else if (name === 'hop') kids = [p('M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'), p('M9.2 13h5.6')];
+      else if (name === 'nohop') kids = [p('M19.7 14a6.9 6.9 0 0 0 .3-2V6a1 1 0 0 0-1-1c-2 0-4.5-1.2-6.24-2.72a1.17 1.17 0 0 0-1.52 0C9.51 3.81 8 4.68 6.3 5'), p('M5 7v6c0 5 3.5 7.5 7.67 8.94a1 1 0 0 0 .67.01c1.8-.63 3.5-1.6 4.8-3'), l(2, 2, 22, 22)];
+      else if (name === 'op') kids = [p('m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z'), l(4, 20, 20, 20)];
+      else if (name === 'noop') kids = [p('m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z'), l(4, 20, 20, 20), l(3, 3, 21, 21)];
+      else if (name === 'kick') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), l(22, 11, 16, 11)];
+      else if (name === 'ban') kids = [c(12, 12, 10), p('m4.9 4.9 14.2 14.2')];
+      else if (name === 'bankick') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), l(17, 8, 22, 13), l(22, 8, 17, 13)];
+      else if (name === 'bot') kids = [p('M12 8V4H8'), h('rect', { key: 'r', x: 4, y: 8, width: 16, height: 12, rx: 2 }), p('M2 14h2'), p('M20 14h2'), p('M15 13v2'), p('M9 13v2')];
+      else if (name === 'hash') kids = [l(4, 9, 20, 9), l(4, 15, 20, 15), l(10, 3, 8, 21), l(16, 3, 14, 21)];
+      else if (name === 'topic') kids = [p('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z')];
+      else if (name === 'info') kids = [c(12, 12, 10), p('M12 16v-4'), p('M12 8h.01')];
+      else if (name === 'plus') kids = [c(12, 12, 10), p('M8 12h8'), p('M12 8v8')];
+      else if (name === 'list') kids = [p('M8 6h13'), p('M8 12h13'), p('M8 18h13'), c(4, 6, 1.1, 'currentColor'), c(4, 12, 1.1, 'currentColor'), c(4, 18, 1.1, 'currentColor')];
+      else if (name === 'assign') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), l(19, 8, 19, 14), l(22, 11, 16, 11)];
+      else if (name === 'unassign') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), l(22, 11, 16, 11)];
+      else if (name === 'say') kids = [p('M7.9 20A9 9 0 1 0 4 16.1L2 22z')];
+      else if (name === 'act') kids = [c(12, 5, 2), p('M9 20V9.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V20'), p('M6 8l2 2'), p('M18 8l-2 2')];
+      else if (name === 'check') kids = [p('M20 6 9 17l-5-5')];
+      else kids = [p('M12 5v14'), p('M5 12h14')];
+      return h('svg', {
+        viewBox: '0 0 24 24', width: size || 15, height: size || 15, fill: 'none',
+        stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': 'true', className: 'ocs-mi',
+      }, kids);
+    }
+    function labeled(icon, text) {
+      return [h('span', { key: 'i', className: 'ocs-miwrap', 'aria-hidden': true }, Mi(icon)), h('span', { key: 'l' }, text)];
+    }
+    function menuBtn(key, warn, onClick, icon, label) {
+      return h('button', {
+        key: key, type: 'button',
+        className: 'memberctx__item ocs-mirow' + (warn ? ' memberctx__item--warn' : ''),
+        role: 'menuitem', onClick: onClick,
+      }, labeled(icon, label));
     }
 
     function useActiveBuffer() {
@@ -732,40 +792,31 @@
       }
       var fly = [];
       if (vop) {
-        fly.push(h('button', { key: 'v', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        fly.push(menuBtn('v', false, function () {
           serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick);
-        } }, pick('Voix', 'Voice')));
-        fly.push(h('button', { key: 'dv', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        }, 'voice', pick('Voix', 'Voice')));
+        fly.push(menuBtn('dv', false, function () {
           serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick);
-        } }, pick('Retirer la voix', 'Devoice')));
+        }, 'novoice', pick('Retirer la voix', 'Devoice')));
       }
       if (hopOk) {
-        fly.push(h('button', { key: 'h', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        fly.push(menuBtn('h', false, function () {
           serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick);
-        } }, 'Halfop'));
-        fly.push(h('button', { key: 'dh', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        }, 'hop', 'Halfop'));
+        fly.push(menuBtn('dh', false, function () {
           serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick);
-        } }, pick('Retirer halfop', 'Dehalfop')));
+        }, 'nohop', pick('Retirer halfop', 'Dehalfop')));
       }
       if (aop) {
-        fly.push(h('button', { key: 'o', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        fly.push(menuBtn('o', false, function () {
           serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick);
-        } }, 'Op'));
-        fly.push(h('button', { key: 'do', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+        }, 'op', 'Op'));
+        fly.push(menuBtn('do', false, function () {
           serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick);
-        } }, pick('Retirer op', 'Deop')));
-        fly.push(h('button', {
-          key: 'k', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-          onClick: function () { askReason('kick'); },
-        }, pick('Expulser', 'Kick')));
-        fly.push(h('button', {
-          key: 'b', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-          onClick: function () { askReason('ban'); },
-        }, pick('Bannir', 'Ban')));
-        fly.push(h('button', {
-          key: 'bk', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-          onClick: function () { askReason('bankick'); },
-        }, pick('Bannir + éjecter', 'Ban + kick')));
+        }, 'noop', pick('Retirer op', 'Deop')));
+        fly.push(menuBtn('k', true, function () { askReason('kick'); }, 'kick', pick('Expulser', 'Kick')));
+        fly.push(menuBtn('b', true, function () { askReason('ban'); }, 'ban', pick('Bannir', 'Ban')));
+        fly.push(menuBtn('bk', true, function () { askReason('bankick'); }, 'bankick', pick('Bannir + éjecter', 'Ban + kick')));
       }
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
@@ -785,6 +836,7 @@
           },
         },
           h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
+          Mi('bot'),
           h('span', null, title)
         ),
         open ? h('div', { className: 'ocs-mm__bridge', 'aria-hidden': true }) : null,
@@ -810,7 +862,7 @@
           ? pick('Motif du bannir + éjecter ', 'Ban + kick reason for ') + n
           : pick('Motif du bannissement de ', 'Ban reason for ') + n;
       function run() {
-        var r = reason.trim() || pick('motif de kick', 'kick reason');
+        var r = reason.trim() || defaultKickReason();
         patchUi({ reasonAsk: null });
         if (ask.serv) {
           if (ask.kind === 'kick') runCmd('ChanServ', 'KICK ' + ch + ' ' + n + ' ' + r);
@@ -838,7 +890,7 @@
             className: 'memberrsn__in',
             autoFocus: true,
             value: reason,
-            placeholder: pick('Raison (sinon : motif de kick)', 'Reason (default: kick reason)'),
+            placeholder: defaultKickReason(),
             onChange: function (e) { setReason(e.target.value); },
             onKeyDown: function (e) {
               if (e.key === 'Enter') run();
@@ -893,7 +945,7 @@
 
       var kids = [
         h('div', { className: 'ocs-head' },
-          h('h2', { className: 'ocs-title' }, pick('Services du salon', 'Channel services')),
+          h('h2', { className: 'ocs-title' }, h(ChanIcon, { kind: iconKind(s, ch) }), pick('Services du salon', 'Channel services')),
           h('button', { type: 'button', className: 'ocs-x', onClick: closePanel, 'aria-label': pick('Fermer', 'Close') }, '×')
         ),
         h('p', { className: 'ocs-sub' }, ch),
@@ -921,7 +973,7 @@
             var d = desc.trim() || pick('Salon EntreNous', 'EntreNous channel');
             runCmd('ChanServ', 'REGISTER ' + ch + ' ' + d, true);
           },
-        }, pick('Enregistrer le salon', 'Register channel')));
+        }, labeled('plus', pick('Enregistrer le salon', 'Register channel'))));
       }
       if (s.registered === true) {
         var tabs = [
@@ -929,21 +981,21 @@
             type: 'button',
             className: 'ocs-tab' + (tab === 'salon' ? ' is-on' : ''),
             onClick: function () { patchUi({ tab: 'salon' }); },
-          }, pick('Salon', 'Channel')),
+          }, labeled('hash', pick('Salon', 'Channel'))),
         ];
         if (showSujet) {
           tabs.push(h('button', {
             type: 'button',
             className: 'ocs-tab' + (tab === 'sujet' ? ' is-on' : ''),
             onClick: function () { patchUi({ tab: 'sujet' }); },
-          }, pick('Sujet', 'Topic')));
+          }, labeled('topic', pick('Sujet', 'Topic'))));
         }
         if (showBot) {
           tabs.push(h('button', {
             type: 'button',
             className: 'ocs-tab' + (tab === 'bot' ? ' is-on' : ''),
             onClick: function () { patchUi({ tab: 'bot' }); },
-          }, 'Bot'));
+          }, labeled('bot', 'Bot')));
         }
         kids.push(h('div', { className: 'ocs-tabs', role: 'tablist' }, tabs));
         kids.push(h('div', { className: 'ocs-row' },
@@ -961,7 +1013,7 @@
               patchUi({ loading: true });
               cs('INFO ' + ch);
             },
-          }, pick('Info du salon', 'Channel info')));
+          }, labeled('info', pick('Info du salon', 'Channel info'))));
           if (infoOpen && s.infoText) kids.push(h('pre', { className: 'ocs-info' }, s.infoText));
         }
 
@@ -973,7 +1025,7 @@
             type: 'button',
             className: 'ocs-btn ocs-btn--primary',
             onClick: function () { if (topic.trim()) runCmd('ChanServ', 'TOPIC ' + ch + ' ' + topic.trim()); },
-          }, pick('Changer le sujet', 'Set topic')));
+          }, labeled('check', pick('Changer le sujet', 'Set topic')));
         }
 
         if (tab === 'bot' && showBot) {
@@ -981,7 +1033,7 @@
             if (!s.bot) {
               if (!s.bots.length) {
                 kids.push(h('button', { type: 'button', className: 'ocs-btn', onClick: queryBotlist },
-                  pick('Charger la liste des bots', 'Load bot list')));
+                  labeled('list', pick('Charger la liste des bots', 'Load bot list'))));
               } else {
                 kids.push(h(Field, { label: pick('Bot à assigner', 'Bot to assign') },
                   h('select', {
@@ -999,14 +1051,14 @@
                     var b = botPick || s.bots[0];
                     if (b) runCmd('BotServ', 'ASSIGN ' + ch + ' ' + b, true);
                   },
-                }, pick('Assigner le bot', 'Assign bot')));
+                }, labeled('assign', pick('Assigner le bot', 'Assign bot'))));
               }
             } else {
               kids.push(h('button', {
                 type: 'button',
                 className: 'ocs-btn',
                 onClick: function () { runCmd('BotServ', 'UNASSIGN ' + ch, true); },
-              }, pick('Retirer le bot', 'Unassign bot')));
+              }, labeled('unassign', pick('Retirer le bot', 'Unassign bot'))));
             }
           }
           if (s.bot && can(ACCESS_RANK.aop)) {
@@ -1016,10 +1068,10 @@
             kids.push(h('div', { className: 'ocs-row' },
               h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
                 if (say.trim()) runCmd('BotServ', 'SAY ' + ch + ' ' + say.trim());
-              } }, pick('Dire', 'Say')),
+              } }, labeled('say', pick('Dire', 'Say'))),
               h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
                 if (say.trim()) runCmd('BotServ', 'ACT ' + ch + ' ' + say.trim());
-              } }, pick('Action', 'Act'))
+              } }, labeled('act', pick('Action', 'Act')))
             ));
           }
         }
