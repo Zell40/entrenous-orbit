@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=14"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=15"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -100,20 +100,46 @@
     function rank() { return ACCESS_RANK[ui.access] || 0; }
     function can(min) { return rank() >= min; }
     function identified() { return !!orbit.state.account(); }
+    function findBuffer(chan) {
+      try {
+        var st = orbit.state.get();
+        if (!st || !st.buffers) return null;
+        if (st.buffers[chan]) return st.buffers[chan];
+        var want = String(chan || '').toLowerCase();
+        if (st.buffers[want]) return st.buffers[want];
+        var keys = Object.keys(st.buffers);
+        for (var i = 0; i < keys.length; i++) {
+          if (keys[i].toLowerCase() === want) return st.buffers[keys[i]];
+        }
+      } catch (e) { /* ignore */ }
+      return null;
+    }
     function amChannelOp(chan) {
       try {
         var st = orbit.state.get();
-        var buf = st.buffers && (st.buffers[chan] || st.buffers[String(chan || '').toLowerCase()]);
-        if (!buf && st.buffers) {
-          var keys = Object.keys(st.buffers);
-          var want = String(chan || '').toLowerCase();
-          for (var i = 0; i < keys.length; i++) {
-            if (keys[i].toLowerCase() === want) { buf = st.buffers[keys[i]]; break; }
-          }
-        }
+        var buf = findBuffer(chan);
         var mem = buf && buf.members && buf.members[st.nick];
         return /[~&@%]/.test((mem && (mem.prefixes || mem.prefix)) || '');
       } catch (e) { return false; }
+    }
+    function isNamedService(n) {
+      return /^(chan|bot|nick|host|memo|oper|help|global|link)serv$/i.test(String(n || '').replace(/\[.*$/, ''));
+    }
+    function channelBotNick(chan, fromInfo) {
+      var info = String(fromInfo || '').replace(/[.,;]+$/, '').trim();
+      if (info && !/^(none|aucun|n\/?a|-|\*|no)$/i.test(info) && !isNamedService(info)) return info;
+      var buf = findBuffer(chan);
+      var members = (buf && buf.members) || {};
+      var best = '';
+      var bestRank = 99;
+      Object.keys(members).forEach(function (n) {
+        var m = members[n];
+        if (!m || !m.bot || isNamedService(n)) return;
+        var p = m.prefixes || m.prefix || '';
+        var r = !p ? 90 : (p.indexOf('~') >= 0 ? 0 : p.indexOf('&') >= 0 ? 1 : p.indexOf('@') >= 0 ? 2 : p.indexOf('%') >= 0 ? 3 : p.indexOf('+') >= 0 ? 4 : 80);
+        if (r < bestRank) { bestRank = r; best = m.nick || n; }
+      });
+      return best;
     }
 
     function isServNick(name) {
@@ -334,8 +360,9 @@
       }
       var fm = raw.match(/(?:fondateur|founder)\s*:\s*(\S+)/i);
       if (fm) out.founder = fm[1].replace(/[.,;]+$/, '');
-      var bm = raw.match(/(?:^|\n)\s*(?:bot|botserv)\s*:\s*(\S+)/i);
-      if (bm && !/^n\/?a$/i.test(bm[1]) && bm[1] !== '-' && bm[1] !== '*') {
+      var bm = raw.match(/(?:bot(?:serv)?|robot)\s*(?:assigne[e]?|assigned)?\s*:\s*(\S+)/i)
+        || raw.match(/\bbot\s+(\S+)\s+(?:is assigned|assigne)/i);
+      if (bm && !/^(n\/?a|none|aucun|-|\*|no)$/i.test(bm[1]) && !isNamedService(bm[1])) {
         out.bot = bm[1].replace(/[.,;]+$/, '');
       }
       return out;
@@ -494,7 +521,13 @@
         '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.76rem;',
         'padding:.4rem .6rem;border-radius:8px;cursor:pointer}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
-        '.ocs-mm{display:flex;flex-direction:column;gap:1px;padding:.1rem 0 .15rem}',
+        '.ocs-mm{position:relative;padding:.1rem 0 .15rem}',
+        '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700}',
+        '.ocs-mm__chev{opacity:.55;font-size:.95rem;line-height:1}',
+        '.ocs-mm.is-open .ocs-mm__trig,.ocs-mm:hover .ocs-mm__trig{background:var(--accent);color:#fff}',
+        '.ocs-mm__fly{position:absolute;right:calc(100% + 6px);top:-4px;z-index:220;min-width:196px;max-width:260px;',
+        'padding:4px;border-radius:10px;background:var(--bg);color:var(--ink);border:1px solid var(--border-2);',
+        'box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45))}',
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;font-size:.8rem;',
         'width:calc(100% - .9rem);box-sizing:border-box}',
@@ -623,7 +656,7 @@
       var close = props.close;
       var chan = useActiveBuffer();
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
-      var openSt = useState(true);
+      var openSt = useState(false);
       var open = openSt[0];
       var setOpen = openSt[1];
       var reasonSt = useState('');
@@ -643,7 +676,8 @@
       if (!serv && !ircOp) return null;
       var ch = s.chan || chan;
       var hop = hasHalfop();
-      var botName = s.bot || 'ChanServ';
+      var botName = channelBotNick(ch, s.bot);
+      if (!botName) return null;
       var title = pick('Commandes ', 'Commands ') + botName;
       function go(line) {
         runCmd('ChanServ', line, false);
@@ -653,68 +687,76 @@
         orbit.irc.send(line);
         close();
       }
-      var kids = [
+      var aop = serv ? can(ACCESS_RANK.aop) : ircOp;
+      var vop = serv ? can(ACCESS_RANK.vop) : ircOp;
+      var hopOk = hop && (serv ? can(ACCESS_RANK.hop) : ircOp);
+      var fly = [];
+      if (aop) {
+        fly.push(h('input', {
+          key: 'reason',
+          className: 'ocs-mm__reason',
+          value: reason,
+          placeholder: pick('Motif (kick / ban)', 'Reason (kick / ban)'),
+          onClick: function (e) { e.stopPropagation(); },
+          onChange: function (e) { setReason(e.target.value); },
+        }));
+      }
+      if (vop) {
+        fly.push(h('button', { key: 'v', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick);
+        } }, pick('Voix', 'Voice')));
+        fly.push(h('button', { key: 'dv', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick);
+        } }, pick('Retirer la voix', 'Devoice')));
+      }
+      if (hopOk) {
+        fly.push(h('button', { key: 'h', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick);
+        } }, 'Halfop'));
+        fly.push(h('button', { key: 'dh', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick);
+        } }, pick('Retirer halfop', 'Dehalfop')));
+      }
+      if (aop) {
+        fly.push(h('button', { key: 'o', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick);
+        } }, 'Op'));
+        fly.push(h('button', { key: 'do', type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
+          serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick);
+        } }, pick('Retirer op', 'Deop')));
+        fly.push(h('button', {
+          key: 'k', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
+          onClick: function () {
+            var r = reason.trim();
+            serv ? go('KICK ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('KICK ' + ch + ' ' + nick + (r ? ' :' + r : ''));
+          },
+        }, pick('Expulser', 'Kick')));
+        fly.push(h('button', {
+          key: 'b', type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
+          onClick: function () {
+            var r = reason.trim();
+            serv ? go('BAN ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('MODE ' + ch + ' +b ' + nick + '!*@*');
+          },
+        }, pick('Bannir', 'Ban')));
+      }
+      return h('div', {
+        className: 'ocs-mm' + (open ? ' is-open' : ''),
+        onMouseEnter: function () { setOpen(true); },
+        onMouseLeave: function () { setOpen(false); },
+      },
         h('button', {
           type: 'button',
-          className: 'memberctx__item memberctx__item--sub',
+          className: 'memberctx__item memberctx__item--sub ocs-mm__trig',
           role: 'menuitem',
+          'aria-haspopup': 'menu',
           'aria-expanded': open,
           onClick: function (e) { e.stopPropagation(); setOpen(!open); },
-        }, title + (open ? ' ▾' : ' ▸')),
-      ];
-      if (open) {
-        var aop = serv ? can(ACCESS_RANK.aop) : ircOp;
-        var vop = serv ? can(ACCESS_RANK.vop) : ircOp;
-        var hopOk = hop && (serv ? can(ACCESS_RANK.hop) : ircOp);
-        if (aop) {
-          kids.push(h('input', {
-            className: 'ocs-mm__reason',
-            value: reason,
-            placeholder: pick('Motif (kick / ban)', 'Reason (kick / ban)'),
-            onClick: function (e) { e.stopPropagation(); },
-            onChange: function (e) { setReason(e.target.value); },
-          }));
-        }
-        if (vop) {
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick);
-          } }, pick('Voix', 'Voice')));
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick);
-          } }, pick('Retirer la voix', 'Devoice')));
-        }
-        if (hopOk) {
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick);
-          } }, 'Halfop'));
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick);
-          } }, pick('Retirer halfop', 'Dehalfop')));
-        }
-        if (aop) {
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick);
-          } }, 'Op'));
-          kids.push(h('button', { type: 'button', className: 'memberctx__item', role: 'menuitem', onClick: function () {
-            serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick);
-          } }, pick('Retirer op', 'Deop')));
-          kids.push(h('button', {
-            type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-            onClick: function () {
-              var r = reason.trim();
-              serv ? go('KICK ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('KICK ' + ch + ' ' + nick + (r ? ' :' + r : ''));
-            },
-          }, pick('Expulser', 'Kick')));
-          kids.push(h('button', {
-            type: 'button', className: 'memberctx__item memberctx__item--warn', role: 'menuitem',
-            onClick: function () {
-              var r = reason.trim();
-              serv ? go('BAN ' + ch + ' ' + nick + (r ? ' ' + r : '')) : goIrc('MODE ' + ch + ' +b ' + nick + '!*@*');
-            },
-          }, pick('Bannir', 'Ban')));
-        }
-      }
-      return h('div', { className: 'ocs-mm' }, kids);
+        },
+          h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
+          h('span', null, title)
+        ),
+        open ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': title }, fly) : null
+      );
     }
 
     function Panel() {
