@@ -6,7 +6,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=8"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=9"]
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
@@ -112,10 +112,7 @@
     }
 
     function iconVisible(s, chan) {
-      if (!isChannel(chan) || !identified()) return false;
-      // Hide only once INFO/STATUS says registered + no ChanServ access.
-      if (s.registered === true && s.access === 'none') return false;
-      return true;
+      return isChannel(chan) && identified();
     }
 
     function cs(cmd) {
@@ -234,6 +231,7 @@
 
     function applyProbeTexts(chan, infoText, statusText) {
       var info = parseInfo(infoText || '');
+      if (isUnregisteredText(statusText || '')) info.registered = false;
       var acc = 'none';
       if (info.registered) {
         acc = parseAccess(statusText || '') || 'none';
@@ -328,11 +326,15 @@
       return '';
     }
 
+    function isUnregisteredText(text) {
+      var t = foldText(text).replace(/[\u2018\u2019\u02bc`]/g, "'");
+      return /pas enregistre|is not registered|isn'?t registered|n'?est pas|n'?existe pas|not registered/.test(t);
+    }
+
     function parseInfo(text) {
       var raw = stripIrc(text);
-      var t = foldText(raw);
       var out = { registered: true, founder: '', bot: '', infoText: raw.trim() };
-      if (/n[' ]est pas enregistre|isn['\u2019 ]?t registered|is not registered|n[' ]existe pas/.test(t)) {
+      if (isUnregisteredText(raw)) {
         out.registered = false;
         return out;
       }
@@ -758,6 +760,6 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     log('ChanServ/BotServ panel — topbar + overlay');
-    statusLog('chargé v8 — traces RPC/IRC ici (Status)');
+    statusLog('chargé v9 — traces RPC/IRC ici (Status)');
   });
 })();
