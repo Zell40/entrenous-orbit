@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=46"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=47"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -55,7 +55,7 @@
       botInfo: '',
       ytStats: '',
       entryMsgs: [],
-      badwordsText: '',
+      badwords: [],
       flash: '',
       flashErr: false,
       lastCmd: '',
@@ -71,7 +71,7 @@
       return {
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
-        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwordsText: ui.badwordsText,
+        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(),
         flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
         accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
       };
@@ -329,7 +329,7 @@
       patchUi({
         chan: chan, loading: false, registered: c.registered, founder: c.founder,
         bot: c.bot, access: c.access, infoText: c.infoText, flash: '',
-        botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '',
+        botInfo: '', ytStats: '', entryMsgs: [], badwords: [],
       });
       return true;
     }
@@ -372,11 +372,11 @@
 
     function queryInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) {
-        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' });
+        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwords: [] });
         return;
       }
       if (applyCache(chan)) return;
-      var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' };
+      var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwords: [] };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
       rpcCall('probe', chan).then(function (data) {
@@ -408,9 +408,12 @@
       });
     }
 
-    function queryBotInfo(chan) {
+    function queryBotInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) return;
       beginExpect('botinfo', chan);
+      if (opts && opts.notify) {
+        patchUi({ lastCmd: 'BotServ INFO ' + chan, loading: true, flash: '', flashErr: false });
+      }
       bs('INFO ' + chan);
     }
 
@@ -418,6 +421,12 @@
       if (!isChannel(chan) || !identified()) return;
       beginExpect('entrymsg', chan);
       cs('ENTRYMSG ' + chan + ' LIST');
+    }
+
+    function queryBadwords(chan) {
+      if (!isChannel(chan) || !identified()) return;
+      beginExpect('badwords', chan);
+      bs('BADWORDS ' + chan + ' LIST');
     }
 
     function queryAccess(chan, force) {
@@ -649,9 +658,27 @@
       String(text || '').split(/\n/).forEach(function (line) {
         var s = stripIrc(line).trim();
         if (!s) return;
-        if (/^(liste|list|end of|fin de|messages? d[' ]?accueil|entry ?msg)/i.test(s) && !/^\d+/.test(s)) return;
-        var m = s.match(/^(?:[-*•]\s*)?(\d+)[.)]\s+(.+)$/) || s.match(/^\[(\d+)\]\s+(.+)$/);
-        if (m) rows.push({ n: m[1], text: m[2].replace(/[.,;]+$/, '') });
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s*(.+)$/)
+          || s.match(/^\[(\d+)\]\s*(.+)$/)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s{2,}(.+)$/);
+        if (!m) return;
+        var rest = m[2].trim();
+        if (!rest || /^(end of|fin de|liste|list)\b/i.test(rest)) return;
+        rows.push({ n: m[1], text: rest });
+      });
+      return rows;
+    }
+    function parseBadwordsList(text) {
+      var rows = [];
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        if (!s) return;
+        if (/^(liste|list|num[eé]ro|fin de|end of|syntaxe|syntax)\b/i.test(s)) return;
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)\s+(\S+)\s+(ANY|SINGLE|START|END)\s*$/i)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s+(\S+)\s*$/);
+        if (!m) return;
+        if (/^(num|mot|word|type)$/i.test(m[2])) return;
+        rows.push({ n: m[1], word: m[2], type: (m[3] || 'ANY').toUpperCase() });
       });
       return rows;
     }
@@ -704,9 +731,15 @@
       if (kind === 'botinfo') {
         var botRaw = stripIrc(text);
         var botNick = parseBotNick(botRaw);
-        patchUi({ botInfo: botRaw, loading: false, bot: botNick || ui.bot });
+        var asked = /BotServ INFO/i.test(ui.lastCmd || '');
+        patchUi({
+          botInfo: botRaw,
+          loading: false,
+          bot: botNick || ui.bot,
+          flash: asked ? pick('Informations BotServ actualisées.', 'BotServ info updated.') : ui.flash,
+          flashErr: false,
+        });
         expectKind = '';
-        if (ui.tab === 'divers') queryEntryMsg(chan);
         return;
       }
       if (kind === 'ytstats') {
@@ -716,18 +749,19 @@
       }
       if (kind === 'entrymsg') {
         var entryRaw = stripIrc(text);
-        var entryErr = looksLikeServError(entryRaw);
+        var entryRows = parseEntryList(entryRaw);
+        var entryErr = looksLikeServError(entryRaw) && !entryRows.length;
         patchUi({
-          entryMsgs: entryErr ? ui.entryMsgs : parseEntryList(entryRaw),
+          entryMsgs: entryErr ? ui.entryMsgs : entryRows,
           loading: false,
           flash: entryErr ? entryRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
-          flashErr: entryErr ? true : ui.flashErr,
+          flashErr: !!entryErr,
         });
         expectKind = '';
         return;
       }
       if (kind === 'badwords') {
-        patchUi({ badwordsText: stripIrc(text), loading: false, flash: '', flashErr: false });
+        patchUi({ badwords: parseBadwordsList(text), loading: false, flash: '', flashErr: false });
         expectKind = '';
         return;
       }
@@ -802,6 +836,8 @@
         if (!err && ui.chan) {
           if (/^BotServ (SET|KICK)\b/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryBotInfo(ui.chan); }, 400);
+          } else if (/^BotServ BADWORDS\b/i.test(ui.lastCmd || '')) {
+            setTimeout(function () { queryBadwords(ui.chan); }, 400);
           } else if (/^ChanServ ENTRYMSG\b/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryEntryMsg(ui.chan); }, 400);
           } else if (!/^BotServ\b/i.test(ui.lastCmd || '')) {
@@ -1730,6 +1766,9 @@
       var botWordSt = useState('');
       var botWord = botWordSt[0];
       var setBotWord = botWordSt[1];
+      var bwTypeSt = useState('ANY');
+      var bwType = bwTypeSt[0];
+      var setBwType = bwTypeSt[1];
       var ytKindSt = useState('channel');
       var ytKind = ytKindSt[0];
       var setYtKind = ytKindSt[1];
@@ -1760,10 +1799,15 @@
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
       useEffect(function () {
         if (!s.open || s.registered !== true) return undefined;
-        if (s.tab !== 'set' && s.tab !== 'divers') return undefined;
-        queryBotInfo(s.chan || chan);
+        if (s.tab === 'set') queryBotInfo(s.chan || chan);
+        if (s.tab === 'divers') queryEntryMsg(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered]);
+      useEffect(function () {
+        if (!s.open || s.registered !== true || s.tab !== 'set' || setGroup !== 'mod') return undefined;
+        queryBadwords(s.chan || chan);
+        return undefined;
+      }, [s.open, s.tab, setGroup, s.chan, s.registered]);
       useLayoutEffect(function () {
         if (!s.open) return undefined;
         var el = panelRef.current;
@@ -1867,7 +1911,11 @@
           s.flash
         ));
       }
-      if (s.loading) chrome.push(h('p', { className: 'ocs-sub' }, pick('Interrogation de ChanServ…', 'Asking ChanServ…')));
+      if (s.loading) chrome.push(h('p', { className: 'ocs-sub' },
+        /BotServ/i.test(s.lastCmd || '')
+          ? pick('Interrogation de BotServ…', 'Asking BotServ…')
+          : pick('Interrogation de ChanServ…', 'Asking ChanServ…')
+      ));
       var body = [];
       if (s.registered === false) {
         body.push(h(Field, { label: pick('Description (optionnel)', 'Description (optional)') },
@@ -2182,21 +2230,48 @@
               body.push(h(Field, { label: pick('Mot interdit (BADWORDS)', 'Forbidden word (BADWORDS)') },
                 h('input', { className: 'ocs-input', value: botWord, onChange: function (e) { setBotWord(e.target.value); } })
               ));
+              body.push(subTabs(bwType, setBwType, [
+                { id: 'ANY', label: 'ANY' },
+                { id: 'SINGLE', label: 'SINGLE' },
+                { id: 'START', label: 'START' },
+                { id: 'END', label: 'END' },
+              ]));
+              body.push(h('p', { className: 'ocs-sub' }, pick(
+                'ANY = le mot n’importe où, SINGLE = mot entier, START / END = début / fin du mot.',
+                'ANY = anywhere, SINGLE = whole word, START / END = word start / end.'
+              )));
               body.push(h('div', { className: 'ocs-row' },
                 h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-                  if (botWord.trim()) goBs('BADWORDS ' + ch + ' ADD ' + botWord.trim());
+                  var w = botWord.trim();
+                  if (!w) return;
+                  goBs('BADWORDS ' + ch + ' ADD ' + w + (bwType && bwType !== 'ANY' ? ' ' + bwType : ''));
                 } }, labeled('plus', pick('Ajouter', 'Add'))),
                 h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-                  if (botWord.trim()) goBs('BADWORDS ' + ch + ' DEL ' + botWord.trim());
+                  var w = botWord.trim();
+                  if (w) goBs('BADWORDS ' + ch + ' DEL ' + w);
                 } }, labeled('novoice', pick('Retirer', 'Remove'))),
-                h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-                  beginExpect('badwords', ch);
-                  patchUi({ lastCmd: 'BotServ BADWORDS ' + ch + ' LIST', loading: true, flash: '', flashErr: false });
-                  bs('BADWORDS ' + ch + ' LIST');
-                } }, labeled('list', pick('Liste', 'List')))
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBadwords(ch); } },
+                  labeled('list', pick('Liste', 'List'))),
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('BADWORDS ' + ch + ' CLEAR'); } },
+                  labeled('unassign', pick('Tout vider', 'Clear all')))
               ));
-              if (s.badwordsText) {
-                body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.badwordsText)));
+              if (!(s.badwords && s.badwords.length)) {
+                body.push(h('p', { className: 'ocs-sub' }, pick('Aucun mot interdit.', 'No forbidden words.')));
+              } else {
+                body.push(h('div', { className: 'ocs-acc' },
+                  h('div', { className: 'ocs-acc__g' },
+                    [h('div', { className: 'ocs-acc__h' }, pick('Mots interdits', 'Forbidden words'))].concat(s.badwords.map(function (row) {
+                      return h('div', { key: row.n, className: 'ocs-acc__row' },
+                        h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.word),
+                        h('span', { className: 'ocs-pill' }, row.type),
+                        h('button', {
+                          type: 'button', className: 'ocs-btn',
+                          onClick: function () { goBs('BADWORDS ' + ch + ' DEL ' + row.n); },
+                        }, pick('Retirer', 'Remove'))
+                      );
+                    }))
+                  )
+                ));
               }
               return;
             }
@@ -2236,7 +2311,7 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
               if (botSay.trim()) goBs('ACT ' + ch + ' ' + botSay.trim());
             } }, labeled('act', 'ACT')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotInfo(ch); } },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotInfo(ch, { notify: true }); } },
               labeled('info', 'INFO'))
           ));
           body.push(h('p', { className: 'ocs-h' }, 'YTSTATS'));
@@ -2358,7 +2433,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '', loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
