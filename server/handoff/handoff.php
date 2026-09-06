@@ -162,13 +162,19 @@ if (!$bouncer && $resumeAccount !== '') {
         }
         $sig = hash_hmac('sha256', $body, $secret);
         $cookie = rtrim(strtr(base64_encode($body . "\n" . $sig), '+/', '-_'), '=');
-        setcookie('orbit_en_resume', $cookie, [
+        $resumeOpts = [
             'expires'  => $cookieExp,
             'path'     => '/',
             'secure'   => true,
             'httponly' => true,
             'samesite' => 'Lax',
-        ]);
+        ];
+        // Same eTLD+1 as orbit_en_listen so a handoff on webapp2 still
+        // resumes on webapp (and the reverse). Empty domain = host-only.
+        if ($listenDomain !== '') {
+            $resumeOpts['domain'] = $listenDomain;
+        }
+        setcookie('orbit_en_resume', $cookie, $resumeOpts);
     }
 }
 

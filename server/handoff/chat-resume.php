@@ -38,7 +38,9 @@ if ($secret === '' || $ttl < 60) {
 
 $raw = $_COOKIE['orbit_en_resume'] ?? '';
 if ($raw === '') {
-    http_response_code(401);
+    // Expected when the tab was opened without a WordPress handoff (guest,
+    // join form, leftover localStorage). Not an auth failure — Orbit just
+    // keeps the in-memory JWT. HTTP 200 so the browser console stays clean.
     echo json_encode(['ok' => false, 'error' => 'no_session']);
     exit;
 }
@@ -63,7 +65,6 @@ $n = count($parts);
 // Legacy: nick \n account \n exp \n sig (4)
 // Current: nick \n account \n exp \n realname \n sig (5) — realname may be empty
 if ($n !== 4 && $n !== 5) {
-    http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'bad_cookie']);
     exit;
 }
@@ -82,7 +83,6 @@ if ($n === 5) {
 $exp = (int)$expStr;
 $expect = hash_hmac('sha256', $payload, $secret);
 if (!hash_equals($expect, $sig) || $exp < time() || $nick === '' || $account === '') {
-    http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'expired']);
     exit;
 }
