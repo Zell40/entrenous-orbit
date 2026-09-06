@@ -4,9 +4,9 @@ Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
 L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
 
-Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Divers** (une seule ligne ; le panneau s’élargit).
+Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Bot**, **Divers**.
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
-**Commandes ChanServ** (ou le bot du salon), filtré selon l’accès ChanServ.
+**Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
 
 **Lectures** (INFO / STATUS / BOTLIST / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
 **Actions** (SET, TOPIC, MODE, KICK, …) : IRC `PRIVMSG` vers ChanServ / BotServ. Syntaxe Anope 2 : `SET option canal paramètres`.
@@ -25,6 +25,8 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | AOP+ | Panneau → Topic | Topic, lock, keep |
 | AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, entrymsg |
 | SOP+ | Panneau → Accès / SET | Liste XOP visible, ajout/retrait, SET |
+| AOP+ | Panneau → Bot | SAY / ACT, FANTASY, BADWORDS, INFO |
+| SOP+ | Panneau → Bot | ASSIGN / UNASSIGN / BOTLIST |
 | Fondateur | Panneau → Divers | Suppression du salon (popup Orbit + code ChanServ) |
 
 Hors v1 : AKICK, FLAGS.
@@ -32,7 +34,7 @@ Hors v1 : AKICK, FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=39"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=40"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
