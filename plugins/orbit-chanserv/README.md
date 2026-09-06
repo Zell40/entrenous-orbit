@@ -32,7 +32,7 @@ Hors v1 : AKICK, FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=28"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=31"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
