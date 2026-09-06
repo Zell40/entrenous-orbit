@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=22"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=23"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -54,6 +54,7 @@
       infoText: '',
       flash: '',
       flashErr: false,
+      tab: 'info',
       reasonAsk: null,
       listeners: new Set(),
     };
@@ -427,7 +428,7 @@
       if (kind === 'cmd') {
         var raw = stripIrc(text).replace(/\s+/g, ' ').trim().slice(0, 400);
         var err = looksLikeServError(raw);
-        patchUi({ flash: raw, flashErr: err || !looksLikeServOk(raw), loading: false, open: err ? true : ui.open });
+        patchUi({ flash: raw, flashErr: !!err, loading: false, open: err ? true : ui.open });
         expectKind = '';
         cache = {};
         if (!err && ui.chan) {
@@ -500,8 +501,8 @@
         document.head.appendChild(el);
       }
       el.textContent = [
-        '.ocs-panel{position:fixed;right:12px;top:58px;z-index:160;width:min(420px,calc(100vw - 1.5rem));',
-        'max-height:min(78vh,640px);overflow:auto;background:var(--bg);color:var(--ink);',
+        '.ocs-panel{position:fixed;right:12px;top:58px;z-index:160;width:min(440px,calc(100vw - 1.5rem));',
+        'max-height:min(88vh,840px);overflow:auto;background:var(--bg);color:var(--ink);',
         'border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45));',
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.65rem}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
@@ -521,13 +522,17 @@
         'background:var(--bg-soft);color:var(--ink);font:inherit;font-weight:700;font-size:.82rem;cursor:pointer}',
         '.ocs-btn:hover{background:var(--bg-soft-2,var(--bg))}',
         '.ocs-btn--primary{background:var(--accent);color:#fff;border:0}',
-        '.ocs-flash{font-size:.88rem;line-height:1.45;padding:.6rem .75rem;border-radius:12px;',
-        'background:var(--bg-soft);border:1px solid var(--border)}',
+        '.ocs-btn--warn{color:var(--danger,#b91c1c);border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
+        '.ocs-flash{font-size:.88rem;line-height:1.45;padding:.6rem .75rem;border-radius:12px;font-weight:650;',
+        'color:var(--accent);background:var(--accent-soft);',
+        'border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border))}',
         '.ocs-flash.is-err{color:var(--danger,#b91c1c);font-weight:700;',
         'background:color-mix(in srgb,var(--danger,#dc2626) 14%,var(--bg));',
         'border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
         '.ocs-h{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}',
-        '.ocs-info{white-space:pre-wrap;font-size:.78rem;line-height:1.4;color:var(--muted);max-height:7rem;overflow:auto}',
+        '.ocs-info{white-space:pre-wrap;font-size:.8rem;line-height:1.45;color:var(--ink);overflow:visible}',
+        '.ocs-now{font-size:.82rem;line-height:1.4;padding:.5rem .65rem;border-radius:10px;',
+        'background:var(--bg-soft);border:1px solid var(--border);color:var(--ink);white-space:pre-wrap}',
         '.ocs-tabs{display:flex;flex-wrap:wrap;gap:.15rem;border-bottom:1px solid var(--border);padding:0 0 .2rem}',
         '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.76rem;',
         'display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .6rem;border-radius:8px;cursor:pointer}',
@@ -635,6 +640,11 @@
       else if (name === 'say') kids = [p('M7.9 20A9 9 0 1 0 4 16.1L2 22z')];
       else if (name === 'act') kids = [c(12, 5, 2), p('M9 20V9.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V20'), p('M6 8l2 2'), p('M18 8l-2 2')];
       else if (name === 'check') kids = [p('M20 6 9 17l-5-5')];
+      else if (name === 'lock') kids = [h('rect', { key: 'r', x: 5, y: 11, width: 14, height: 10, rx: 2 }), p('M8 11V7.5a4 4 0 0 1 8 0V11')];
+      else if (name === 'unlock') kids = [h('rect', { key: 'r', x: 5, y: 11, width: 14, height: 10, rx: 2 }), p('M8 11V7.5a4 4 0 0 1 8 0')];
+      else if (name === 'users') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), p('M22 21v-2a4 4 0 0 0-3-3.87'), p('M16 3.13a4 4 0 0 1 0 7.75')];
+      else if (name === 'cog') kids = [c(12, 12, 3), p('M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1')];
+      else if (name === 'more') kids = [c(5, 12, 1.4, 'currentColor'), c(12, 12, 1.4, 'currentColor'), c(19, 12, 1.4, 'currentColor')];
       else kids = [p('M12 5v14'), p('M5 12h14')];
       return h('svg', {
         viewBox: '0 0 24 24', width: size || 15, height: size || 15, fill: 'none',
@@ -651,6 +661,21 @@
         className: 'memberctx__item ocs-mirow' + (warn ? ' memberctx__item--warn' : ''),
         role: 'menuitem', onClick: onClick,
       }, labeled(icon, label));
+    }
+    function pushBtn(list, kind, onClick, icon, label) {
+      list.push(h('button', {
+        type: 'button',
+        className: kind === 'primary' ? 'ocs-btn ocs-btn--primary' : kind === 'warn' ? 'ocs-btn ocs-btn--warn' : 'ocs-btn',
+        onClick: onClick,
+      }, labeled(icon, label)));
+    }
+    function bufferTopic(chan) {
+      var buf = findBuffer(chan);
+      return (buf && buf.topic) || '';
+    }
+    function bufferModes(chan) {
+      var buf = findBuffer(chan);
+      return (buf && buf.modes) || '';
     }
 
     function useActiveBuffer() {
@@ -773,8 +798,7 @@
       var ch = s.chan || chan;
       var hop = hasHalfop();
       var botName = channelBotNick(ch, s.bot);
-      if (!botName) return null;
-      var title = pick('Commandes ', 'Commands ') + botName;
+      var title = pick('Commandes ', 'Commands ') + (botName || 'ChanServ');
       function go(line) {
         runCmd('ChanServ', line, false);
         close();
@@ -924,24 +948,61 @@
       var botPickSt = useState('');
       var botPick = botPickSt[0];
       var setBotPick = botPickSt[1];
-      var infoOpenSt = useState(false);
-      var infoOpen = infoOpenSt[0];
-      var setInfoOpen = infoOpenSt[1];
+      var modeSt = useState('');
+      var modeLine = modeSt[0];
+      var setModeLine = modeSt[1];
+      var accNickSt = useState('');
+      var accNick = accNickSt[0];
+      var setAccNick = accNickSt[1];
+      var accLvlSt = useState('AOP');
+      var accLvl = accLvlSt[0];
+      var setAccLvl = accLvlSt[1];
+      var setTextSt = useState('');
+      var setText = setTextSt[0];
+      var setSetText = setTextSt[1];
+      var extraSt = useState('');
+      var extra = extraSt[0];
+      var setExtra = extraSt[1];
+      var inviteSt = useState('');
+      var inviteNick = inviteSt[0];
+      var setInviteNick = inviteSt[1];
+      var entrySt = useState('');
+      var entryMsg = entrySt[0];
+      var setEntryMsg = entrySt[1];
+      var statusNickSt = useState('');
+      var statusNick = statusNickSt[0];
+      var setStatusNick = statusNickSt[1];
 
       useEffect(function () {
         if (s.open && isChannel(chan) && s.chan !== chan) {
-          patchUi({ chan: chan, flash: '', tab: 'salon' });
+          patchUi({ chan: chan, flash: '', tab: 'info' });
           queryInfo(chan);
         }
       }, [chan, s.open]);
+      useEffect(function () {
+        if (!s.open) return undefined;
+        if (s.tab === 'topic' || s.tab === 'sujet') setTopic(bufferTopic(s.chan || chan));
+        return undefined;
+      }, [s.open, s.tab, s.chan, chan]);
 
       if (!s.open) return null;
       var ch = s.chan || chan;
-      var tab = s.tab || 'salon';
-      var showSujet = s.registered === true && can(ACCESS_RANK.aop);
-      var showBot = s.registered === true && (can(ACCESS_RANK.sop) || (s.bot && can(ACCESS_RANK.aop)));
-      if (tab === 'sujet' && !showSujet) tab = 'salon';
-      if (tab === 'bot' && !showBot) tab = 'salon';
+      var tab = s.tab || 'info';
+      if (tab === 'salon') tab = 'info';
+      if (tab === 'sujet') tab = 'topic';
+      var showTopic = s.registered === true && can(ACCESS_RANK.aop);
+      var showModes = s.registered === true && can(ACCESS_RANK.aop);
+      var showAccess = s.registered === true && can(ACCESS_RANK.sop);
+      var showSet = s.registered === true && can(ACCESS_RANK.sop);
+      var showDivers = s.registered === true && can(ACCESS_RANK.aop);
+      var showBot = s.registered === true && can(ACCESS_RANK.aop);
+      if (tab === 'topic' && !showTopic) tab = 'info';
+      if (tab === 'modes' && !showModes) tab = 'info';
+      if (tab === 'access' && !showAccess) tab = 'info';
+      if (tab === 'set' && !showSet) tab = 'info';
+      if (tab === 'divers' && !showDivers) tab = 'info';
+      if (tab === 'bot' && !showBot) tab = 'info';
+      function goCs(line) { runCmd('ChanServ', line, true); }
 
       var kids = [
         h('div', { className: 'ocs-head' },
@@ -976,56 +1037,203 @@
         }, labeled('plus', pick('Enregistrer le salon', 'Register channel'))));
       }
       if (s.registered === true) {
-        var tabs = [
-          h('button', {
-            type: 'button',
-            className: 'ocs-tab' + (tab === 'salon' ? ' is-on' : ''),
-            onClick: function () { patchUi({ tab: 'salon' }); },
-          }, labeled('hash', pick('Salon', 'Channel'))),
-        ];
-        if (showSujet) {
+        var tabs = [];
+        function tabBtn(id, icon, label, show) {
+          if (!show) return;
           tabs.push(h('button', {
             type: 'button',
-            className: 'ocs-tab' + (tab === 'sujet' ? ' is-on' : ''),
-            onClick: function () { patchUi({ tab: 'sujet' }); },
-          }, labeled('topic', pick('Sujet', 'Topic'))));
+            className: 'ocs-tab' + (tab === id ? ' is-on' : ''),
+            onClick: function () { patchUi({ tab: id }); },
+          }, labeled(icon, label)));
         }
-        if (showBot) {
-          tabs.push(h('button', {
-            type: 'button',
-            className: 'ocs-tab' + (tab === 'bot' ? ' is-on' : ''),
-            onClick: function () { patchUi({ tab: 'bot' }); },
-          }, labeled('bot', 'Bot')));
-        }
+        tabBtn('info', 'info', 'Info', true);
+        tabBtn('topic', 'topic', 'Topic', showTopic);
+        tabBtn('modes', 'cog', pick('Modes', 'Modes'), showModes);
+        tabBtn('access', 'users', pick('Accès', 'Access'), showAccess);
+        tabBtn('set', 'lock', 'SET', showSet);
+        tabBtn('divers', 'more', pick('Divers', 'Other'), showDivers);
+        tabBtn('bot', 'bot', 'Bot', showBot);
         kids.push(h('div', { className: 'ocs-tabs', role: 'tablist' }, tabs));
         kids.push(h('div', { className: 'ocs-row' },
           h('span', { className: 'ocs-badge' }, (s.access || 'none').toUpperCase()),
           s.bot ? h('span', { className: 'ocs-badge' }, pick('Bot', 'Bot') + ' ' + s.bot) : null
         ));
 
-        if (tab === 'salon') {
-          kids.push(h('button', {
-            type: 'button',
-            className: 'ocs-btn',
-            onClick: function () {
-              setInfoOpen(true);
-              beginExpect('info', ch);
-              patchUi({ loading: true });
-              cs('INFO ' + ch);
-            },
-          }, labeled('info', pick('Info du salon', 'Channel info'))));
-          if (infoOpen && s.infoText) kids.push(h('pre', { className: 'ocs-info' }, s.infoText));
+        if (tab === 'info') {
+          pushBtn(kids, '', function () {
+            beginExpect('info', ch);
+            patchUi({ loading: true });
+            cs('INFO ' + ch);
+          }, 'info', pick('Actualiser l’info', 'Refresh info'));
+          if (s.infoText) kids.push(h('pre', { className: 'ocs-info' }, s.infoText));
         }
 
-        if (tab === 'sujet' && showSujet) {
-          kids.push(h(Field, { label: pick('Sujet', 'Topic') },
+        if (tab === 'topic' && showTopic) {
+          var nowTopic = bufferTopic(ch);
+          kids.push(h('p', { className: 'ocs-h' }, pick('Topic actuel', 'Current topic')));
+          kids.push(h('div', { className: 'ocs-now' }, nowTopic || pick('(aucun topic)', '(no topic)')));
+          kids.push(h(Field, { label: pick('Nouveau topic', 'New topic') },
             h('input', { className: 'ocs-input', value: topic, onChange: function (e) { setTopic(e.target.value); } })
           ));
-          kids.push(h('button', {
-            type: 'button',
-            className: 'ocs-btn ocs-btn--primary',
-            onClick: function () { if (topic.trim()) runCmd('ChanServ', 'TOPIC ' + ch + ' ' + topic.trim()); },
-          }, labeled('check', pick('Changer le sujet', 'Set topic'))));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+              if (topic.trim()) goCs('TOPIC ' + ch + ' ' + topic.trim());
+            } }, labeled('check', pick('Définir', 'Set'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' TOPIC'); } },
+              labeled('novoice', pick('Effacer', 'Clear')))
+          ));
+          kids.push(h(Field, { label: pick('Ajouter au topic', 'Append / prepend') },
+            h('input', { className: 'ocs-input', value: extra, onChange: function (e) { setExtra(e.target.value); } })
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              var add = extra.trim();
+              if (!add) return;
+              goCs('TOPIC ' + ch + ' ' + (nowTopic ? nowTopic + ' ' + add : add));
+            } }, labeled('plus', pick('À la fin', 'Append'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              var add = extra.trim();
+              if (!add) return;
+              goCs('TOPIC ' + ch + ' ' + (nowTopic ? add + ' ' + nowTopic : add));
+            } }, labeled('plus', pick('Au début', 'Prepend')))
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' TOPICLOCK ON'); } },
+              labeled('lock', pick('Verrouiller', 'Lock'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' TOPICLOCK OFF'); } },
+              labeled('unlock', pick('Déverrouiller', 'Unlock'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' KEEPTOPIC ON'); } },
+              labeled('topic', pick('Conserver', 'Keep'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' KEEPTOPIC OFF'); } },
+              labeled('novoice', pick('Ne pas conserver', 'Don’t keep')))
+          ));
+        }
+
+        if (tab === 'modes' && showModes) {
+          kids.push(h('p', { className: 'ocs-h' }, pick('Modes actuels', 'Current modes')));
+          kids.push(h('div', { className: 'ocs-now' }, bufferModes(ch) || '—'));
+          kids.push(h(Field, { label: pick('Mode ChanServ (ex. +nt-k)', 'ChanServ mode (e.g. +nt-k)') },
+            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt', onChange: function (e) { setModeLine(e.target.value); } })
+          ));
+          pushBtn(kids, 'primary', function () {
+            if (modeLine.trim()) goCs('MODE ' + ch + ' ' + modeLine.trim());
+          }, 'cog', pick('Appliquer', 'Apply'));
+          kids.push(h('p', { className: 'ocs-h' }, pick('Raccourcis', 'Shortcuts')));
+          kids.push(h('div', { className: 'ocs-row' }, ['i', 'm', 'n', 't', 's', 'p', 'R'].map(function (m) {
+            return h('button', {
+              key: m, type: 'button', className: 'ocs-btn',
+              onClick: function () { goCs('MODE ' + ch + ' +' + m); },
+            }, '+' + m);
+          })));
+          kids.push(h('div', { className: 'ocs-row' }, ['i', 'm', 'n', 't', 's', 'p', 'R'].map(function (m) {
+            return h('button', {
+              key: 'off' + m, type: 'button', className: 'ocs-btn',
+              onClick: function () { goCs('MODE ' + ch + ' -' + m); },
+            }, '−' + m);
+          })));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' MLOCK ' + (modeLine.trim() || '+nt')); } },
+              labeled('lock', pick('Verrouiller (MLOCK)', 'Lock (MLOCK)'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' MLOCK'); } },
+              labeled('unlock', pick('Retirer MLOCK', 'Clear MLOCK')))
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' BANS'); } },
+              labeled('ban', pick('Vider les bans', 'Clear bans'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' MODES'); } },
+              labeled('cog', pick('Vider les modes', 'Clear modes'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('UNBAN ' + ch); } },
+              labeled('unlock', pick('Unban (toi)', 'Unban (you)')))
+          ));
+        }
+
+        if (tab === 'access' && showAccess) {
+          kids.push(h(Field, { label: pick('Niveau', 'Level') },
+            h('select', { className: 'ocs-select', value: accLvl, onChange: function (e) { setAccLvl(e.target.value); } },
+              ['VOP', 'HOP', 'AOP', 'SOP'].map(function (lv) { return h('option', { key: lv, value: lv }, lv); })
+            )
+          ));
+          kids.push(h(Field, { label: pick('Compte / pseudo', 'Account / nick') },
+            h('input', { className: 'ocs-input', value: accNick, onChange: function (e) { setAccNick(e.target.value); } })
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+              if (accNick.trim()) goCs(accLvl + ' ' + ch + ' ADD ' + accNick.trim());
+            } }, labeled('assign', pick('Ajouter', 'Add'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              if (accNick.trim()) goCs(accLvl + ' ' + ch + ' DEL ' + accNick.trim());
+            } }, labeled('unassign', pick('Retirer', 'Remove'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs(accLvl + ' ' + ch + ' LIST'); } },
+              labeled('list', pick('Liste', 'List')))
+          ));
+        }
+
+        if (tab === 'set' && showSet) {
+          kids.push(h(Field, { label: pick('Valeur (DESC, URL, EMAIL…)', 'Value (DESC, URL, EMAIL…)') },
+            h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } })
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { if (setText.trim()) goCs('SET ' + ch + ' DESC ' + setText.trim()); } }, 'DESC'),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { if (setText.trim()) goCs('SET ' + ch + ' URL ' + setText.trim()); } }, 'URL'),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { if (setText.trim()) goCs('SET ' + ch + ' EMAIL ' + setText.trim()); } }, 'EMAIL')
+          ));
+          kids.push(h('p', { className: 'ocs-h' }, pick('Options', 'Options')));
+          [
+            ['KEEPTOPIC', pick('Conserver le topic', 'Keep topic')],
+            ['TOPICLOCK', pick('Verrouiller le topic', 'Lock topic')],
+            ['SECUREOPS', 'SECUREOPS'],
+            ['RESTRICTED', 'RESTRICTED'],
+            ['SECURE', 'SECURE'],
+            ['PRIVATE', 'PRIVATE'],
+            ['SIGNKICK', 'SIGNKICK'],
+            ['OPNOTICE', 'OPNOTICE'],
+            ['PEACE', 'PEACE'],
+            ['PERSIST', 'PERSIST'],
+          ].forEach(function (row) {
+            kids.push(h('div', { className: 'ocs-row', key: row[0] },
+              h('span', { className: 'ocs-label', style: { alignSelf: 'center', minWidth: '9rem' } }, row[1]),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' ' + row[0] + ' ON'); } }, 'ON'),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' ' + row[0] + ' OFF'); } }, 'OFF')
+            ));
+          });
+        }
+
+        if (tab === 'divers' && showDivers) {
+          kids.push(h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
+            h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
+          ));
+          pushBtn(kids, 'primary', function () {
+            goCs('INVITE ' + ch + (inviteNick.trim() ? ' ' + inviteNick.trim() : ''));
+          }, 'assign', pick('Inviter', 'Invite'));
+          kids.push(h(Field, { label: pick('Status d’un pseudo (optionnel)', 'Status for nick (optional)') },
+            h('input', { className: 'ocs-input', value: statusNick, onChange: function (e) { setStatusNick(e.target.value); } })
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              goCs('STATUS ' + ch + (statusNick.trim() ? ' ' + statusNick.trim() : ''));
+            } }, labeled('info', 'Status')),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('STATS ' + ch); } },
+              labeled('list', 'Stats')),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOP ' + ch); } },
+              labeled('hash', 'Top'))
+          ));
+          kids.push(h(Field, { label: 'ENTRYMSG' },
+            h('input', { className: 'ocs-input', value: entryMsg, onChange: function (e) { setEntryMsg(e.target.value); } })
+          ));
+          kids.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              if (entryMsg.trim()) goCs('SET ' + ch + ' ENTRYMSG ' + entryMsg.trim());
+            } }, labeled('say', pick('Définir', 'Set'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('SET ' + ch + ' ENTRYMSG'); } },
+              labeled('novoice', pick('Retirer', 'Unset')))
+          ));
+          if (can(ACCESS_RANK.founder)) {
+            pushBtn(kids, 'warn', function () {
+              if (window.confirm(pick('Supprimer l’enregistrement de ', 'Drop registration of ') + ch + ' ?')) {
+                goCs('DROP ' + ch);
+              }
+            }, 'unassign', pick('Drop (désenregistrer)', 'Drop (unregister)'));
+          }
         }
 
         if (tab === 'bot' && showBot) {
@@ -1085,7 +1293,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'salon', reasonAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'info', reasonAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
