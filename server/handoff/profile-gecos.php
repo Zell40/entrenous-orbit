@@ -2,6 +2,7 @@
 /**
  * Same-origin ASL lookup for Orbit (WP profile = source of truth).
  *
+ *   GET /app/accounts/api/profile_gecos/?account=Zell
  *   GET /accounts/api/profile_gecos/?account=Zell
  *   → { "ok": true, "realname": "40 - Homme - Paris" }
  *

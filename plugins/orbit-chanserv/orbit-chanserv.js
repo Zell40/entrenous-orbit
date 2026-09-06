@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=34"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=35"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1624,15 +1624,45 @@
               goCs('TOPIC ' + ch + ' PREPEND ' + add);
             } }, labeled('plus', pick('Au début', 'Prepend')))
           ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' LOCK'); } },
-              labeled('lock', pick('Verrouiller', 'Lock'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' UNLOCK'); } },
-              labeled('unlock', pick('Déverrouiller', 'Unlock'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csSet('KEEPTOPIC', 'ON'); } },
-              labeled('topic', pick('Conserver', 'Keep'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csSet('KEEPTOPIC', 'OFF'); } },
-              labeled('novoice', pick('Ne pas conserver', 'Do not keep')))
+          var topicOpts = parseChanOptions(s.infoText);
+          var topicLocked = !!topicOpts.TOPICLOCK;
+          String(s.infoText || '').split(/\n/).forEach(function (line) {
+            var t = foldText(stripIrc(line));
+            if (!/(verrouillage du sujet|topic lock|sujet verrouille)\s*:/.test(t)) return;
+            if (/\b(inactif|off|disabled|no)\b/.test(t)) topicLocked = false;
+            else if (/\b(actif|on|enabled|yes|oui)\b/.test(t)) topicLocked = true;
+          });
+          body.push(h('div', { className: 'ocs-mg__g' },
+            h('div', { className: 'ocs-ml' + (topicLocked ? ' is-on' : '') },
+              h('span', { className: 'ocs-ml__lab' }, pick('Verrouiller le topic', 'Lock topic')),
+              h('span', { className: 'ocs-ml__btns' },
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn' + (topicLocked ? ' ocs-btn--primary' : ''),
+                  onClick: function () { goCs('TOPIC ' + ch + ' LOCK'); },
+                }, 'ON'),
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn',
+                  onClick: function () { goCs('TOPIC ' + ch + ' UNLOCK'); },
+                }, 'OFF')
+              )
+            ),
+            h('div', { className: 'ocs-ml' + (topicOpts.KEEPTOPIC ? ' is-on' : '') },
+              h('span', { className: 'ocs-ml__lab' }, pick('Conserver le topic', 'Keep topic')),
+              h('span', { className: 'ocs-ml__btns' },
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn' + (topicOpts.KEEPTOPIC ? ' ocs-btn--primary' : ''),
+                  onClick: function () { csSet('KEEPTOPIC', 'ON'); },
+                }, 'ON'),
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn',
+                  onClick: function () { csSet('KEEPTOPIC', 'OFF'); },
+                }, 'OFF')
+              )
+            )
           ));
         }
 
