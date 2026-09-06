@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=35"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=36"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -766,6 +766,12 @@
         'padding:.4rem .55rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
         '.ocs-setrow.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border))}',
         '.ocs-setrow .ocs-label{min-width:0;flex:1}',
+        '.ocs-sw{display:inline-flex;align-items:center;gap:.32rem;flex:none}',
+        '.ocs-sw__txt{font-size:.65rem;font-weight:800;letter-spacing:.04em;color:var(--muted);line-height:1}',
+        '.ocs-sw__txt.is-on{color:var(--accent)}',
+        '.ocs-sw .switch{width:40px;height:22px}',
+        '.ocs-sw .switch__dot{width:16px;height:16px;top:3px;left:3px}',
+        '.ocs-sw .switch.is-on .switch__dot{transform:translateX(18px)}',
         '.ocs-mm{position:relative;padding:.1rem 0 .15rem}',
         '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700}',
         '.memberctx__item.ocs-mirow{display:flex;align-items:center;gap:.5rem}',
@@ -913,6 +919,22 @@
     }
     function labeled(icon, text) {
       return [h('span', { key: 'i', className: 'ocs-miwrap', 'aria-hidden': true }, Mi(icon)), h('span', { key: 'l' }, text)];
+    }
+    function OnOffSwitch(props) {
+      var on = !!props.on;
+      return h('span', { className: 'ocs-sw' },
+        h('span', { className: 'ocs-sw__txt' + (!on ? ' is-on' : ''), 'aria-hidden': true }, 'OFF'),
+        h('button', {
+          type: 'button',
+          className: 'switch' + (on ? ' is-on' : ''),
+          role: 'switch',
+          'aria-checked': on,
+          'aria-label': props.label || '',
+          title: props.title,
+          onClick: props.onClick,
+        }, h('span', { className: 'switch__dot' })),
+        h('span', { className: 'ocs-sw__txt' + (on ? ' is-on' : ''), 'aria-hidden': true }, 'ON')
+      );
     }
     function menuBtn(key, warn, onClick, icon, label) {
       return h('button', {
@@ -1635,33 +1657,19 @@
           body.push(h('div', { className: 'ocs-mg__g' },
             h('div', { className: 'ocs-ml' + (topicLocked ? ' is-on' : '') },
               h('span', { className: 'ocs-ml__lab' }, pick('Verrouiller le topic', 'Lock topic')),
-              h('span', { className: 'ocs-ml__btns' },
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn' + (topicLocked ? ' ocs-btn--primary' : ''),
-                  onClick: function () { goCs('TOPIC ' + ch + ' LOCK'); },
-                }, 'ON'),
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn',
-                  onClick: function () { goCs('TOPIC ' + ch + ' UNLOCK'); },
-                }, 'OFF')
-              )
+              h(OnOffSwitch, {
+                on: topicLocked,
+                label: pick('Verrouiller le topic', 'Lock topic'),
+                onClick: function () { goCs('TOPIC ' + ch + (topicLocked ? ' UNLOCK' : ' LOCK')); },
+              })
             ),
             h('div', { className: 'ocs-ml' + (topicOpts.KEEPTOPIC ? ' is-on' : '') },
               h('span', { className: 'ocs-ml__lab' }, pick('Conserver le topic', 'Keep topic')),
-              h('span', { className: 'ocs-ml__btns' },
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn' + (topicOpts.KEEPTOPIC ? ' ocs-btn--primary' : ''),
-                  onClick: function () { csSet('KEEPTOPIC', 'ON'); },
-                }, 'ON'),
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn',
-                  onClick: function () { csSet('KEEPTOPIC', 'OFF'); },
-                }, 'OFF')
-              )
+              h(OnOffSwitch, {
+                on: !!topicOpts.KEEPTOPIC,
+                label: pick('Conserver le topic', 'Keep topic'),
+                onClick: function () { csSet('KEEPTOPIC', topicOpts.KEEPTOPIC ? 'OFF' : 'ON'); },
+              })
             )
           ));
         }
@@ -1703,18 +1711,12 @@
             return h('div', { key: letter, className: 'ocs-ml' + (on ? ' is-on' : '') + (locked ? ' is-lock' : ''), title: tip },
               h('span', { className: 'ocs-ml__lab' }, name + ' ( ', h('span', null, letter), ' )'),
               h('span', { className: 'ocs-ml__btns' },
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn' + (on ? ' ocs-btn--primary' : ''),
+                h(OnOffSwitch, {
+                  on: on,
+                  label: name,
                   title: tip,
-                  onClick: function () { csMode('SET', '+' + letter); },
-                }, 'ON'),
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn',
-                  title: tip,
-                  onClick: function () { csMode('SET', '-' + letter); },
-                }, 'OFF'),
+                  onClick: function () { csMode('SET', (on ? '-' : '+') + letter); },
+                }),
                 h('button', {
                   type: 'button',
                   className: 'ocs-btn' + (locked ? ' ocs-btn--primary' : ''),
@@ -1859,11 +1861,11 @@
               var on = !!setOn[row[0]];
               body.push(h('div', { className: 'ocs-setrow' + (on ? ' is-on' : ''), key: row[0] },
                 h('span', { className: 'ocs-label' }, row[1]),
-                h('button', {
-                  type: 'button',
-                  className: 'ocs-btn' + (on ? ' ocs-btn--primary' : ''),
+                h(OnOffSwitch, {
+                  on: on,
+                  label: row[1],
                   onClick: function () { csSet(row[0], on ? 'OFF' : 'ON'); },
-                }, on ? 'OFF' : 'ON')
+                })
               ));
             });
           });
