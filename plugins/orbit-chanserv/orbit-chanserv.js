@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=38"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=39"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -730,6 +730,13 @@
         '.ocs-label{font-size:.75rem;font-weight:700;color:var(--muted)}',
         '.ocs-input,.ocs-select{width:100%;box-sizing:border-box;min-height:38px;padding:.45rem .65rem;border-radius:10px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit}',
+        '.ocs-ac{margin-top:.15rem;max-height:11.5rem;overflow:auto;border:1px solid var(--border);border-radius:10px;',
+        'background:var(--bg);box-shadow:0 8px 22px rgba(0,0,0,.12)}',
+        '.ocs-ac__item{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;',
+        'text-align:left;border:0;background:none;color:var(--ink);font:inherit;font-weight:750;font-size:.82rem;',
+        'padding:.4rem .6rem;cursor:pointer}',
+        '.ocs-ac__item.is-on,.ocs-ac__item:hover{background:var(--accent-soft);color:var(--accent)}',
+        '.ocs-ac__tag{flex:none;font-size:.65rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}',
         '.ocs-btn{min-height:36px;padding:.4rem .7rem;border-radius:10px;border:1px solid var(--border);',
         'display:inline-flex;align-items:center;justify-content:center;gap:.4rem;',
         'background:var(--bg-soft);color:var(--ink);font:inherit;font-weight:700;font-size:.82rem;cursor:pointer}',
@@ -1085,6 +1092,105 @@
       return h('div', { className: 'ocs-field' },
         props.label ? h('label', { className: 'ocs-label' }, props.label) : null,
         props.children
+      );
+    }
+
+    function nickCandidates(chan, q) {
+      var st = {};
+      try { st = orbit.state.get() || {}; } catch (e) { st = {}; }
+      var me = foldText(st.nick || '');
+      var friends = st.friends || [];
+      var friendSet = {};
+      friends.forEach(function (n) { friendSet[foldText(n)] = n; });
+      var seen = {};
+      var rows = [];
+      function push(nick, inChan, inFriend) {
+        if (!nick || isNamedService(nick)) return;
+        var k = foldText(nick);
+        if (!k || k === me || seen[k]) return;
+        seen[k] = true;
+        rows.push({ nick: nick, inChan: inChan, inFriend: inFriend });
+      }
+      var mem = ((findBuffer(chan) || {}).members) || {};
+      Object.keys(mem).forEach(function (n) {
+        var nick = (mem[n] && mem[n].nick) || n;
+        push(nick, true, !!friendSet[foldText(nick)]);
+      });
+      friends.forEach(function (n) { push(n, false, true); });
+      var needle = foldText(q);
+      if (needle) {
+        var start = [];
+        var mid = [];
+        rows.forEach(function (r) {
+          var f = foldText(r.nick);
+          if (f.indexOf(needle) === 0) start.push(r);
+          else if (f.indexOf(needle) >= 0) mid.push(r);
+        });
+        rows = start.concat(mid);
+      }
+      return rows.slice(0, 12);
+    }
+
+    function NickComplete(props) {
+      var openSt = useState(false);
+      var open = openSt[0];
+      var setOpen = openSt[1];
+      var idxSt = useState(0);
+      var idx = idxSt[0];
+      var setIdx = idxSt[1];
+      var cands = nickCandidates(props.chan, props.value);
+      var show = open && cands.length > 0;
+      function pickNick(nick) {
+        props.onChange(nick);
+        setOpen(false);
+      }
+      function onKey(e) {
+        if (!cands.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setOpen(true);
+          setIdx(function (i) { return (i + 1) % cands.length; });
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setOpen(true);
+          setIdx(function (i) { return (i - 1 + cands.length) % cands.length; });
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && show) {
+          e.preventDefault();
+          pickNick(cands[Math.max(0, Math.min(idx, cands.length - 1))].nick);
+        } else if (e.key === 'Escape') {
+          setOpen(false);
+        }
+      }
+      useEffect(function () { setIdx(0); }, [props.value, props.chan]);
+      return h('div', { className: 'ocs-acwrap' },
+        h('input', {
+          className: 'ocs-input',
+          value: props.value,
+          autoComplete: 'off',
+          spellCheck: false,
+          onFocus: function () { setOpen(true); },
+          onBlur: function () { setTimeout(function () { setOpen(false); }, 120); },
+          onChange: function (e) { props.onChange(e.target.value); setOpen(true); },
+          onKeyDown: onKey,
+        }),
+        show ? h('div', { className: 'ocs-ac', role: 'listbox' }, cands.map(function (r, i) {
+          var tag = r.inChan && r.inFriend
+            ? pick('salon · ami', 'room · friend')
+            : r.inFriend
+              ? pick('ami', 'friend')
+              : pick('salon', 'room');
+          return h('button', {
+            key: r.nick,
+            type: 'button',
+            role: 'option',
+            className: 'ocs-ac__item' + (i === idx ? ' is-on' : ''),
+            onMouseDown: function (e) { e.preventDefault(); pickNick(r.nick); },
+            onMouseEnter: function () { setIdx(i); },
+          },
+            h('span', null, r.nick),
+            h('span', { className: 'ocs-ac__tag' }, tag)
+          );
+        })) : null
       );
     }
 
@@ -1803,7 +1909,7 @@
             )
           ));
           body.push(h(Field, { label: pick('Compte / pseudo', 'Account / nick') },
-            h('input', { className: 'ocs-input', value: accNick, onChange: function (e) { setAccNick(e.target.value); } })
+            h(NickComplete, { chan: ch, value: accNick, onChange: setAccNick })
           ));
           body.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
