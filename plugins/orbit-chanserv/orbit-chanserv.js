@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=31"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=33"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -59,6 +59,7 @@
       accessList: [],
       accessLoading: false,
       reasonAsk: null,
+      dropAsk: null,
       listeners: new Set(),
     };
     var snap = copyUi();
@@ -67,7 +68,7 @@
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
         infoText: ui.infoText, flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
-        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk,
+        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
       };
     }
     function subscribeUi(cb) { ui.listeners.add(cb); return function () { ui.listeners.delete(cb); }; }
@@ -498,6 +499,22 @@
       return on;
     }
 
+    function parseDropCode(text) {
+      var t = stripIrc(text).replace(/\s+/g, ' ').trim();
+      var m = t.match(/\/CS\s+DROP\s+\S+\s+(\S+)/i)
+        || t.match(/\/msg\s+chanserv\s+DROP\s+\S+\s+(\S+)/i)
+        || t.match(/\bDROP\s+\S+\s+([A-Za-z0-9]{6,})\s*$/i);
+      return m ? m[1].replace(/^['"]+|['".,;]+$/g, '') : '';
+    }
+    function parseMlock(text) {
+      var m = String(text || '').match(/modes?\s+verrouill[ée]s?\s*:\s*(\S+)/i)
+        || String(text || '').match(/\bmlock\s*:\s*(\S+)/i)
+        || String(text || '').match(/mode lock\s*:\s*(\S+)/i);
+      return m ? m[1] : '';
+    }
+    function mlockHas(mlock, letter) {
+      return String(mlock || '').indexOf(letter) >= 0;
+    }
     function parseXopList(text, level) {
       var rows = [];
       String(text || '').split(/\n/).forEach(function (line) {
@@ -570,6 +587,44 @@
         }
         patchUi({ accessList: xopRows.slice(), accessLoading: false });
         expectKind = '';
+        return;
+      }
+      if (kind === 'drop') {
+        var dropRaw = stripIrc(text).replace(/\s+/g, ' ').trim();
+        var code = parseDropCode(dropRaw);
+        var dropped = /a ete (supprime|droppe|desenregistre)|has been (dropped|unregistered)|dropped successfully/.test(foldText(dropRaw));
+        if (dropped) {
+          patchUi({ dropAsk: null, registered: false, loading: false, flash: dropRaw, flashErr: false });
+          expectKind = '';
+          cache = {};
+          return;
+        }
+        if (code) {
+          patchUi({
+            dropAsk: { chan: (ui.dropAsk && ui.dropAsk.chan) || chan, code: code, waiting: false, error: '' },
+            loading: false,
+            flash: '',
+            flashErr: false,
+          });
+          expectKind = '';
+          return;
+        }
+        if (looksLikeServError(dropRaw)) {
+          patchUi({
+            dropAsk: {
+              chan: (ui.dropAsk && ui.dropAsk.chan) || chan,
+              code: (ui.dropAsk && ui.dropAsk.code) || '',
+              waiting: false,
+              error: dropRaw,
+            },
+            loading: false,
+            flash: dropRaw,
+            flashErr: true,
+          });
+          expectKind = '';
+          return;
+        }
+        hideUntil = Date.now() + HIDE_MS;
         return;
       }
       if (kind === 'cmd') {
@@ -652,14 +707,14 @@
       }
       el.textContent = [
         '.ocs-panel{position:fixed;top:calc(env(safe-area-inset-top,0px) + 3.6rem);right:12px;z-index:160;',
-        'width:min(440px,calc(100vw - 1.5rem));min-width:min(440px,calc(100vw - 1.5rem));',
-        'max-width:min(440px,calc(100vw - 1.5rem));box-sizing:border-box;',
+        'width:max-content;min-width:min(28rem,calc(100vw - 1.5rem));',
+        'max-width:calc(100vw - 1.5rem);box-sizing:border-box;',
         'max-height:min(88vh,720px);overflow:hidden;background:var(--bg);color:var(--ink);',
         'border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45));',
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none}',
-        '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem}',
-        '.ocs-tabs{flex:none}',
+        '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0}',
+        '.ocs-tabs{flex:none;width:max-content;max-width:100%}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
         '.ocs-title{margin:0;font-size:1.02rem;font-weight:800;display:flex;align-items:center;gap:.45rem}',
         '.ocs-x{border:0;background:transparent;color:var(--muted);font-size:1.3rem;cursor:pointer;border-radius:8px;padding:.1rem .35rem}',
@@ -699,8 +754,8 @@
         '.ocs-now{font-size:.82rem;line-height:1.4;padding:.5rem .65rem;border-radius:10px;',
         'background:var(--bg-soft);border:1px solid var(--border);color:var(--ink);white-space:pre-wrap}',
         '.ocs-flash__cmd{display:block;font-size:.72rem;font-weight:650;opacity:.75;margin-bottom:.25rem;word-break:break-all}',
-        '.ocs-tabs{display:flex;flex-wrap:nowrap;gap:.15rem;border-bottom:1px solid var(--border);padding:0 0 .2rem;overflow-x:auto;scrollbar-width:thin}',
-        '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.76rem;',
+        '.ocs-tabs{display:flex;flex-wrap:nowrap;gap:.15rem;border-bottom:1px solid var(--border);padding:0 0 .2rem;overflow:visible}',
+        '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.74rem;',
         'display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .6rem;border-radius:8px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
         '.ocs-subtabs{display:flex;flex-wrap:wrap;gap:.3rem}',
@@ -728,15 +783,19 @@
         '.ocs-mm__fly .ocs-mm__fly{z-index:230;min-width:210px}',
         '.ocs-mg{display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-mg__h{margin:0;font-size:.72rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}',
-        '.ocs-mg__g{display:grid;grid-template-columns:repeat(auto-fill,minmax(10.4rem,1fr));gap:.35rem}',
-        '.ocs-mc{display:flex;flex-direction:column;gap:.28rem;padding:.4rem .5rem;border-radius:10px;',
-        'border:1px solid var(--border);background:var(--bg-soft);min-width:0}',
-        '.ocs-mc.is-on{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft)}',
-        '.ocs-mc__top{display:flex;align-items:baseline;justify-content:space-between;gap:.35rem}',
-        '.ocs-mc__code{font-size:.7rem;font-weight:800;color:var(--muted);flex:none}',
-        '.ocs-mc__name{font-size:.78rem;font-weight:750;line-height:1.25;color:var(--ink)}',
-        '.ocs-mc__btns{display:flex;gap:.25rem}',
-        '.ocs-mc__btns .ocs-btn{min-height:28px;padding:.18rem .4rem;font-size:.72rem;flex:1}',
+        '.ocs-mg__g{display:flex;flex-direction:column;gap:.22rem}',
+        '.ocs-ml__lab span{font-weight:650;color:var(--muted)}',
+        '.ocs-ml{display:flex;align-items:center;justify-content:space-between;gap:.4rem;',
+        'padding:.28rem .5rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
+        '.ocs-ml.is-on{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft)}',
+        '.ocs-ml.is-lock{border-style:dashed}',
+        '.ocs-ml__lab{font-size:.8rem;font-weight:750;min-width:0;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-ml__btns{display:flex;gap:.22rem;flex:none;white-space:nowrap}',
+        '.ocs-ml__btns .ocs-btn{min-height:26px;padding:.12rem .45rem;font-size:.7rem}',
+        '.ocs-ml__btns .ocs-btn .ocs-miwrap + span:empty{display:none}',
+        '.ocs-drop__msg{margin:0;padding:.85rem 1rem .2rem;font-size:.88rem;line-height:1.4;color:var(--ink)}',
+        '.ocs-drop__code{margin:.35rem 1rem 1rem;padding:.55rem .7rem;border-radius:10px;font:inherit;font-weight:800;',
+        'letter-spacing:.04em;background:var(--bg-soft);border:1px solid var(--border);word-break:break-all}',
         '.ocs-acc{display:flex;flex-direction:column;gap:.45rem}',
         '.ocs-acc__g{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-soft)}',
         '.ocs-acc__h{font-size:.72rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;',
@@ -1265,6 +1324,63 @@
       );
     }
 
+    function startDrop(chan) {
+      if (!chan) return;
+      patchUi({
+        dropAsk: { chan: chan, code: '', waiting: true, error: '' },
+        flash: '',
+        flashErr: false,
+        lastCmd: 'ChanServ DROP ' + chan,
+        loading: true,
+      });
+      beginExpect('drop', chan);
+      cs('DROP ' + chan);
+    }
+    function confirmDrop() {
+      var ask = ui.dropAsk;
+      if (!ask || !ask.code || ask.waiting) return;
+      patchUi({
+        dropAsk: { chan: ask.chan, code: ask.code, waiting: true, error: '' },
+        lastCmd: 'ChanServ DROP ' + ask.chan + ' ' + ask.code,
+        loading: true,
+      });
+      beginExpect('drop', ask.chan);
+      cs('DROP ' + ask.chan + ' ' + ask.code);
+    }
+    function DropAsk() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      var ask = s.dropAsk;
+      if (!ask) return null;
+      var ch = ask.chan || '';
+      var title = pick('Suppression du salon', 'Delete channel');
+      function cancel() { patchUi({ dropAsk: null, loading: false }); }
+      var msg = ask.waiting && !ask.code
+        ? pick('Récupération du code de confirmation ChanServ…', 'Fetching the ChanServ confirmation code…')
+        : ask.waiting
+          ? pick('Confirmation en cours…', 'Confirming…')
+          : pick('Confirmer la suppression de ', 'Confirm deletion of ') + ch + ' ?';
+      return h('div', {
+        className: 'memberrsn-scrim',
+        onMouseDown: function (e) { if (e.target === e.currentTarget) cancel(); },
+      },
+        h('div', { className: 'memberrsn', role: 'dialog', 'aria-label': title },
+          h('div', { className: 'memberrsn__head' }, title),
+          h('p', { className: 'ocs-drop__msg' }, msg),
+          ask.code ? h('div', { className: 'ocs-drop__code' }, ask.code) : null,
+          ask.error ? h('p', { className: 'ocs-drop__msg', style: { color: 'var(--danger)' } }, ask.error) : null,
+          h('div', { className: 'memberrsn__row' },
+            h('button', { type: 'button', className: 'memberrsn__btn', onClick: cancel }, pick('Annuler', 'Cancel')),
+            h('button', {
+              type: 'button',
+              className: 'memberrsn__btn memberrsn__btn--go',
+              disabled: !ask.code || !!ask.waiting,
+              onClick: confirmDrop,
+            }, pick('Supprimer', 'Delete'))
+          )
+        )
+      );
+    }
+
     function Panel() {
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       var chan = useActiveBuffer();
@@ -1334,6 +1450,7 @@
             el.style.right = '';
             el.style.left = '';
             el.style.width = '';
+            el.style.minWidth = '';
             return;
           }
           var btn = document.querySelector('.topbar__search.ocs-tb');
@@ -1344,9 +1461,16 @@
           el.style.top = (r.bottom + 6) + 'px';
           el.style.right = right + 'px';
           el.style.left = 'auto';
-          el.style.width = '';
-          el.style.maxWidth = '';
-          var w = el.offsetWidth;
+          el.style.maxWidth = (window.innerWidth - 16) + 'px';
+          var w = 440;
+          var tabsEl = el.querySelector('.ocs-tabs');
+          if (tabsEl) {
+            var need = Math.ceil(tabsEl.scrollWidth) + 32;
+            var cap = window.innerWidth - 16;
+            w = Math.min(Math.max(need, 400), cap);
+          }
+          el.style.width = w + 'px';
+          el.style.minWidth = w + 'px';
           if (window.innerWidth - right - w < 8) {
             el.style.right = Math.max(8, window.innerWidth - w - 8) + 'px';
           }
@@ -1375,6 +1499,11 @@
       function goCs(line) { runCmd('ChanServ', line, true); }
       function csSet(opt, val) {
         goCs('SET ' + opt + ' ' + ch + (val != null && String(val) !== '' ? ' ' + val : ''));
+      }
+      function csMode(op, modes) {
+        var m = String(modes || '').trim();
+        if (!m && op !== 'SET') return;
+        goCs('MODE ' + ch + ' ' + op + (m ? ' ' + m : ''));
       }
       function subTabs(current, setCurrent, items) {
         return h('div', { className: 'ocs-subtabs', role: 'tablist' }, items.map(function (it) {
@@ -1470,10 +1599,7 @@
         }
 
         if (tab === 'topic' && showTopic) {
-          var nowTopic = bufferTopic(ch);
-          body.push(h('p', { className: 'ocs-h' }, pick('Topic actuel', 'Current topic')));
-          body.push(h('div', { className: 'ocs-now' }, nowTopic || pick('(aucun topic)', '(no topic)')));
-          body.push(h(Field, { label: pick('Nouveau topic', 'New topic') },
+          body.push(h(Field, { label: pick('Modifier le topic', 'Edit topic') },
             h('input', { className: 'ocs-input', value: topic, onChange: function (e) { setTopic(e.target.value); } })
           ));
           body.push(h('div', { className: 'ocs-row' },
@@ -1513,13 +1639,14 @@
         if (tab === 'modes' && showModes) {
           var nowModes = bufferModes(ch);
           var flags = chanFlagLetters();
+          var lockedModes = parseMlock(s.infoText);
           body.push(h('p', { className: 'ocs-h' }, pick('Modes actuels', 'Current modes')));
           body.push(h('div', { className: 'ocs-now' }, nowModes || '—'));
           body.push(h(Field, { label: pick('Mode ChanServ (ex. +nt-k)', 'ChanServ mode (e.g. +nt-k)') },
             h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt', onChange: function (e) { setModeLine(e.target.value); } })
           ));
           pushBtn(body, 'primary', function () {
-            if (modeLine.trim()) goCs('MODE ' + ch + ' ' + modeLine.trim());
+            if (modeLine.trim()) csMode('SET', modeLine.trim());
           }, 'cog', pick('Appliquer', 'Apply'));
           var cat = modeCatalog();
           var used = {};
@@ -1535,41 +1662,60 @@
           if (extraModes.length) groupsAvail = groupsAvail.concat([{ id: 'extra', title: pick('Réseau', 'Network'), extra: true }]);
           var gid = modeGroup;
           if (!groupsAvail.some(function (g) { return g.id === gid; }) && groupsAvail[0]) gid = groupsAvail[0].id;
-          body.push(h('p', { className: 'ocs-h' }, pick('Raccourcis', 'Shortcuts')));
+          body.push(h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')));
           body.push(subTabs(gid, setModeGroup, groupsAvail.map(function (g) {
             return { id: g.id, label: g.title };
           })));
-          function modeCard(letter, name, tip) {
+          function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
-            return h('div', { key: letter, className: 'ocs-mc' + (on ? ' is-on' : ''), title: tip },
-              h('div', { className: 'ocs-mc__top' },
-                h('span', { className: 'ocs-mc__name' }, name),
-                h('span', { className: 'ocs-mc__code' }, (on ? '+' : '−') + letter)
-              ),
-              h('button', {
-                type: 'button',
-                className: 'ocs-btn' + (on ? ' ocs-btn--primary' : ''),
-                title: tip,
-                onClick: function () { goCs('MODE ' + ch + ' ' + (on ? '-' : '+') + letter); },
-              }, on ? ('OFF −' + letter) : ('ON +' + letter))
+            var locked = mlockHas(lockedModes, letter);
+            var sign = on ? '+' : '-';
+            return h('div', { key: letter, className: 'ocs-ml' + (on ? ' is-on' : '') + (locked ? ' is-lock' : ''), title: tip },
+              h('span', { className: 'ocs-ml__lab' }, name + ' ( ', h('span', null, letter), ' )'),
+              h('span', { className: 'ocs-ml__btns' },
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn' + (on ? ' ocs-btn--primary' : ''),
+                  title: tip,
+                  onClick: function () { csMode('SET', '+' + letter); },
+                }, 'ON'),
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn',
+                  title: tip,
+                  onClick: function () { csMode('SET', '-' + letter); },
+                }, 'OFF'),
+                h('button', {
+                  type: 'button',
+                  className: 'ocs-btn' + (locked ? ' ocs-btn--primary' : ''),
+                  title: locked
+                    ? pick('Retirer le verrou ' + sign + letter, 'Remove lock ' + sign + letter)
+                    : pick('Verrouiller ' + sign + letter, 'Lock ' + sign + letter),
+                  onClick: function () {
+                    csMode(locked ? 'LOCK DEL' : 'LOCK ADD', sign + letter);
+                  },
+                }, Mi(locked ? 'unlock' : 'lock'))
+              )
             );
           }
           var shown = [];
           groupsAvail.forEach(function (g) {
             if (g.id !== gid) return;
-            if (g.extra) shown = extraModes.map(function (row) { return modeCard(row[0], row[1], row[2]); });
+            if (g.extra) shown = extraModes.map(function (row) { return modeRow(row[0], row[1], row[2]); });
             else {
               shown = g.modes.filter(function (row) { return flags.indexOf(row[0]) >= 0; }).map(function (row) {
-                return modeCard(row[0], row[1], row[2]);
+                return modeRow(row[0], row[1], row[2]);
               });
             }
           });
           body.push(h('div', { className: 'ocs-mg__g' }, shown));
           body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csSet('MLOCK', modeLine.trim() || '+nt'); } },
-              labeled('lock', pick('Verrouiller (MLOCK)', 'Lock (MLOCK)'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csSet('MLOCK', ''); } },
-              labeled('unlock', pick('Retirer MLOCK', 'Clear MLOCK')))
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              if (modeLine.trim()) csMode('LOCK ADD', modeLine.trim());
+            } }, labeled('lock', pick('Verrouiller', 'Lock'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+              if (modeLine.trim()) csMode('LOCK DEL', modeLine.trim());
+            } }, labeled('unlock', pick('Déverrouiller', 'Unlock')))
           ));
           body.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' BANS'); } },
@@ -1723,11 +1869,7 @@
               labeled('novoice', pick('Retirer', 'Unset')))
           ));
           if (can(ACCESS_RANK.founder)) {
-            pushBtn(body, 'warn', function () {
-              if (window.confirm(pick('Supprimer l’enregistrement de ', 'Drop registration of ') + ch + ' ?')) {
-                goCs('DROP ' + ch);
-              }
-            }, 'unassign', pick('Drop (désenregistrer)', 'Drop (unregister)'));
+            pushBtn(body, 'warn', function () { startDrop(ch); }, 'unassign', pick('Suppression du salon', 'Delete channel'));
           }
         }
       }
@@ -1743,7 +1885,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'info', accessList: [], reasonAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
@@ -1752,6 +1894,7 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
     orbit.addUi('overlay', function () { return h(Panel); });
     orbit.addUi('overlay', function () { return h(ReasonAsk); });
+    orbit.addUi('overlay', function () { return h(DropAsk); });
     if (typeof orbit.addMemberMenu === 'function') {
       orbit.addMemberMenu(function (ctx) {
         return h(MemberServMenu, { nick: ctx.nick, close: ctx.close });

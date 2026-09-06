@@ -169,11 +169,21 @@ if (!$bouncer && $resumeAccount !== '') {
             'httponly' => true,
             'samesite' => 'Lax',
         ];
-        // Same eTLD+1 as orbit_en_listen so a handoff on webapp2 still
-        // resumes on webapp (and the reverse). Empty domain = host-only.
+        // Host-only: this cookie is only read by chat-resume.php on the Orbit
+        // host. Sharing Domain=.entrenous.chat with orbit_en_listen made Chrome
+        // drop it on the cross-site POST from WordPress, and left a duplicate
+        // next to any older host-only cookie — PHP then verified the wrong one.
+        $clear = [
+            'expires'  => time() - 3600,
+            'path'     => '/',
+            'secure'   => true,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ];
         if ($listenDomain !== '') {
-            $resumeOpts['domain'] = $listenDomain;
+            setcookie('orbit_en_resume', '', $clear + ['domain' => $listenDomain]);
         }
+        setcookie('orbit_en_resume', '', $clear);
         setcookie('orbit_en_resume', $cookie, $resumeOpts);
     }
 }

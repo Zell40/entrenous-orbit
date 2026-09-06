@@ -4,9 +4,14 @@
 écrit `sessionStorage.orbit_handoff`, pose le cookie HttpOnly `orbit_en_resume`,
 puis redirige vers l’app Orbit.
 
-`chat-resume.php` (réécrit en `/accounts/api/chat_resume/`) renouvelle un JWT
-SASL à partir de ce cookie — utilisé au rechargement de page et à chaque
-reconnexion WebSocket (`features.sessionResume` + `saslOauthBearer`).
+`chat-resume.php` (réécrit en `/app/accounts/api/chat_resume/` et
+`/accounts/api/chat_resume/`) renouvelle un JWT SASL à partir de ce cookie —
+utilisé au rechargement de page et à chaque reconnexion WebSocket
+(`features.sessionResume` + `saslOauthBearer`).
+
+Le cookie `orbit_en_resume` est **host-only** (pas `Domain=.entrenous.chat`) :
+il n’est lu que par `chat-resume.php` sur l’hôte Orbit. `orbit_en_listen` reste
+partagé sur `.entrenous.chat` pour le websocket `irc.entrenous.chat`.
 
 Déployé automatiquement à la racine du webchat par `deploy.sh` :
 
