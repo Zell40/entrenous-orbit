@@ -4,13 +4,13 @@ Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
 L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
 
-Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Divers**, **Bot** (Bot seulement AOP+).
+Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Divers** (une seule ligne ; le panneau s’élargit).
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 **Commandes ChanServ** (ou le bot du salon), filtré selon l’accès ChanServ.
 
-INFO / STATUS / BOTLIST passent par **JSON-RPC Anope** (`chanserv-rpc.php`, même API que wp_anope_sync). Aucun MP IRC pour ces lectures.
-
-Les réponses IRC (PRIVMSG ou NOTICE) aux commandes sont masquées du tchat.
+**Lectures** (INFO / STATUS / BOTLIST / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
+**Actions** (SET, TOPIC, MODE, KICK, …) : IRC `PRIVMSG` vers ChanServ / BotServ. Syntaxe Anope 2 : `SET option canal paramètres`.
+Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panneau (pas dans Status).
 
 ## Commandes (v1)
 
@@ -19,12 +19,12 @@ Les réponses IRC (PRIVMSG ou NOTICE) aux commandes sont masquées du tchat.
 | Identifié, salon libre | Panneau | Enregistrer le salon |
 | VOP+ | Liste (Commandes bot) | Voice / Devoice |
 | HOP+ | Liste (Commandes bot) | Halfop / Dehalfop (si le réseau a `%`) |
-| AOP+ | Liste (Commandes bot) | Op / Deop, Kick, Ban |
+| AOP+ | Liste (Commandes bot) | Op / Deop, Kick, Ban, accès VOP/HOP |
+| SOP+ | Liste (Commandes bot) | Admin (`&`), accès AOP/SOP |
+| Fondateur | Liste (Commandes bot) | Fondateur (`~`) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
 | AOP+ | Panneau → Modes / Divers | MODE, invite, status, entrymsg |
-| AOP+ | Panneau → Bot | Dire / Action du bot |
-| SOP+ | Panneau → Accès / SET | XOP, paramètres SET |
-| SOP / fondateur | Panneau → Bot | Assigner / retirer le bot |
+| SOP+ | Panneau → Accès / SET | Liste XOP visible, ajout/retrait, SET |
 | Fondateur | Panneau → Divers | DROP |
 
 Hors v1 : AKICK, FLAGS.
@@ -32,7 +32,7 @@ Hors v1 : AKICK, FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=23"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=27"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
