@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 54;
+  var OEC_VER = 55;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1071,8 +1071,8 @@
 
   function reviewSink(gid, prev) {
     if (archiveGame && (!gid || String(archiveGame.gid) === String(gid))) return 'archive';
-    if (prev && (prev.status === 'ended' || prev.status === 'playing') && (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
-    if (prev && prev.status === 'ended') return 'state';
+    if (prev && (prev.status === 'ended' || prev.status === 'playing') &&
+        (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
     return '';
   }
 
@@ -2633,7 +2633,7 @@
   function revLabel(code) {
     return ({
       bk: 'Théorique', br: 'Brillant', gr: 'Superbe', bs: 'Meilleur',
-      ex: 'Excellent', gd: 'Bon', in: 'Imprécision', mi: 'Erreur',
+      ex: 'Excellent', gd: 'Bon', in: 'Imprécision', mi: 'Faute',
       bl: 'Gaffe', ms: 'Gain manqué',
     })[code] || '';
   }
@@ -2648,7 +2648,7 @@
       ex: 'Excellent',
       gd: 'Bon' + best,
       in: 'Imprécision' + best,
-      mi: 'Erreur' + best,
+      mi: 'Faute' + best,
       bl: 'Gaffe' + best,
       ms: 'Gain manqué' + best,
     })[code] || '';
@@ -2699,15 +2699,16 @@
   function coachCard(view) {
     if (!view || !view.lastSan) return '';
     if (!view._revClass) {
-      return '<div class="oec-tip"><span class="oec-spin" aria-hidden="true"></span> Analyse de ' +
+      return '<div class="oec-tip"><span class="oec-spin" aria-hidden="true"></span> Analyse du coup ' +
         escHtml(view.lastSan) + '…</div>';
     }
-    var best = view._revBestSan
-      ? '<span class="oec-tip__best">Meilleur : ' + escHtml(view._revBestSan) + '</span>'
+    var best = (view._revBestSan && view._revBestSan !== view.lastSan)
+      ? '<span class="oec-tip__best">Meilleur coup : ' + escHtml(view._revBestSan) + '</span>'
       : '';
     return '<div class="oec-tip"><span class="oec-badge oec-badge--' + view._revClass + '">' +
-      escHtml(revLabel(view._revClass)) + '</span> ' + escHtml(view.lastSan) +
-      ' — ' + escHtml(revTip(view._revClass, view._revBestSan)) + best + '</div>';
+      escHtml(revLabel(view._revClass)) + '</span>' +
+      '<b>Coup ' + escHtml(view.lastSan) + '</b>' +
+      best + '</div>';
   }
 
   function countChip(label, n, code, always) {
