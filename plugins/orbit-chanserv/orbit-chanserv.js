@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=33"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=34"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -947,11 +947,12 @@
     function chanFlagLetters() {
       var cm = String((orbit.server.isupport() || {}).CHANMODES || 'beI,k,l,imnstp').split(',');
       var flags = String(cm[3] || 'imnstp');
-      var skip = 'qaohvbeIkflLj';
+      var skip = 'qaohvbeIkflLjOA';
       var out = [];
       for (var i = 0; i < flags.length; i++) {
         if (skip.indexOf(flags[i]) < 0 && out.indexOf(flags[i]) < 0) out.push(flags[i]);
       }
+      if (out.indexOf('U') < 0) out.push('U');
       return out;
     }
     function modeCatalog() {
@@ -963,8 +964,6 @@
             ['i', pick('Sur invitation', 'Invite only'), pick('Salon uniquement sur invitation : il faut être invité pour entrer.', 'Only invited users can join.')],
             ['R', pick('Compte enregistré', 'Registered nick'), pick('Il faut un pseudo enregistré (NickServ) pour rejoindre.', 'A registered nickname is required to join.')],
             ['z', pick('Connexion chiffrée', 'TLS only'), pick('Uniquement les connexions chiffrées (TLS/SSL).', 'Only TLS/SSL connections may join.')],
-            ['O', pick('IRCops seulement', 'IRCops only'), pick('Réservé aux opérateurs du réseau.', 'Restricted to network operators.')],
-            ['A', pick('Admins serveur', 'Server admins'), pick('Réservé aux administrateurs du serveur.', 'Restricted to server administrators.')],
             ['s', pick('Secret', 'Secret'), pick('Le salon n’apparaît pas dans les listes publiques.', 'The channel is hidden from public lists.')],
             ['p', pick('Privé', 'Private'), pick('Le salon n’apparaît pas comme salon public.', 'The channel is marked private.')],
           ],
@@ -974,6 +973,7 @@
           title: pick('Discussion', 'Talking'),
           modes: [
             ['m', pick('Modéré', 'Moderated'), pick('Seuls les personnes avec voix ou op peuvent écrire.', 'Only voiced or opped users can speak.')],
+            ['U', pick('Op-modéré', 'Op-moderated'), pick('Les messages des membres sans voix/op sont masqués pour les autres membres sans privilège.', 'Messages from unprivileged users are hidden from other unprivileged users.')],
             ['n', pick('Pas de msg extérieur', 'No external msgs'), pick('Impossible d’écrire depuis l’extérieur du salon.', 'Messages from outside the channel are blocked.')],
             ['t', pick('Topic protégé', 'Topic locked'), pick('Seuls les opérateurs peuvent changer le sujet.', 'Only operators can change the topic.')],
             ['M', pick('Parler si enregistré', 'Registered to speak'), pick('Il faut un pseudo enregistré pour parler.', 'A registered nickname is required to speak.')],
