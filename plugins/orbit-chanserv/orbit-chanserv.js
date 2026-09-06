@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=50"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=52"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -656,22 +656,53 @@
     function mlockHas(mlock, letter) {
       return String(mlock || '').indexOf(letter) >= 0;
     }
+    function isXopName(s) {
+      return /^(QOP|SOP|AOP|HOP|VOP|FOUNDER)$/i.test(String(s || ''));
+    }
+    function isFlagToken(s) {
+      var t = String(s || '');
+      if (!t) return false;
+      if (t === '=' || t === '*' || t === '+*' || t === '=*') return true;
+      return /^[+\-=]/.test(t) && t.length <= 32;
+    }
+    function isLevelToken(s) {
+      return /^-?\d+$/.test(String(s || ''))
+        || /^(AUTOOP|AUTOHALFOP|AUTOVOICE|AUTOPROTECT|AUTODEOP|NOKICK|NOJOIN|SIGNKICK)$/i.test(String(s || ''));
+    }
+    function isAccessTypeToken(s) {
+      return isXopName(s) || isFlagToken(s) || isLevelToken(s);
+    }
     function inferAccessSystem(level, tag) {
       var t = String(tag || '').toUpperCase();
       if (/^(XOP|FLAGS|QOP|ACCESS)$/.test(t)) return t;
-      var lv = String(level || '').toUpperCase();
-      if (/^(QOP|SOP|AOP|HOP|VOP)$/.test(lv)) return 'XOP';
-      if (lv === 'FOUNDER') return 'QOP';
-      if (/^[+\-]/.test(lv)) return 'FLAGS';
+      var lv = String(level || '');
+      if (isXopName(lv)) return /founder/i.test(lv) ? 'QOP' : 'XOP';
+      if (isFlagToken(lv)) return 'FLAGS';
       return 'ACCESS';
     }
-    function accessGroupKey(row) {
-      var lv = String(row.level || '').toUpperCase();
-      var sys = String(row.system || '').toUpperCase();
-      if (sys === 'FLAGS' || lv.charAt(0) === '+' || lv.charAt(0) === '-') return 'FLAGS';
-      if (sys === 'QOP' || lv === 'QOP' || lv === 'FOUNDER') return 'QOP';
-      if (sys === 'XOP' || /^(SOP|AOP|HOP|VOP)$/.test(lv)) return lv;
-      return 'ACCESS';
+    function accessTypeSort(row) {
+      var u = String(row.level || '').toUpperCase();
+      if (u === 'QOP' || u === 'FOUNDER') return 0;
+      if (u === 'SOP') return 1;
+      if (u === 'AOP') return 2;
+      if (u === 'HOP') return 3;
+      if (u === 'VOP') return 4;
+      if (String(row.system || '').toUpperCase() === 'FLAGS' || isFlagToken(row.level)) return 5;
+      if (/^-?\d+$/.test(String(row.level || ''))) return 6;
+      return 7;
+    }
+    function accessTypeLabel(row) {
+      var lv = String(row.level || '');
+      var u = lv.toUpperCase();
+      if (/^(QOP|SOP|AOP|HOP|VOP)$/.test(u)) return u;
+      if (u === 'FOUNDER') return pick('Fondateur', 'Founder');
+      if (isFlagToken(lv)) {
+        if (lv === '=' || lv === '*' || lv === '+*' || lv === '=*') return 'FLAGS';
+        return 'FLAGS ' + lv;
+      }
+      if (/^-?\d+$/.test(lv)) return pick('niv. ', 'lvl ') + lv;
+      if (lv) return lv;
+      return String(row.system || '').toUpperCase() || '?';
     }
     function parseAccessList(text) {
       var rows = [];
@@ -683,12 +714,29 @@
         if (/vide|empty|no (sop|aop|hop|vop|entries|users)|aucun/i.test(s) && !/^\d+/.test(s)) return;
         var m = s.match(/^(?:[-*•]\s*)?(\d+)(?:[.:)])?\s+(\S+)\s+(\S+)(?:\s+\((\w+)\))?/);
         if (!m) return;
-        if (/^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[3])) return;
+        if (/^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[2])
+          || /^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[3])) return;
+        var a = m[2];
+        var b = m[3].replace(/[.,;]+$/, '');
+        var level = a;
+        var nick = b;
+        if (isAccessTypeToken(b) && !isAccessTypeToken(a)) {
+          level = b;
+          nick = a;
+        } else if (isAccessTypeToken(a) && !isAccessTypeToken(b)) {
+          level = a;
+          nick = b;
+        }
+        if (nick === '=' || nick === '*' || nick === '+*' || nick === '=*') {
+          var tmp = nick;
+          nick = level;
+          level = tmp;
+        }
         rows.push({
           n: m[1],
-          level: m[2],
-          nick: m[3].replace(/[.,;]+$/, ''),
-          system: inferAccessSystem(m[2], m[4] || ''),
+          level: level,
+          nick: nick,
+          system: inferAccessSystem(level, m[4] || ''),
         });
       });
       return rows;
@@ -1108,10 +1156,13 @@
         '.ocs-acc__g{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-soft)}',
         '.ocs-acc__h{font-size:.72rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;',
         'padding:.35rem .6rem;color:var(--accent);background:var(--accent-soft)}',
-        '.ocs-acc__row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;',
+        '.ocs-acc__row{display:flex;align-items:center;gap:.45rem;',
         'padding:.35rem .6rem;border-top:1px solid var(--border);font-size:.84rem}',
-        '.ocs-acc__nick{font-weight:700;word-break:break-all}',
-        '.ocs-acc__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem}',
+        '.ocs-acc__nick{font-weight:700;word-break:break-all;min-width:0;flex:1}',
+        '.ocs-acc__type{flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-acc__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none}',
+        '.ocs-acclip{max-height:calc(5 * 2.55rem);overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft)}',
+        '.ocs-acclip .ocs-acc__row:first-child{border-top:0}',
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;font-size:.8rem;',
         'width:calc(100% - .9rem);box-sizing:border-box}',
@@ -2190,49 +2241,35 @@
           if (s.accessLoading) {
             body.push(h('p', { className: 'ocs-sub' }, pick('Chargement de la liste…', 'Loading list…')));
           } else {
-            var grouped = {};
-            (s.accessList || []).forEach(function (row) {
-              var g = accessGroupKey(row);
-              if (!grouped[g]) grouped[g] = [];
-              grouped[g].push(row);
+            var rows = (s.accessList || []).slice().sort(function (a, b) {
+              var ra = accessTypeSort(a);
+              var rb = accessTypeSort(b);
+              if (ra !== rb) return ra - rb;
+              return String(a.nick || '').localeCompare(String(b.nick || ''));
             });
-            var order = ['QOP', 'SOP', 'AOP', 'HOP', 'VOP', 'ACCESS', 'FLAGS'];
-            Object.keys(grouped).forEach(function (k) {
-              if (order.indexOf(k) < 0) order.push(k);
-            });
-            var any = false;
-            var listKids = [];
-            order.forEach(function (lv) {
-              if (!grouped[lv] || !grouped[lv].length) return;
-              any = true;
-              var showLvl = lv === 'ACCESS' || lv === 'FLAGS';
-              listKids.push(h('div', { key: lv, className: 'ocs-acc__g' },
-                [h('div', { className: 'ocs-acc__h' }, accLabels[lv] || lv)].concat(grouped[lv].map(function (row) {
-                  return h('div', { key: lv + (row.n || '') + row.nick, className: 'ocs-acc__row' },
-                    h('span', { className: 'ocs-acc__nick' }, row.nick),
-                    showLvl ? h('span', { className: 'ocs-pill' }, row.level) : null,
-                    h('button', {
-                      type: 'button', className: 'ocs-btn',
-                      onClick: function () {
-                        var sys = String(row.system || '').toUpperCase();
-                        var rlv = String(row.level || '').toUpperCase();
-                        if (sys === 'FLAGS' || rlv.charAt(0) === '+' || rlv.charAt(0) === '-') {
-                          goCs('FLAGS ' + ch + ' ' + row.nick + ' -*');
-                        } else if (sys === 'XOP' || /^(QOP|SOP|AOP|HOP|VOP)$/.test(rlv)) {
-                          goCs(rlv + ' ' + ch + ' DEL ' + row.nick);
-                        } else {
-                          goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
-                        }
-                      },
-                    }, pick('Retirer', 'Remove'))
-                  );
-                }))
-              ));
-            });
-            if (!any) {
+            if (!rows.length) {
               body.push(h('p', { className: 'ocs-sub' }, pick('Aucun accès.', 'No access entries yet.')));
             } else {
-              body.push(h('div', { className: 'ocs-acc' }, listKids));
+              body.push(h('div', { className: 'ocs-acclip' }, rows.map(function (row) {
+                return h('div', { key: (row.n || '') + row.nick + row.level, className: 'ocs-acc__row' },
+                  h('span', { className: 'ocs-acc__nick' }, row.nick),
+                  h('span', { className: 'ocs-pill ocs-acc__type', title: String(row.system || '') }, accessTypeLabel(row)),
+                  h('button', {
+                    type: 'button', className: 'ocs-btn',
+                    onClick: function () {
+                      var sys = String(row.system || '').toUpperCase();
+                      var rlv = String(row.level || '').toUpperCase();
+                      if (sys === 'FLAGS' || isFlagToken(row.level)) {
+                        goCs('FLAGS ' + ch + ' ' + row.nick + ' -*');
+                      } else if (sys === 'XOP' || isXopName(rlv)) {
+                        goCs((rlv === 'FOUNDER' ? 'QOP' : rlv) + ' ' + ch + ' DEL ' + row.nick);
+                      } else {
+                        goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
+                      }
+                    },
+                  }, pick('Retirer', 'Remove'))
+                );
+              })));
             }
           }
           body.push(h('div', { className: 'ocs-row' },
@@ -2385,6 +2422,46 @@
           if (s.botInfo) {
             body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo, /kicker/)));
           }
+          body.push(h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')));
+          body.push(h('p', { className: 'ocs-sub' }, pick(
+            'Notices envoyées à l’arrivée sur le salon (plusieurs possibles).',
+            'Notices sent when someone joins (several allowed).'
+          )));
+          if (!(s.entryMsgs && s.entryMsgs.length)) {
+            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun message d’accueil.', 'No welcome messages.')));
+          } else {
+            body.push(h('div', { className: 'ocs-acc' },
+              h('div', { className: 'ocs-acc__g' },
+                [h('div', { className: 'ocs-acc__h' }, pick('Messages', 'Messages'))].concat(s.entryMsgs.map(function (row) {
+                  return h('div', { key: row.n, className: 'ocs-acc__row' },
+                    h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.text),
+                    h('button', {
+                      type: 'button', className: 'ocs-btn',
+                      onClick: function () { goCs('ENTRYMSG ' + ch + ' DEL ' + row.n); },
+                    }, pick('Retirer', 'Remove'))
+                  );
+                }))
+              )
+            ));
+          }
+          body.push(h(Field, { label: pick('Nouveau message', 'New message') },
+            h('input', { className: 'ocs-input', value: entryMsg, onChange: function (e) { setEntryMsg(e.target.value); } })
+          ));
+          body.push(h('div', { className: 'ocs-row' },
+            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+              if (entryMsg.trim()) goCs('ENTRYMSG ' + ch + ' ADD ' + entryMsg.trim());
+            } }, labeled('plus', pick('Ajouter', 'Add'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryEntryMsg(ch); } },
+              labeled('list', pick('Actualiser', 'Refresh'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('ENTRYMSG ' + ch + ' CLEAR'); } },
+              labeled('novoice', pick('Tout retirer', 'Clear all')))
+          ));
+          body.push(h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
+            h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
+          ));
+          pushBtn(body, 'primary', function () {
+            goCs('INVITE ' + ch + (inviteNick.trim() ? ' ' + inviteNick.trim() : ''));
+          }, 'assign', pick('Inviter', 'Invite'));
           body.push(h(Field, { label: pick('Faire parler le bot (SAY / ACT)', 'Make the bot talk (SAY / ACT)') },
             h('input', { className: 'ocs-input', value: botSay, onChange: function (e) { setBotSay(e.target.value); } })
           ));
@@ -2441,12 +2518,6 @@
           if (s.ytStats) {
             body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.ytStats)));
           }
-          body.push(h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
-            h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
-          ));
-          pushBtn(body, 'primary', function () {
-            goCs('INVITE ' + ch + (inviteNick.trim() ? ' ' + inviteNick.trim() : ''));
-          }, 'assign', pick('Inviter', 'Invite'));
           body.push(h(Field, { label: pick('Status d’un pseudo (optionnel)', 'Status for nick (optional)') },
             h('input', { className: 'ocs-input', value: statusNick, onChange: function (e) { setStatusNick(e.target.value); } })
           ));
@@ -2458,40 +2529,6 @@
               labeled('list', 'Stats')),
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOP ' + ch); } },
               labeled('hash', 'Top'))
-          ));
-          body.push(h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')));
-          body.push(h('p', { className: 'ocs-sub' }, pick(
-            'Notices envoyées à l’arrivée sur le salon (plusieurs possibles).',
-            'Notices sent when someone joins (several allowed).'
-          )));
-          if (!(s.entryMsgs && s.entryMsgs.length)) {
-            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun message d’accueil.', 'No welcome messages.')));
-          } else {
-            body.push(h('div', { className: 'ocs-acc' },
-              h('div', { className: 'ocs-acc__g' },
-                [h('div', { className: 'ocs-acc__h' }, pick('Messages', 'Messages'))].concat(s.entryMsgs.map(function (row) {
-                  return h('div', { key: row.n, className: 'ocs-acc__row' },
-                    h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.text),
-                    h('button', {
-                      type: 'button', className: 'ocs-btn',
-                      onClick: function () { goCs('ENTRYMSG ' + ch + ' DEL ' + row.n); },
-                    }, pick('Retirer', 'Remove'))
-                  );
-                }))
-              )
-            ));
-          }
-          body.push(h(Field, { label: pick('Nouveau message', 'New message') },
-            h('input', { className: 'ocs-input', value: entryMsg, onChange: function (e) { setEntryMsg(e.target.value); } })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-              if (entryMsg.trim()) goCs('ENTRYMSG ' + ch + ' ADD ' + entryMsg.trim());
-            } }, labeled('plus', pick('Ajouter', 'Add'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryEntryMsg(ch); } },
-              labeled('list', pick('Actualiser', 'Refresh'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('ENTRYMSG ' + ch + ' CLEAR'); } },
-              labeled('novoice', pick('Tout retirer', 'Clear all')))
           ));
           if (can(ACCESS_RANK.founder)) {
             pushBtn(body, 'warn', function () { startDrop(ch); }, 'unassign', pick('Suppression du salon', 'Delete channel'));
