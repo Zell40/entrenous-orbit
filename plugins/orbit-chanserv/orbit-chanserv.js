@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=52"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=53"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1051,6 +1051,8 @@
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%}',
         '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0;max-width:100%}',
+        '.ocs-block{display:flex;flex-direction:column;gap:.55rem}',
+        '.ocs-block + .ocs-block{margin-top:.1rem;padding-top:.7rem;border-top:1px solid var(--border)}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
         '.ocs-title{margin:0;font-size:1.02rem;font-weight:800;display:flex;align-items:center;gap:.45rem}',
         '.ocs-x{border:0;background:transparent;color:var(--muted);font-size:1.3rem;cursor:pointer;border-radius:8px;padding:.1rem .35rem}',
@@ -2416,21 +2418,26 @@
 
         if (tab === 'divers' && showDivers) {
           var assigned = channelBotNick(ch, s.bot);
+          function block(kids) { return h('div', { className: 'ocs-block' }, kids); }
+          var intro = [];
           if (!assigned) {
-            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun bot assigné.', 'No bot assigned.')));
+            intro.push(h('p', { className: 'ocs-sub' }, pick('Aucun bot assigné.', 'No bot assigned.')));
           }
           if (s.botInfo) {
-            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo, /kicker/)));
+            intro.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo, /kicker/)));
           }
-          body.push(h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')));
-          body.push(h('p', { className: 'ocs-sub' }, pick(
-            'Notices envoyées à l’arrivée sur le salon (plusieurs possibles).',
-            'Notices sent when someone joins (several allowed).'
-          )));
+          if (intro.length) body.push(block(intro));
+          var welcome = [
+            h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')),
+            h('p', { className: 'ocs-sub' }, pick(
+              'Notices envoyées à l’arrivée sur le salon (plusieurs possibles).',
+              'Notices sent when someone joins (several allowed).'
+            )),
+          ];
           if (!(s.entryMsgs && s.entryMsgs.length)) {
-            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun message d’accueil.', 'No welcome messages.')));
+            welcome.push(h('p', { className: 'ocs-sub' }, pick('Aucun message d’accueil.', 'No welcome messages.')));
           } else {
-            body.push(h('div', { className: 'ocs-acc' },
+            welcome.push(h('div', { className: 'ocs-acc' },
               h('div', { className: 'ocs-acc__g' },
                 [h('div', { className: 'ocs-acc__h' }, pick('Messages', 'Messages'))].concat(s.entryMsgs.map(function (row) {
                   return h('div', { key: row.n, className: 'ocs-acc__row' },
@@ -2444,10 +2451,10 @@
               )
             ));
           }
-          body.push(h(Field, { label: pick('Nouveau message', 'New message') },
+          welcome.push(h(Field, { label: pick('Nouveau message', 'New message') },
             h('input', { className: 'ocs-input', value: entryMsg, onChange: function (e) { setEntryMsg(e.target.value); } })
           ));
-          body.push(h('div', { className: 'ocs-row' },
+          welcome.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
               if (entryMsg.trim()) goCs('ENTRYMSG ' + ch + ' ADD ' + entryMsg.trim());
             } }, labeled('plus', pick('Ajouter', 'Add'))),
@@ -2456,82 +2463,93 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('ENTRYMSG ' + ch + ' CLEAR'); } },
               labeled('novoice', pick('Tout retirer', 'Clear all')))
           ));
-          body.push(h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
-            h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
-          ));
-          pushBtn(body, 'primary', function () {
+          body.push(block(welcome));
+          var invite = [
+            h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
+              h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
+            ),
+          ];
+          pushBtn(invite, 'primary', function () {
             goCs('INVITE ' + ch + (inviteNick.trim() ? ' ' + inviteNick.trim() : ''));
           }, 'assign', pick('Inviter', 'Invite'));
-          body.push(h(Field, { label: pick('Faire parler le bot (SAY / ACT)', 'Make the bot talk (SAY / ACT)') },
-            h('input', { className: 'ocs-input', value: botSay, onChange: function (e) { setBotSay(e.target.value); } })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-              if (botSay.trim()) goBs('SAY ' + ch + ' ' + botSay.trim());
-            } }, labeled('say', 'SAY')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              if (botSay.trim()) goBs('ACT ' + ch + ' ' + botSay.trim());
-            } }, labeled('act', 'ACT')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotInfo(ch, { notify: true }); } },
-              labeled('info', 'INFO'))
-          ));
-          body.push(h('p', { className: 'ocs-h' }, 'YTSTATS'));
-          body.push(h('p', { className: 'ocs-sub' }, pick(
-            'Statistiques du module YouTube (liens, durées, kicks spam).',
-            'YouTube module statistics (links, duration, spam kicks).'
-          )));
-          body.push(subTabs(ytKind, setYtKind, [
-            { id: 'channel', label: pick('Salon', 'Channel') },
-            { id: 'user', label: pick('Utilisateur', 'User') },
-            { id: 'video', label: pick('Vidéo', 'Video') },
+          body.push(block(invite));
+          body.push(block([
+            h(Field, { label: pick('Faire parler le bot (SAY / ACT)', 'Make the bot talk (SAY / ACT)') },
+              h('input', { className: 'ocs-input', value: botSay, onChange: function (e) { setBotSay(e.target.value); } })
+            ),
+            h('div', { className: 'ocs-row' },
+              h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+                if (botSay.trim()) goBs('SAY ' + ch + ' ' + botSay.trim());
+              } }, labeled('say', 'SAY')),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+                if (botSay.trim()) goBs('ACT ' + ch + ' ' + botSay.trim());
+              } }, labeled('act', 'ACT')),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotInfo(ch, { notify: true }); } },
+                labeled('info', 'INFO'))
+            ),
           ]));
-          body.push(h(Field, {
-            label: ytKind === 'video'
-              ? pick('Identifiant vidéo', 'Video id')
-              : ytKind === 'user'
-                ? pick('Pseudo', 'Nickname')
-                : pick('Salon (vide = ici)', 'Channel (empty = here)'),
-          },
-            h('input', {
-              className: 'ocs-input',
-              value: ytVal,
-              placeholder: ytKind === 'channel' ? ch : '',
-              onChange: function (e) { setYtVal(e.target.value); },
-            })
-          ));
-          body.push(h('button', {
-            type: 'button',
-            className: 'ocs-btn ocs-btn--primary',
-            onClick: function () {
-              var v = ytVal.trim();
-              var line = ytKind === 'video'
-                ? (v ? 'YTSTATS VIDEO ' + v : '')
+          var yt = [
+            h('p', { className: 'ocs-h' }, 'YTSTATS'),
+            h('p', { className: 'ocs-sub' }, pick(
+              'Statistiques du module YouTube (liens, durées, kicks spam).',
+              'YouTube module statistics (links, duration, spam kicks).'
+            )),
+            subTabs(ytKind, setYtKind, [
+              { id: 'channel', label: pick('Salon', 'Channel') },
+              { id: 'user', label: pick('Utilisateur', 'User') },
+              { id: 'video', label: pick('Vidéo', 'Video') },
+            ]),
+            h(Field, {
+              label: ytKind === 'video'
+                ? pick('Identifiant vidéo', 'Video id')
                 : ytKind === 'user'
-                  ? (v ? 'YTSTATS USER ' + v : '')
-                  : 'YTSTATS CHANNEL ' + (v || ch);
-              if (!line) return;
-              beginExpect('ytstats', ch);
-              patchUi({ lastCmd: 'BotServ ' + line, loading: true, flash: '', ytStats: '' });
-              bs(line);
+                  ? pick('Pseudo', 'Nickname')
+                  : pick('Salon (vide = ici)', 'Channel (empty = here)'),
             },
-          }, labeled('list', pick('Afficher', 'Show'))));
-          if (s.ytStats) {
-            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.ytStats)));
-          }
-          body.push(h(Field, { label: pick('Status d’un pseudo (optionnel)', 'Status for nick (optional)') },
-            h('input', { className: 'ocs-input', value: statusNick, onChange: function (e) { setStatusNick(e.target.value); } })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              goCs('STATUS ' + ch + (statusNick.trim() ? ' ' + statusNick.trim() : ''));
-            } }, labeled('info', 'Status')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('STATS ' + ch); } },
-              labeled('list', 'Stats')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOP ' + ch); } },
-              labeled('hash', 'Top'))
-          ));
+              h('input', {
+                className: 'ocs-input',
+                value: ytVal,
+                placeholder: ytKind === 'channel' ? ch : '',
+                onChange: function (e) { setYtVal(e.target.value); },
+              })
+            ),
+            h('button', {
+              type: 'button',
+              className: 'ocs-btn ocs-btn--primary',
+              onClick: function () {
+                var v = ytVal.trim();
+                var line = ytKind === 'video'
+                  ? (v ? 'YTSTATS VIDEO ' + v : '')
+                  : ytKind === 'user'
+                    ? (v ? 'YTSTATS USER ' + v : '')
+                    : 'YTSTATS CHANNEL ' + (v || ch);
+                if (!line) return;
+                beginExpect('ytstats', ch);
+                patchUi({ lastCmd: 'BotServ ' + line, loading: true, flash: '', ytStats: '' });
+                bs(line);
+              },
+            }, labeled('list', pick('Afficher', 'Show'))),
+          ];
+          if (s.ytStats) yt.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.ytStats)));
+          body.push(block(yt));
+          body.push(block([
+            h(Field, { label: pick('Status d’un pseudo (optionnel)', 'Status for nick (optional)') },
+              h('input', { className: 'ocs-input', value: statusNick, onChange: function (e) { setStatusNick(e.target.value); } })
+            ),
+            h('div', { className: 'ocs-row' },
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+                goCs('STATUS ' + ch + (statusNick.trim() ? ' ' + statusNick.trim() : ''));
+              } }, labeled('info', 'Status')),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('STATS ' + ch); } },
+                labeled('list', 'Stats')),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOP ' + ch); } },
+                labeled('hash', 'Top'))
+            ),
+          ]));
           if (can(ACCESS_RANK.founder)) {
-            pushBtn(body, 'warn', function () { startDrop(ch); }, 'unassign', pick('Suppression du salon', 'Delete channel'));
+            var drop = [];
+            pushBtn(drop, 'warn', function () { startDrop(ch); }, 'unassign', pick('Suppression du salon', 'Delete channel'));
+            body.push(block(drop));
           }
         }
       }
