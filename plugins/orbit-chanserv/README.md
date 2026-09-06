@@ -23,10 +23,10 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | SOP+ | Liste (Commandes bot) | Admin (`&`), accès AOP/SOP |
 | Fondateur | Liste (Commandes bot) | Fondateur (`~`) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
-| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, entrymsg, SAY / ACT / INFO BotServ, YTSTATS |
+| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
 | SOP+ | Panneau → Accès / SET | Liste XOP visible, ajout/retrait, SET |
 | SOP+ | Panneau → SET → Autres | FANTASY (ON/OFF) |
-| SOP+ | Panneau → SET → Modération | BADWORDS (ajouter / retirer / liste) |
+| SOP+ | Panneau → SET → Modération | Kickers BotServ, BADWORDS |
 | Fondateur | Panneau → Divers | Suppression du salon (popup Orbit + code ChanServ) |
 
 L’assignation de bot (`ASSIGN` / `UNASSIGN` / `BOTLIST`) n’est pas dans le panneau : seuls les opérateurs IRC l’utilisent en ligne de commande.
@@ -38,7 +38,7 @@ Hors v1 : AKICK, FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=43"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=45"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

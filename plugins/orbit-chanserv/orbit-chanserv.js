@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=43"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=45"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -54,6 +54,8 @@
       infoText: '',
       botInfo: '',
       ytStats: '',
+      entryMsgs: [],
+      badwordsText: '',
       flash: '',
       flashErr: false,
       lastCmd: '',
@@ -69,7 +71,8 @@
       return {
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
-        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
+        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwordsText: ui.badwordsText,
+        flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
         accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
       };
     }
@@ -326,7 +329,7 @@
       patchUi({
         chan: chan, loading: false, registered: c.registered, founder: c.founder,
         bot: c.bot, access: c.access, infoText: c.infoText, flash: '',
-        botInfo: '', ytStats: '',
+        botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '',
       });
       return true;
     }
@@ -370,14 +373,14 @@
 
     function queryInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) {
-        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '' });
+        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' });
         return;
       }
       if (applyCache(chan)) {
         if (ui.registered && !ui.bot) queryBotInfo(chan);
         return;
       }
-      var next = { chan: chan, loading: true, botInfo: '', ytStats: '' };
+      var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
       rpcCall('probe', chan).then(function (data) {
@@ -415,6 +418,12 @@
       bs('INFO ' + chan);
     }
 
+    function queryEntryMsg(chan) {
+      if (!isChannel(chan) || !identified()) return;
+      beginExpect('entrymsg', chan);
+      cs('ENTRYMSG ' + chan + ' LIST');
+    }
+
     function queryAccess(chan, force) {
       if (!isChannel(chan) || !identified()) return;
       var key = String(chan).toLowerCase();
@@ -441,12 +450,13 @@
 
     function looksLikeServOk(text) {
       var t = foldText(text);
-      return /a ete enregistre|has been registered|enregistre avec succes|registered successfully|sujet (modifie|change|a ete)|topic (is now|changed|set|lock)|est maintenant|is now|option|keeptopic|mlock|a ete defini|has been set/.test(t);
+      return /a ete enregistre|has been registered|enregistre avec succes|registered successfully|sujet (modifie|change|a ete)|topic (is now|changed|set|lock)|est maintenant|is now|option|keeptopic|mlock|a ete defini|has been set|est vide|is empty|aucun mot|no (bad ?)?words|a ete ajoute|has been added|a ete (supprime|retire)|has been (removed|deleted)/.test(t);
     }
     function looksLikeServError(text) {
       var t = foldText(text);
       if (!t || looksLikeServOk(t)) return false;
-      return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|interdit|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
+      if (/mots interdits|mot interdit|bad ?words/.test(t) && !/permission|denied|refuse|invalide|invalid/.test(t)) return false;
+      return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|\binterdit\b|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
     }
     function parseAccess(text) {
       var t = foldText(text);
@@ -501,7 +511,7 @@
           rows.push({ head: true, v: s });
           return;
         }
-        var m = s.match(/^([^:]{2,42}):\s*(.*)$/);
+        var m = s.match(/^([^:]{2,60}):\s*(.*)$/);
         if (m) {
           var key = foldText(m[1]);
           var row = { k: m[1], v: m[2] };
@@ -517,8 +527,9 @@
       });
       return rows;
     }
-    function infoCardNodes(text) {
+    function infoCardNodes(text, skipKeyRe) {
       return infoRows(text).map(function (row, i) {
+        if (skipKeyRe && row.k && skipKeyRe.test(foldText(row.k))) return null;
         if (row.head) return h('div', { key: 'h' + i, className: 'ocs-dl__head' }, row.v);
         if (row.k) {
           var val = row.pills && row.pills.length
@@ -534,13 +545,13 @@
           );
         }
         return h('div', { key: 'v' + i, className: 'ocs-dl__v' }, row.v);
-      });
+      }).filter(Boolean);
     }
     function parseBotFlag(text, keyRe) {
       var on = false;
       String(text || '').split(/\n/).forEach(function (line) {
         var s = stripIrc(line).trim();
-        var m = s.match(/^([^:]{2,42}):\s*(.*)$/);
+        var m = s.match(/^([^:]{2,60}):\s*(.*)$/);
         if (!m) return;
         if (!keyRe.test(foldText(m[1]))) return;
         var t = foldText(m[2]);
@@ -548,6 +559,20 @@
         else if (/\b(active|actif|enabled|on|oui)\b/.test(t)) on = true;
       });
       return on;
+    }
+    function botKickerDefs() {
+      return [
+        ['BADWORDS', pick('Mots interdits', 'Bad words'), /kicker (de )?mots interdits|\bbadwords\b/],
+        ['BOLDS', pick('Gras', 'Bold'), /gras|\bbolds?\b/],
+        ['CAPS', pick('Majuscules', 'Caps'), /majuscules|\bcaps\b/],
+        ['COLORS', pick('Couleurs', 'Colors'), /couleurs|\bcolors?\b/],
+        ['FLOOD', pick('Flood', 'Flood'), /\bflood\b/],
+        ['REPEAT', pick('Répétition', 'Repeat'), /repetition|\brepeat\b/],
+        ['REVERSES', pick('Reverse', 'Reverse'), /reverses?|inverse/],
+        ['UNDERLINES', pick('Souligné', 'Underline'), /souligne|underline/],
+        ['ITALICS', pick('Italique', 'Italics'), /italique|italics?/],
+        ['AMSG', 'AMSG', /\bamsg\b/],
+      ];
     }
 
     function parseChanOptions(text) {
@@ -619,6 +644,18 @@
       return rows;
     }
 
+    function parseEntryList(text) {
+      var rows = [];
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        if (!s) return;
+        if (/^(liste|list|end of|fin de|messages? d[' ]?accueil|entry ?msg)/i.test(s) && !/^\d+/.test(s)) return;
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)[.)]\s+(.+)$/) || s.match(/^\[(\d+)\]\s+(.+)$/);
+        if (m) rows.push({ n: m[1], text: m[2].replace(/[.,;]+$/, '') });
+      });
+      return rows;
+    }
+
     function parseBotlist(text) {
       var names = [];
       String(text || '').split(/\n/).forEach(function (line) {
@@ -669,10 +706,28 @@
         var botNick = parseBotNick(botRaw);
         patchUi({ botInfo: botRaw, loading: false, bot: botNick || ui.bot });
         expectKind = '';
+        if (ui.tab === 'divers') queryEntryMsg(chan);
         return;
       }
       if (kind === 'ytstats') {
         patchUi({ ytStats: stripIrc(text), loading: false });
+        expectKind = '';
+        return;
+      }
+      if (kind === 'entrymsg') {
+        var entryRaw = stripIrc(text);
+        var entryErr = looksLikeServError(entryRaw);
+        patchUi({
+          entryMsgs: entryErr ? ui.entryMsgs : parseEntryList(entryRaw),
+          loading: false,
+          flash: entryErr ? entryRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
+          flashErr: entryErr ? true : ui.flashErr,
+        });
+        expectKind = '';
+        return;
+      }
+      if (kind === 'badwords') {
+        patchUi({ badwordsText: stripIrc(text), loading: false, flash: '', flashErr: false });
         expectKind = '';
         return;
       }
@@ -733,8 +788,10 @@
         expectKind = '';
         cache = {};
         if (!err && ui.chan) {
-          if (/^BotServ SET\b/i.test(ui.lastCmd || '')) {
+          if (/^BotServ (SET|KICK)\b/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryBotInfo(ui.chan); }, 400);
+          } else if (/^ChanServ ENTRYMSG\b/i.test(ui.lastCmd || '')) {
+            setTimeout(function () { queryEntryMsg(ui.chan); }, 400);
           } else if (!/^BotServ\b/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryInfo(ui.chan, { keepFlash: true }); }, 500);
             if (ui.tab === 'access') {
@@ -827,7 +884,6 @@
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%}',
         '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0;max-width:100%}',
-        '.ocs-tabs{flex:none;width:max-content;max-width:100%}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
         '.ocs-title{margin:0;font-size:1.02rem;font-weight:800;display:flex;align-items:center;gap:.45rem}',
         '.ocs-x{border:0;background:transparent;color:var(--muted);font-size:1.3rem;cursor:pointer;border-radius:8px;padding:.1rem .35rem}',
@@ -878,13 +934,14 @@
         '.ocs-now{font-size:.82rem;line-height:1.4;padding:.5rem .65rem;border-radius:10px;',
         'background:var(--bg-soft);border:1px solid var(--border);color:var(--ink);white-space:pre-wrap}',
         '.ocs-flash__cmd{display:block;font-size:.72rem;font-weight:650;opacity:.75;margin-bottom:.25rem;word-break:break-all}',
-        '.ocs-tabs{display:flex;flex-wrap:wrap;gap:.15rem;border-bottom:1px solid var(--border);padding:0 0 .2rem;overflow:visible;width:100%;max-width:100%;box-sizing:border-box}',
-        '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.74rem;',
-        'display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .6rem;border-radius:8px;cursor:pointer;flex:none;white-space:nowrap}',
+        '.ocs-tabs{display:flex;flex-wrap:nowrap;align-items:center;gap:.08rem;border-bottom:1px solid var(--border);',
+        'padding:0 0 .2rem;overflow:visible;width:max-content;max-width:none;box-sizing:border-box;flex:none}',
+        '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.72rem;',
+        'display:inline-flex;align-items:center;gap:.28rem;padding:.35rem .48rem;border-radius:8px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
-        '.ocs-subtabs{display:flex;flex-wrap:wrap;gap:.3rem}',
+        '.ocs-subtabs{display:flex;flex-wrap:nowrap;gap:.3rem;overflow-x:auto}',
         '.ocs-stab{border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;',
-        'font-weight:750;font-size:.76rem;padding:.35rem .65rem;border-radius:999px;cursor:pointer}',
+        'font-weight:750;font-size:.76rem;padding:.35rem .65rem;border-radius:999px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-stab.is-on{background:var(--accent);color:#fff;border-color:transparent}',
         '.ocs-setrow{display:flex;align-items:center;justify-content:space-between;gap:.5rem;',
         'padding:.4rem .55rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
@@ -897,15 +954,15 @@
         '.ocs-sw .switch__dot{width:16px;height:16px;top:3px;left:3px}',
         '.ocs-sw .switch.is-on .switch__dot{transform:translateX(18px)}',
         '.ocs-mm{position:relative;padding:.1rem 0 .15rem}',
-        '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700}',
-        '.memberctx__item.ocs-mirow{display:flex;align-items:center;gap:.5rem}',
+        '.ocs-mm__trig{display:flex;align-items:center;justify-content:flex-start;gap:.45rem;width:100%;font-weight:700;white-space:nowrap}',
+        '.memberctx__item.ocs-mirow{display:flex;align-items:center;gap:.5rem;white-space:nowrap}',
         '.ocs-miwrap{display:inline-flex;flex:none;line-height:0}',
         '.ocs-mi{flex:none;display:block;opacity:.88}',
         '.memberctx__item:hover .ocs-mi,.ocs-mm.is-open .ocs-mm__trig .ocs-mi,.ocs-tab.is-on .ocs-mi{opacity:1}',
         '.ocs-mm__chev{opacity:.55;font-size:.95rem;line-height:1}',
         '.ocs-mm.is-open .ocs-mm__trig,.ocs-mm:hover .ocs-mm__trig{background:var(--accent);color:#fff}',
         '.ocs-mm__bridge{position:absolute;right:100%;top:-80px;bottom:-80px;width:18px;z-index:219}',
-        '.ocs-mm__fly{position:absolute;right:calc(100% - 2px);top:-4px;z-index:220;min-width:196px;max-width:280px;',
+        '.ocs-mm__fly{position:absolute;right:calc(100% - 2px);top:-4px;z-index:220;min-width:220px;max-width:320px;',
         'max-height:min(70vh,480px);overflow:visible;padding:4px;border-radius:10px;background:var(--bg);color:var(--ink);',
         'border:1px solid var(--border-2);box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45))}',
         '.ocs-mm__fly .ocs-mm{position:relative}',
@@ -1721,9 +1778,13 @@
           var w = 440;
           var tabsEl = el.querySelector('.ocs-tabs');
           if (tabsEl) {
-            var need = Math.ceil(tabsEl.scrollWidth) + 32;
+            var need = 36;
+            Array.prototype.forEach.call(tabsEl.children, function (t) {
+              need += t.getBoundingClientRect().width;
+            });
+            if (tabsEl.children.length > 1) need += (tabsEl.children.length - 1) * 2;
             var cap = window.innerWidth - 16;
-            w = Math.min(Math.max(need, 400), cap);
+            w = Math.min(Math.max(Math.ceil(need), 400), cap);
           }
           el.style.width = w + 'px';
           el.style.minWidth = w + 'px';
@@ -1732,9 +1793,13 @@
           }
         }
         place();
+        var raf = requestAnimationFrame(place);
         window.addEventListener('resize', place);
-        return function () { window.removeEventListener('resize', place); };
-      }, [s.open, s.chan, s.tab, s.infoText, s.flash]);
+        return function () {
+          cancelAnimationFrame(raf);
+          window.removeEventListener('resize', place);
+        };
+      }, [s.open, s.chan, s.tab, s.registered, s.access, s.infoText, s.flash]);
 
       if (!s.open) return null;
       var ch = s.chan || chan;
@@ -1904,6 +1969,10 @@
           pushBtn(body, 'primary', function () {
             if (modeLine.trim()) csMode('SET', modeLine.trim());
           }, 'cog', pick('Appliquer', 'Apply'));
+          body.push(h('p', { className: 'ocs-sub' }, pick(
+            'Appliquer change les modes tout de suite. Verrouiller enregistre le champ dans le MLOCK ChanServ (il revient après un redémarrage). Le cadenas de chaque mode fait la même chose, un par un.',
+            'Apply changes modes now. Lock stores the field in ChanServ MLOCK (it comes back after a restart). Each row lock does the same, one mode at a time.'
+          )));
           var cat = modeCatalog();
           var used = {};
           cat.forEach(function (g) {
@@ -1960,12 +2029,20 @@
           });
           body.push(h('div', { className: 'ocs-mg__g' }, shown));
           body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              if (modeLine.trim()) csMode('LOCK ADD', modeLine.trim());
-            } }, labeled('lock', pick('Verrouiller', 'Lock'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              if (modeLine.trim()) csMode('LOCK DEL', modeLine.trim());
-            } }, labeled('unlock', pick('Déverrouiller', 'Unlock')))
+            h('button', {
+              type: 'button', className: 'ocs-btn',
+              title: pick('Enregistre le champ ci-dessus dans le MLOCK ChanServ', 'Store the field above in ChanServ MLOCK'),
+              onClick: function () {
+                if (modeLine.trim()) csMode('LOCK ADD', modeLine.trim());
+              },
+            }, labeled('lock', pick('Verrouiller le champ', 'Lock field'))),
+            h('button', {
+              type: 'button', className: 'ocs-btn',
+              title: pick('Retire le champ ci-dessus du MLOCK ChanServ', 'Remove the field above from ChanServ MLOCK'),
+              onClick: function () {
+                if (modeLine.trim()) csMode('LOCK DEL', modeLine.trim());
+              },
+            }, labeled('unlock', pick('Retirer le verrou', 'Remove lock')))
           ));
           body.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' BANS'); } },
@@ -2077,6 +2154,20 @@
           setGroups.forEach(function (g) {
             if (g.id !== sg) return;
             if (g.id === 'mod') {
+              body.push(h('p', { className: 'ocs-h' }, pick('Kickers BotServ', 'BotServ kickers')));
+              botKickerDefs().forEach(function (row) {
+                var on = parseBotFlag(s.botInfo, row[2]);
+                body.push(h('div', { className: 'ocs-setrow' + (on ? ' is-on' : ''), key: row[0] },
+                  h('span', { className: 'ocs-label' }, row[1]),
+                  h(OnOffSwitch, {
+                    on: on,
+                    label: row[1],
+                    onClick: function () {
+                      goBs('KICK ' + row[0] + ' ' + ch + ' ' + (on ? 'OFF' : 'ON'));
+                    },
+                  })
+                ));
+              });
               body.push(h(Field, { label: pick('Mot interdit (BADWORDS)', 'Forbidden word (BADWORDS)') },
                 h('input', { className: 'ocs-input', value: botWord, onChange: function (e) { setBotWord(e.target.value); } })
               ));
@@ -2087,9 +2178,15 @@
                 h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
                   if (botWord.trim()) goBs('BADWORDS ' + ch + ' DEL ' + botWord.trim());
                 } }, labeled('novoice', pick('Retirer', 'Remove'))),
-                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('BADWORDS ' + ch + ' LIST'); } },
-                  labeled('list', pick('Liste', 'List')))
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+                  beginExpect('badwords', ch);
+                  patchUi({ lastCmd: 'BotServ BADWORDS ' + ch + ' LIST', loading: true, flash: '', flashErr: false });
+                  bs('BADWORDS ' + ch + ' LIST');
+                } }, labeled('list', pick('Liste', 'List')))
               ));
+              if (s.badwordsText) {
+                body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.badwordsText)));
+              }
               return;
             }
             (g.rows || []).forEach(function (row) {
@@ -2112,12 +2209,11 @@
 
         if (tab === 'divers' && showDivers) {
           var assigned = channelBotNick(ch, s.bot);
-          body.push(h('p', { className: 'ocs-h' }, pick('Bot du salon', 'Channel bot')));
-          body.push(h('p', { className: 'ocs-sub' }, assigned
-            ? pick('Assigné : ', 'Assigned: ') + assigned
-            : pick('Aucun bot assigné.', 'No bot assigned.')));
+          if (!assigned) {
+            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun bot assigné.', 'No bot assigned.')));
+          }
           if (s.botInfo) {
-            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo)));
+            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo, /kicker/)));
           }
           body.push(h(Field, { label: pick('Faire parler le bot (SAY / ACT)', 'Make the bot talk (SAY / ACT)') },
             h('input', { className: 'ocs-input', value: botSay, onChange: function (e) { setBotSay(e.target.value); } })
@@ -2193,15 +2289,39 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOP ' + ch); } },
               labeled('hash', 'Top'))
           ));
-          body.push(h(Field, { label: 'ENTRYMSG' },
+          body.push(h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')));
+          body.push(h('p', { className: 'ocs-sub' }, pick(
+            'Notices envoyées à l’arrivée sur le salon (plusieurs possibles).',
+            'Notices sent when someone joins (several allowed).'
+          )));
+          if (!(s.entryMsgs && s.entryMsgs.length)) {
+            body.push(h('p', { className: 'ocs-sub' }, pick('Aucun message d’accueil.', 'No welcome messages.')));
+          } else {
+            body.push(h('div', { className: 'ocs-acc' },
+              h('div', { className: 'ocs-acc__g' },
+                [h('div', { className: 'ocs-acc__h' }, pick('Messages', 'Messages'))].concat(s.entryMsgs.map(function (row) {
+                  return h('div', { key: row.n, className: 'ocs-acc__row' },
+                    h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.text),
+                    h('button', {
+                      type: 'button', className: 'ocs-btn',
+                      onClick: function () { goCs('ENTRYMSG ' + ch + ' DEL ' + row.n); },
+                    }, pick('Retirer', 'Remove'))
+                  );
+                }))
+              )
+            ));
+          }
+          body.push(h(Field, { label: pick('Nouveau message', 'New message') },
             h('input', { className: 'ocs-input', value: entryMsg, onChange: function (e) { setEntryMsg(e.target.value); } })
           ));
           body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              if (entryMsg.trim()) csSet('ENTRYMSG', entryMsg.trim());
-            } }, labeled('say', pick('Définir', 'Set'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csSet('ENTRYMSG', ''); } },
-              labeled('novoice', pick('Retirer', 'Unset')))
+            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+              if (entryMsg.trim()) goCs('ENTRYMSG ' + ch + ' ADD ' + entryMsg.trim());
+            } }, labeled('plus', pick('Ajouter', 'Add'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryEntryMsg(ch); } },
+              labeled('list', pick('Actualiser', 'Refresh'))),
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('ENTRYMSG ' + ch + ' CLEAR'); } },
+              labeled('novoice', pick('Tout retirer', 'Clear all')))
           ));
           if (can(ACCESS_RANK.founder)) {
             pushBtn(body, 'warn', function () { startDrop(ch); }, 'unassign', pick('Suppression du salon', 'Delete channel'));
@@ -2227,7 +2347,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '', loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
