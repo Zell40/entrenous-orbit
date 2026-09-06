@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 53;
+  var OEC_VER = 54;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -261,7 +261,7 @@
     });
   }
 
-  function sendEcCmd(orbit, buffer, name, arg) {
+  function sendEcCmd(orbit, buffer, name, arg, opts) {
     if (!orbit || !buffer || !name) return false;
     var st = botStatus(orbit, buffer);
     if (st === 'absent') return false;
@@ -269,6 +269,15 @@
     var target = resolveChannelName(orbit, buffer) || buffer;
     var tags = '+ec=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
+    opts = opts || {};
+    var game = getState(buffer);
+    var gid = opts.gid;
+    if (gid == null && name !== 'commencer' && name !== 'sync' && name !== 'historique' && name !== 'elo' && name !== 'lier' && name !== 'profil') {
+      gid = game && game.gid;
+    }
+    if (name === 'commencer') gid = '';
+    if (gid && String(gid) !== '0') tags += ';+gid=' + escapeIrcTag(gid);
+    if (opts.table) tags += ';+table=' + escapeIrcTag(opts.table);
     try {
       if (orbit.irc && orbit.irc.send) {
         orbit.irc.send('@' + tags + ' TAGMSG ' + target);
@@ -361,6 +370,9 @@
       pWhite: emptyPlayer(), pBlack: emptyPlayer(),
       review: emptyReview(),
       history: [],
+      tables: [],
+      watchGid: '',
+      tableNo: 0,
     };
   }
 
@@ -724,6 +736,7 @@
       ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr, ccReady: prev.ccReady,
       ccVerified: prev.ccVerified,
       history: prev.history || [],
+      tables: prev.tables || [],
     };
   }
 
@@ -976,6 +989,86 @@
     }).filter(function (row) { return row.gid; });
   }
 
+  function parseTableRows(raw) {
+    return String(raw || '').split(';').filter(Boolean).map(function (row) {
+      var p = row.split('|');
+      return {
+        no: p[0] || '',
+        gid: p[1] || '',
+        status: p[2] || '',
+        mode: p[3] || '',
+        tc: p[4] || '',
+        white: p[5] || '',
+        black: p[6] || '',
+        creator: p[7] || '',
+        invited: p[8] || '',
+      };
+    }).filter(function (t) { return t.gid; });
+  }
+
+  function nickMatches(n, me) {
+    return !!(n && me && String(n).toLowerCase() === String(me).toLowerCase());
+  }
+
+  function iAmSeated(orbit, game) {
+    var me = myNick(orbit);
+    if (!game || !me) return false;
+    return nickMatches(game.white, me) || nickMatches(game.black, me) ||
+      nickMatches(game.creator, me) || nickMatches(game.invited, me);
+  }
+
+  function tagsInvolveMe(tags, me) {
+    if (!me) return false;
+    return nickMatches(tagVal(tags, '+white'), me) ||
+      nickMatches(tagVal(tags, '+black'), me) ||
+      nickMatches(tagVal(tags, '+creator'), me) ||
+      nickMatches(tagVal(tags, '+invited'), me) ||
+      nickMatches(tagVal(tags, '+nick'), me);
+  }
+
+  function lobbyRowFromTags(tags, ev, gid) {
+    var waiting = ev === 'waiting' || tagVal(tags, '+waiting') === '1' || tagVal(tags, '+status') === 'waiting';
+    return {
+      no: tagVal(tags, '+table') || '',
+      gid: gid || '',
+      status: ev === 'game_end' ? 'end' : (waiting ? 'wait' : 'play'),
+      mode: tagVal(tags, '+mode') || '',
+      tc: tagVal(tags, '+tc') || '',
+      white: tagVal(tags, '+white') || '',
+      black: tagVal(tags, '+black') || '',
+      creator: tagVal(tags, '+creator') || '',
+      invited: tagVal(tags, '+invited') || '',
+    };
+  }
+
+  function mergeLobby(tables, row) {
+    var next = (tables || []).slice();
+    var i;
+    var found = -1;
+    for (i = 0; i < next.length; i++) {
+      if (String(next[i].gid) === String(row.gid)) { found = i; break; }
+    }
+    if (row.status === 'end') {
+      if (found >= 0) next.splice(found, 1);
+      return next;
+    }
+    if (found >= 0) next[found] = Object.assign({}, next[found], row);
+    else next.push(row);
+    next.sort(function (a, b) { return Number(a.no || 0) - Number(b.no || 0); });
+    return next;
+  }
+
+  function applyToBoard(prev, tags, ev, gid) {
+    var me = myNick(pluginOrbit);
+    var involved = tagsInvolveMe(tags, me);
+    var live = prev.status === 'playing' || prev.status === 'waiting';
+    if (live && prev.gid && gid && String(prev.gid) !== String(gid) && !involved) return false;
+    if (involved) return true;
+    if (prev.watchGid && gid && String(prev.watchGid) === String(gid) && !live) return true;
+    if (live && prev.gid && String(prev.gid) === String(gid)) return true;
+    return false;
+  }
+
   function reviewSink(gid, prev) {
     if (archiveGame && (!gid || String(archiveGame.gid) === String(gid))) return 'archive';
     if (prev && (prev.status === 'ended' || prev.status === 'playing') && (!gid || !prev.gid || String(prev.gid) === String(gid))) return 'state';
@@ -1003,6 +1096,27 @@
     }
     var gid = tagVal(tags, '+gid');
     var prev = getState(channel);
+    if (ev === 'table_list') {
+      var fromT = Number(tagVal(tags, '+from')) || 0;
+      var added = parseTableRows(tagVal(tags, '+rows'));
+      var list = fromT === 0 ? added : (prev.tables || []).concat(added);
+      patchState(channel, { tables: list });
+      return;
+    }
+    if (ev === 'waiting' || ev === 'game_start' || ev === 'state_sync' || ev === 'game_end') {
+      var lobby = mergeLobby(prev.tables, lobbyRowFromTags(tags, ev, gid));
+      if (ev === 'game_end') {
+        lobby = (prev.tables || []).filter(function (t) { return String(t.gid) !== String(gid); });
+      }
+      prev = Object.assign({}, prev, { tables: lobby });
+      store.byChannel[chanKey(channel)] = Object.assign({}, getState(channel), { tables: lobby, updatedAt: Date.now() });
+    }
+    var boardEv = ev === 'waiting' || ev === 'game_start' || ev === 'state_sync' || ev === 'move' ||
+      ev === 'illegal' || ev === 'draw_offer' || ev === 'game_end' || ev === 'roster' || ev === 'hist_chunk';
+    if (boardEv && gid && gid !== '0' && !applyToBoard(prev, tags, ev, gid)) {
+      bump();
+      return;
+    }
     if (gid && prev.gid && gid !== prev.gid && ev !== 'game_end' && ev !== 'archive' && ev !== 'archive_moves' && ev !== 'review_start' && ev !== 'review_chunk' && ev !== 'review_done') {
       ui.sel = '';
       ui.promo = null;
@@ -1018,6 +1132,9 @@
         creator: tagVal(tags, '+creator'), invited: tagVal(tags, '+invited'),
         gid: gid || prev.gid, result: '', reason: '', flash: '',
         tc: tagVal(tags, '+tc') || prev.tc,
+        tableNo: tagVal(tags, '+table') || prev.tableNo,
+        watchGid: '',
+        tables: prev.tables || [],
       });
       return;
     }
@@ -1174,6 +1291,9 @@
         result: '',
         flash: ev === 'move' ? '' : prev.flash,
         review: ev === 'game_start' ? emptyReview() : prev.review,
+        tableNo: tagVal(tags, '+table') || prev.tableNo,
+        watchGid: ev === 'game_start' && tagsInvolveMe(tags, myNick(pluginOrbit)) ? '' : prev.watchGid,
+        tables: prev.tables || [],
       });
       maybeFlushPremove(channel);
       return;
@@ -1249,6 +1369,8 @@
         eloB: tagVal(tags, '+elo-b'),
         eloDw: tagVal(tags, '+elo-dw'),
         review: emptyReview(),
+        tableNo: tagVal(tags, '+table') || prev.tableNo,
+        tables: prev.tables || [],
       });
       return;
     }
@@ -1385,7 +1507,7 @@
         ui.navPly = -1;
         ui.pendingMove = null;
         clearPremoves();
-        patchState(channel, Object.assign(defaultState(), keepProfile(prev), { flash: '' }));
+        patchState(channel, Object.assign(defaultState(), keepProfile(prev), { flash: '', tables: prev.tables || [] }));
         return;
       }
       patchState(channel, { flash: err || 'Erreur' });
@@ -1862,6 +1984,13 @@
       '.oec-game-actions .oec-spin,.oec-btn--pri .oec-spin,.oec-btn--danger .oec-spin{border-color:rgba(255,255,255,.32);border-top-color:#fff}',
       '.oec-hist .oec-spin{width:14px;height:14px;border-color:#d7ccb8;border-top-color:#166534}',
       '.oec-idle{text-align:left;width:100%;max-width:58rem;margin:0 auto;color:#3f3a32;display:flex;flex-direction:column;gap:.38rem;min-height:0;flex:1 1 auto;box-sizing:border-box}',
+      '.oec-lobby{display:flex;flex-direction:column;gap:.28rem}',
+      '.oec-lobby__row{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.22rem 0;border-bottom:1px solid #efe6d6}',
+      '.oec-lobby__row:last-child{border-bottom:0}',
+      '.oec-lobby__no{font-weight:800;color:#14532d;min-width:1.6rem}',
+      '.oec-lobby__vs{flex:1 1 8rem;font-size:.82rem;font-weight:700}',
+      '.oec-lobby__meta{font-size:.72rem;color:#6b6256}',
+      '.oec-lobby__row .oec-btn{margin-left:auto}',
       '.oec-offline{text-align:center;width:100%;max-width:28rem;margin:1.2rem auto;padding:.4rem .8rem 1.2rem;color:#3f3a32}',
       '.oec-offline__badge{display:inline-flex;align-items:center;gap:.35rem;margin:.2rem 0 .55rem;padding:.28rem .7rem;border-radius:999px;font-size:.72rem;font-weight:800;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca}',
       '.oec-offline__badge--wait{background:#ecfccb;color:#3f6212;border-color:#d9f99d}',
@@ -2261,6 +2390,39 @@
       '" data-act="' + act + '" data-val="' + val + '">' + label + '</button>';
   }
 
+  function renderLobby(orbit, game) {
+    var rows = game.tables || [];
+    if (!rows.length) return '';
+    var me = myNick(orbit);
+    var html = '<div class="oec-card oec-card--wide"><h3>Tables en cours</h3><div class="oec-lobby">';
+    rows.forEach(function (t) {
+      var wait = t.status === 'wait';
+      var label = wait ? 'En attente' : 'En cours';
+      var left = t.white || t.creator || '?';
+      var right = t.black || t.invited || (wait ? '…' : '?');
+      var mine = nickMatches(t.white, me) || nickMatches(t.black, me) ||
+        nickMatches(t.creator, me) || nickMatches(t.invited, me);
+      var canJoin = wait && !mine && (!t.invited || nickMatches(t.invited, me));
+      html += '<div class="oec-lobby__row">' +
+        '<span class="oec-lobby__no">#' + escHtml(t.no || '?') + '</span>' +
+        '<span class="oec-lobby__vs">' + escHtml(left + ' vs ' + right) + '</span>' +
+        '<span class="oec-lobby__meta">' + escHtml((t.tc && t.tc !== 'casual' ? tcLabel(t.tc) + ' · ' : '') + label) + '</span>';
+      if (canJoin) {
+        html += '<button type="button" class="oec-btn oec-btn--pri" data-act="join-table" data-val="' +
+          escHtml(String(t.no || '')) + '" data-gid="' + escHtml(t.gid) + '"' +
+          (ui.cmdBusy ? ' disabled' : '') + '>Rejoindre</button>';
+      } else if (!wait && !mine) {
+        html += '<button type="button" class="oec-btn" data-act="watch-table" data-gid="' +
+          escHtml(t.gid) + '"' + (ui.cmdBusy ? ' disabled' : '') + '>Regarder</button>';
+      } else if (mine) {
+        html += '<span class="oec-lobby__meta">Ta table</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div></div>';
+    return html;
+  }
+
   function renderHome(orbit, game) {
     var s = ui.setup;
     var busy = !!ui.ccBusy;
@@ -2341,6 +2503,7 @@
       pick({ fr: 'Choisissez un niveau, une cadence, puis lancez une partie contre l’IA ou un ami du salon.',
         en: 'Pick a level and time control, then play the AI or a friend.' }) +
       '</p>' +
+      renderLobby(orbit, game) +
       '<div class="oec-home-grid">' +
       '<div class="oec-card"><h3>Adversaire</h3><div class="oec-pills">' +
       pill('setup-vs', 'ai', 'Contre l’IA', s.vs) +
@@ -2417,9 +2580,13 @@
       if (canJoin) html += cmdBtn('join', 'Rejoindre', 'Connexion…', 'oec-btn--pri');
       if (creator === me) html += cmdBtn('abort', 'Annuler', 'Annulation…');
     } else if (game.status === 'playing') {
-      html += cmdBtn('draw', 'Nulle', 'Envoi…');
-      if (canAbort(game)) html += cmdBtn('abort', 'Annuler', 'Annulation…');
-      html += cmdBtn('resign', 'Abandonner', 'Abandon…', 'oec-btn--danger');
+      if (!iAmSeated(orbit, game)) {
+        html += cmdBtn('home', 'Lobby', 'Chargement…', 'oec-btn--pri');
+      } else {
+        html += cmdBtn('draw', 'Nulle', 'Envoi…');
+        if (canAbort(game)) html += cmdBtn('abort', 'Annuler', 'Annulation…');
+        html += cmdBtn('resign', 'Abandonner', 'Abandon…', 'oec-btn--danger');
+      }
     } else if (game.status === 'ended') {
       html += cmdBtn('home', 'Accueil', 'Chargement…', 'oec-btn--pri');
       html += cmdBtn('start-setup', 'Rejouer', 'Lancement…');
@@ -2892,26 +3059,26 @@
     var promo = el.getAttribute('data-promo');
     var val = el.getAttribute('data-val');
 
-    function sent(name, arg) {
-      var ok = sendEcCmd(orbit, buffer, name, arg);
+    function sent(name, arg, opts) {
+      var ok = sendEcCmd(orbit, buffer, name, arg, opts);
       if (!ok) patchState(buffer, { flash: pick({ fr: 'Envoi TAGMSG impossible', en: 'TAGMSG send failed' }) });
       return ok;
     }
-    function sentWait(actName, name, arg, extra) {
+    function sentWait(actName, name, arg, extra, opts) {
       if (ui.cmdBusy) return false;
       setCmdBusy(actName, 12000, extra);
-      var ok = sent(name, arg);
+      var ok = sent(name, arg, opts);
       if (!ok) { clearCmdBusy(); bump(); }
       return ok;
     }
     if ({
       'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
-      join: 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
+      join: 1, 'join-table': 1, 'watch-table': 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
       lier: 1, 'lier-oui': 1, 'lier-non': 1, 'lier-skip': 1, 'cc-toggle': 1, elo: 1,
     }[act] && botStatus(orbit, buffer) !== 'ok') return;
     if ({
       'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
-      join: 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
+      join: 1, 'join-table': 1, 'watch-table': 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
     }[act] && ui.cmdBusy) return;
 
     if (act === 'setup-vs' || act === 'setup-skill' || act === 'setup-color' || act === 'setup-tc' || act === 'setup-duo') {
@@ -2982,6 +3149,17 @@
     if (act === 'start-b') { sentWait('start-b', 'commencer', 'noirs ' + (ui.setup.skill || '') + ' ' + (ui.setup.tc || '')); return; }
     if (act === 'duo') { sentWait('duo', 'commencer', 'duo ' + (ui.setup.tc || '')); return; }
     if (act === 'join') { sentWait('join', 'rejoindre'); return; }
+    if (act === 'join-table') {
+      sentWait('join-table', 'rejoindre', val, val, { table: val, gid: el.getAttribute('data-gid') || '' });
+      return;
+    }
+    if (act === 'watch-table') {
+      var watchGid = el.getAttribute('data-gid') || val || '';
+      archiveGame = null;
+      patchState(buffer, { watchGid: watchGid });
+      sent('sync', '', { gid: watchGid });
+      return;
+    }
     if (act === 'draw') { sentWait('draw', 'nul'); return; }
     if (act === 'abort') { sentWait('abort', 'annuler'); return; }
     if (act === 'resign') { sentWait('resign', 'abandonner'); return; }
@@ -3028,7 +3206,7 @@
           kept.elo = String(nextElo);
         }
       }
-      patchState(buffer, Object.assign(defaultState(), kept));
+      patchState(buffer, Object.assign(defaultState(), kept, { tables: prev.tables || [] }));
       sent('historique');
       sent('elo');
       return;
