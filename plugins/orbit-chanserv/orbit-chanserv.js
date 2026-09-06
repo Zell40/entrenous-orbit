@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=37"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=38"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -144,13 +144,6 @@
         });
       }
       return (m && (m.prefixes || m.prefix)) || '';
-    }
-    function strongestPrefixSym(pfx) {
-      var order = '~&@%+';
-      for (var i = 0; i < order.length; i++) {
-        if (String(pfx || '').indexOf(order[i]) >= 0) return order[i];
-      }
-      return '';
     }
     function nickKeys(nick) {
       var n = String(nick || '');
@@ -1183,15 +1176,11 @@
       }
       var fly = [];
       var pfx = memberPrefixChars(ch, nick);
-      var top = strongestPrefixSym(pfx);
       function roleBtn(sym, letter, canDo, addCmd, delCmd, addIcon, delIcon, addLab, delLab) {
         if (!canDo) return;
-        if (top) {
-          if (top !== sym) return;
-          fly.push(menuBtn(letter + 'd', false, delCmd, delIcon, delLab));
-        } else if (sym === '+') {
-          fly.push(menuBtn(letter, false, addCmd, addIcon, addLab));
-        }
+        var has = String(pfx || '').indexOf(sym) >= 0;
+        if (has) fly.push(menuBtn(letter + 'd', false, delCmd, delIcon, delLab));
+        else fly.push(menuBtn(letter, false, addCmd, addIcon, addLab));
       }
       roleBtn('+', 'v', vop,
         function () { serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick); },
@@ -1223,9 +1212,9 @@
         var accFly = [];
         function accBtn(lv, add, need, label) {
           if (!can(need)) return;
-          if (haveXop) {
-            if (add || lv !== haveXop) return;
-          } else if (!add) return;
+          if (add) {
+            if (haveXop === lv) return;
+          } else if (haveXop !== lv) return;
           accFly.push(menuBtn(lv + (add ? 'a' : 'd'), false, function () {
             go(lv + ' ' + ch + ' ' + (add ? 'ADD ' : 'DEL ') + nick);
           }, add ? 'assign' : 'unassign',

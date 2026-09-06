@@ -14,7 +14,7 @@
  * Les CTA n’apparaissent qu’après le splash de boot (écran de chargement).
  *
  * config.json:
- *   "plugins": [".../orbit-anope/orbit-anope.js?v=10"]
+ *   "plugins": [".../orbit-anope/orbit-anope.js?v=11"]
  */
 (function () {
   'use strict';
@@ -618,7 +618,8 @@
       var openSettings = function () {
         markDismissed();
         var st = orbit.state.get();
-        if (st && typeof st.setModal === 'function') st.setModal('settings');
+        if (st && typeof st.openSettings === 'function') st.openSettings('compte');
+        else if (st && typeof st.setModal === 'function') st.setModal('settings');
       };
       var kids = [
         h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissLater, 'aria-label': close }, '×'),
@@ -819,7 +820,8 @@
       var openSettings = function () {
         dismissForced();
         var st = orbit.state.get();
-        if (st && typeof st.setModal === 'function') st.setModal('settings');
+        if (st && typeof st.openSettings === 'function') st.openSettings('compte');
+        else if (st && typeof st.setModal === 'function') st.setModal('settings');
       };
       return h('div', { className: 'guestprompt', role: 'dialog', 'aria-labelledby': 'anope-forced-title', 'aria-describedby': 'anope-forced-desc' },
         h('button', { type: 'button', className: 'guestprompt__x', onClick: dismissForced, 'aria-label': close }, '×'),

@@ -9,9 +9,8 @@ puis redirige vers l’app Orbit.
 utilisé au rechargement de page et à chaque reconnexion WebSocket
 (`features.sessionResume` + `saslOauthBearer`).
 
-Le cookie `orbit_en_resume` est **host-only** (pas `Domain=.entrenous.chat`) :
-il n’est lu que par `chat-resume.php` sur l’hôte Orbit. `orbit_en_listen` reste
-partagé sur `.entrenous.chat` pour le websocket `irc.entrenous.chat`.
+`chat-logout.php` (`POST /accounts/api/chat_logout/`) expire le cookie — appelé
+quand on quitte le tchat ou `/logout`.
 
 Déployé automatiquement à la racine du webchat par `deploy.sh` :
 
