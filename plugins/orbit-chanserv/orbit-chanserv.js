@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=45"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=46"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -368,7 +368,6 @@
       });
       rememberCache(chan);
       expectKind = '';
-      if (info.registered && !info.bot) queryBotInfo(chan);
     }
 
     function queryInfo(chan, opts) {
@@ -376,10 +375,7 @@
         patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' });
         return;
       }
-      if (applyCache(chan)) {
-        if (ui.registered && !ui.bot) queryBotInfo(chan);
-        return;
-      }
+      if (applyCache(chan)) return;
       var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwordsText: '' };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
@@ -448,6 +444,10 @@
       });
     }
 
+    function looksLikeBotInfoDump(text) {
+      var t = foldText(text);
+      return /pseudo du bot|kicker (de|pour|d[' ])|fantaisie|\bfantasy\b/.test(t);
+    }
     function looksLikeServOk(text) {
       var t = foldText(text);
       return /a ete enregistre|has been registered|enregistre avec succes|registered successfully|sujet (modifie|change|a ete)|topic (is now|changed|set|lock)|est maintenant|is now|option|keeptopic|mlock|a ete defini|has been set|est vide|is empty|aucun mot|no (bad ?)?words|a ete ajoute|has been added|a ete (supprime|retire)|has been (removed|deleted)/.test(t);
@@ -782,8 +782,20 @@
         return;
       }
       if (kind === 'cmd') {
+        if (looksLikeBotInfoDump(text)) {
+          var dump = stripIrc(text);
+          var nick = parseBotNick(dump);
+          patchUi({ botInfo: dump, loading: false, bot: nick || ui.bot });
+          expectKind = '';
+          return;
+        }
         var raw = stripIrc(text).replace(/\s+/g, ' ').trim().slice(0, 400);
         var err = looksLikeServError(raw);
+        if (!ui.open && !err) {
+          patchUi({ loading: false });
+          expectKind = '';
+          return;
+        }
         patchUi({ flash: raw, flashErr: !!err, loading: false, open: err ? true : ui.open });
         expectKind = '';
         cache = {};
@@ -1417,7 +1429,6 @@
         if (!isChannel(chan) || !identified()) return undefined;
         if (!(s.chan === chan && s.registered !== null)) queryInfo(chan);
         if (!(s.bots && s.bots.length)) queryBotlist();
-        if (!s.bot && !s.botInfo) queryBotInfo(chan);
         return undefined;
       }, [chan]);
       useEffect(function () {
