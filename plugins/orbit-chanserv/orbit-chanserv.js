@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=36"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=37"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -487,7 +487,7 @@
           else if (/restricted|restreint/.test(t)) on.RESTRICTED = true;
           else if (/keeptopic|conserver le topic|maintien du topic/.test(t)) on.KEEPTOPIC = true;
           else if (/keepmodes|maintien des modes/.test(t)) on.KEEPMODES = true;
-          else if (/topiclock|verrouill/.test(t)) on.TOPICLOCK = true;
+          else if (/^topiclock$/.test(t) || /verrouillage du (topic|sujet)/.test(t)) on.TOPICLOCK = true;
           else if (/signkick|kicks signes/.test(t)) on.SIGNKICK = true;
           else if (/opnotice/.test(t)) on.OPNOTICE = true;
           else if (/peace|paix/.test(t)) on.PEACE = true;
@@ -497,6 +497,16 @@
         });
       });
       return on;
+    }
+    function parseTopicLocked(text) {
+      var locked = !!parseChanOptions(text).TOPICLOCK;
+      String(text || '').split(/\n/).forEach(function (line) {
+        var t = foldText(stripIrc(line));
+        if (!/(verrouillage du sujet|topic lock|sujet verrouille)\s*:/.test(t)) return;
+        if (/\b(inactif|off|disabled|no)\b/.test(t)) locked = false;
+        else if (/\b(actif|on|enabled|yes|oui)\b/.test(t)) locked = true;
+      });
+      return locked;
     }
 
     function parseDropCode(text) {
@@ -1522,6 +1532,9 @@
       function csSet(opt, val) {
         goCs('SET ' + opt + ' ' + ch + (val != null && String(val) !== '' ? ' ' + val : ''));
       }
+      function csTopicLock(enable) {
+        goCs('TOPIC ' + ch + (enable ? ' LOCK' : ' UNLOCK'));
+      }
       function csMode(op, modes) {
         var m = String(modes || '').trim();
         if (!m && op !== 'SET') return;
@@ -1647,20 +1660,14 @@
             } }, labeled('plus', pick('Au début', 'Prepend')))
           ));
           var topicOpts = parseChanOptions(s.infoText);
-          var topicLocked = !!topicOpts.TOPICLOCK;
-          String(s.infoText || '').split(/\n/).forEach(function (line) {
-            var t = foldText(stripIrc(line));
-            if (!/(verrouillage du sujet|topic lock|sujet verrouille)\s*:/.test(t)) return;
-            if (/\b(inactif|off|disabled|no)\b/.test(t)) topicLocked = false;
-            else if (/\b(actif|on|enabled|yes|oui)\b/.test(t)) topicLocked = true;
-          });
+          var topicLocked = parseTopicLocked(s.infoText);
           body.push(h('div', { className: 'ocs-mg__g' },
             h('div', { className: 'ocs-ml' + (topicLocked ? ' is-on' : '') },
               h('span', { className: 'ocs-ml__lab' }, pick('Verrouiller le topic', 'Lock topic')),
               h(OnOffSwitch, {
                 on: topicLocked,
                 label: pick('Verrouiller le topic', 'Lock topic'),
-                onClick: function () { goCs('TOPIC ' + ch + (topicLocked ? ' UNLOCK' : ' LOCK')); },
+                onClick: function () { csTopicLock(!topicLocked); },
               })
             ),
             h('div', { className: 'ocs-ml' + (topicOpts.KEEPTOPIC ? ' is-on' : '') },
@@ -1832,7 +1839,6 @@
           var setGroups = [
             { id: 'topic', label: pick('Topic', 'Topic'), rows: [
               ['KEEPTOPIC', pick('Conserver le topic', 'Keep topic')],
-              ['TOPICLOCK', pick('Verrouiller le topic', 'Lock topic')],
             ] },
             { id: 'sec', label: pick('Sécurité', 'Security'), rows: [
               ['SECUREOPS', 'SECUREOPS'],

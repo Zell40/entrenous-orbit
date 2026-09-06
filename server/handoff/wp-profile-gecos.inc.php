@@ -9,6 +9,14 @@
  */
 declare(strict_types=1);
 
+function entrenous_flatten_sexe(mixed $sexe): string
+{
+    if (is_array($sexe)) {
+        $sexe = $sexe[0] ?? '';
+    }
+    return trim((string) $sexe);
+}
+
 /**
  * Build "40 - Homme - Paris" from WP profile fields (source of truth).
  */
@@ -18,8 +26,8 @@ function entrenous_build_gecos_from_profile(array $data): string
         return '';
     }
     $age = $data['age'] ?? null;
-    $sexe = isset($data['sexe']) ? trim((string) $data['sexe']) : '';
-    $ville = isset($data['ville']) ? trim((string) $data['ville']) : '';
+    $sexe = entrenous_flatten_sexe($data['sexe'] ?? '');
+    $ville = isset($data['ville']) ? (is_array($data['ville']) ? trim((string)($data['ville'][0] ?? '')) : trim((string) $data['ville'])) : '';
     if ($age === null || $age === '' || $sexe === '' || $ville === '') {
         return '';
     }
