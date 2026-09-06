@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=47"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=48"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -987,7 +987,7 @@
         '.ocs-tab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:800;font-size:.72rem;',
         'display:inline-flex;align-items:center;gap:.28rem;padding:.35rem .48rem;border-radius:8px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
-        '.ocs-subtabs{display:flex;flex-wrap:nowrap;gap:.3rem;overflow-x:auto}',
+        '.ocs-subtabs{display:flex;flex-wrap:wrap;gap:.3rem;overflow:visible}',
         '.ocs-stab{border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;',
         'font-weight:750;font-size:.76rem;padding:.35rem .65rem;border-radius:999px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-stab.is-on{background:var(--accent);color:#fff;border-color:transparent}',
@@ -1196,14 +1196,22 @@
       return plus > minus;
     }
     function chanFlagLetters() {
-      var cm = String((orbit.server.isupport() || {}).CHANMODES || 'beI,k,l,imnstp').split(',');
-      var flags = String(cm[3] || 'imnstp');
-      var skip = 'qaohvbeIkflLjOA';
+      var isu = orbit.server.isupport() || {};
+      var cm = String(isu.CHANMODES || 'beI,k,l,imnstp').split(',');
+      var flags = '';
+      for (var i = 3; i < cm.length; i++) flags += cm[i];
+      if (!flags) flags = 'imnstp';
+      var skip = 'qaohvbeIkflLjOFJ';
+      var px = String(isu.PREFIX || '').match(/^\(([^)]+)\)/);
+      if (px) skip += px[1];
       var out = [];
-      for (var i = 0; i < flags.length; i++) {
-        if (skip.indexOf(flags[i]) < 0 && out.indexOf(flags[i]) < 0) out.push(flags[i]);
+      function add(letter) {
+        if (!letter || skip.indexOf(letter) >= 0 || out.indexOf(letter) >= 0) return;
+        out.push(letter);
       }
-      if (out.indexOf('U') < 0) out.push('U');
+      for (var j = 0; j < flags.length; j++) add(flags[j]);
+      var catalog = 'iARzspmnUtMNCTcSGQKDdHPruV';
+      for (var k = 0; k < catalog.length; k++) add(catalog[k]);
       return out;
     }
     function modeCatalog() {
@@ -1213,6 +1221,7 @@
           title: pick('Accès au salon', 'Joining'),
           modes: [
             ['i', pick('Sur invitation', 'Invite only'), pick('Salon uniquement sur invitation : il faut être invité pour entrer.', 'Only invited users can join.')],
+            ['A', pick('Autoriser les invitations', 'Allow invite'), pick('Les membres peuvent INVITE même si le salon est +i.', 'Members may INVITE even when the channel is +i.')],
             ['R', pick('Compte enregistré', 'Registered nick'), pick('Il faut un pseudo enregistré (NickServ) pour rejoindre.', 'A registered nickname is required to join.')],
             ['z', pick('Connexion chiffrée', 'TLS only'), pick('Uniquement les connexions chiffrées (TLS/SSL).', 'Only TLS/SSL connections may join.')],
             ['s', pick('Secret', 'Secret'), pick('Le salon n’apparaît pas dans les listes publiques.', 'The channel is hidden from public lists.')],
@@ -1775,9 +1784,6 @@
       var ytValSt = useState('');
       var ytVal = ytValSt[0];
       var setYtVal = ytValSt[1];
-      var modeGroupSt = useState('join');
-      var modeGroup = modeGroupSt[0];
-      var setModeGroup = modeGroupSt[1];
       var setGroupSt = useState('sec');
       var setGroup = setGroupSt[0];
       var setSetGroup = setGroupSt[1];
@@ -2040,16 +2046,7 @@
           var extraModes = flags.filter(function (letter) { return !used[letter]; }).map(function (letter) {
             return [letter, pick('Mode ', 'Mode ') + letter, pick('Mode de salon +', 'Channel mode +') + letter];
           });
-          var groupsAvail = cat.filter(function (g) {
-            return g.modes.some(function (row) { return flags.indexOf(row[0]) >= 0; });
-          });
-          if (extraModes.length) groupsAvail = groupsAvail.concat([{ id: 'extra', title: pick('Réseau', 'Network'), extra: true }]);
-          var gid = modeGroup;
-          if (!groupsAvail.some(function (g) { return g.id === gid; }) && groupsAvail[0]) gid = groupsAvail[0].id;
           body.push(h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')));
-          body.push(subTabs(gid, setModeGroup, groupsAvail.map(function (g) {
-            return { id: g.id, label: g.title };
-          })));
           function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
             var locked = mlockHas(lockedModes, letter);
@@ -2076,17 +2073,20 @@
               )
             );
           }
-          var shown = [];
-          groupsAvail.forEach(function (g) {
-            if (g.id !== gid) return;
-            if (g.extra) shown = extraModes.map(function (row) { return modeRow(row[0], row[1], row[2]); });
-            else {
-              shown = g.modes.filter(function (row) { return flags.indexOf(row[0]) >= 0; }).map(function (row) {
-                return modeRow(row[0], row[1], row[2]);
-              });
-            }
+          cat.forEach(function (g) {
+            var rows = g.modes.filter(function (row) { return flags.indexOf(row[0]) >= 0; }).map(function (row) {
+              return modeRow(row[0], row[1], row[2]);
+            });
+            if (!rows.length) return;
+            body.push(h('p', { className: 'ocs-mg__h' }, g.title));
+            body.push(h('div', { className: 'ocs-mg__g' }, rows));
           });
-          body.push(h('div', { className: 'ocs-mg__g' }, shown));
+          if (extraModes.length) {
+            body.push(h('p', { className: 'ocs-mg__h' }, pick('Réseau', 'Network')));
+            body.push(h('div', { className: 'ocs-mg__g' }, extraModes.map(function (row) {
+              return modeRow(row[0], row[1], row[2]);
+            })));
+          }
           body.push(h('div', { className: 'ocs-row' },
             h('button', {
               type: 'button', className: 'ocs-btn',
