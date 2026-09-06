@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=48"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=50"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -23,7 +23,7 @@
   var STYLE_ID = 'orbit-chanserv-css';
   var RPC_PATH = '/app/plugins/third/orbit-chanserv/chanserv-rpc.php';
 
-  var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, founder: 100 };
+  var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, qop: 100, founder: 100 };
 
   Orbit.plugin('orbit-chanserv', function (orbit, log) {
     var React = orbit.React;
@@ -164,8 +164,20 @@
       (ui.accessList || []).forEach(function (row) {
         var k = foldText(row.nick);
         if (keys.indexOf(k) < 0) return;
-        var r = ACCESS_RANK[String(row.level || '').toLowerCase()] || 0;
-        if (r > bestR) { bestR = r; best = String(row.level || '').toUpperCase(); }
+        var lv = String(row.level || '');
+        var r = ACCESS_RANK[lv.toLowerCase()] || 0;
+        if (!r && /^\d+$/.test(lv)) {
+          var n = parseInt(lv, 10);
+          if (n >= 100) r = 100;
+          else if (n >= 10) r = 10;
+          else if (n >= 5) r = 5;
+          else if (n >= 4) r = 4;
+          else if (n > 0) r = 3;
+        }
+        if (r > bestR) {
+          bestR = r;
+          best = /^(QOP|SOP|AOP|HOP|VOP)$/i.test(lv) ? lv.toUpperCase() : (r >= 100 ? 'SOP' : r >= 10 ? 'SOP' : r >= 5 ? 'AOP' : r >= 4 ? 'HOP' : 'VOP');
+        }
       });
       return best;
     }
@@ -429,6 +441,10 @@
       bs('BADWORDS ' + chan + ' LIST');
     }
 
+    function looksLikeAccessHelp(text) {
+      var t = foldText(text);
+      return /syntaxe:\s*access|\bsyntax:\s*access|unknown command|commande inconnue|no such command/.test(t);
+    }
     function queryAccess(chan, force) {
       if (!isChannel(chan) || !identified()) return;
       var key = String(chan).toLowerCase();
@@ -437,6 +453,11 @@
       patchUi({ accessLoading: true });
       rpcCall('access', chan).then(function (data) {
         if (ui.chan && String(ui.chan).toLowerCase() !== key) return;
+        if (data && data.ok && data.list != null && String(data.list) !== '' && !looksLikeAccessHelp(data.list)) {
+          patchUi({ accessList: parseAccessList(data.list), accessLoading: false });
+          expectKind = '';
+          return;
+        }
         if (data && data.ok && data.lists) {
           var rows = [];
           ['SOP', 'AOP', 'HOP', 'VOP'].forEach(function (lv) {
@@ -446,10 +467,8 @@
           expectKind = '';
           return;
         }
-        xopRows = [];
-        xopQueue = ['SOP', 'AOP', 'HOP', 'VOP'];
-        beginExpect('xop', chan);
-        cs(xopQueue[0] + ' ' + chan + ' LIST');
+        beginExpect('accesslist', chan);
+        cs('ACCESS ' + chan + ' LIST * ALL');
       });
     }
 
@@ -465,6 +484,7 @@
       var t = foldText(text);
       if (!t || looksLikeServOk(t)) return false;
       if (/mots interdits|mot interdit|bad ?words/.test(t) && !/permission|denied|refuse|invalide|invalid/.test(t)) return false;
+      if (/liste d['']acces|access list|fin de la liste d['']acces/.test(t) && !/permission|denied|refuse/.test(t)) return false;
       return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|\binterdit\b|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
     }
     function parseAccess(text) {
@@ -636,6 +656,43 @@
     function mlockHas(mlock, letter) {
       return String(mlock || '').indexOf(letter) >= 0;
     }
+    function inferAccessSystem(level, tag) {
+      var t = String(tag || '').toUpperCase();
+      if (/^(XOP|FLAGS|QOP|ACCESS)$/.test(t)) return t;
+      var lv = String(level || '').toUpperCase();
+      if (/^(QOP|SOP|AOP|HOP|VOP)$/.test(lv)) return 'XOP';
+      if (lv === 'FOUNDER') return 'QOP';
+      if (/^[+\-]/.test(lv)) return 'FLAGS';
+      return 'ACCESS';
+    }
+    function accessGroupKey(row) {
+      var lv = String(row.level || '').toUpperCase();
+      var sys = String(row.system || '').toUpperCase();
+      if (sys === 'FLAGS' || lv.charAt(0) === '+' || lv.charAt(0) === '-') return 'FLAGS';
+      if (sys === 'QOP' || lv === 'QOP' || lv === 'FOUNDER') return 'QOP';
+      if (sys === 'XOP' || /^(SOP|AOP|HOP|VOP)$/.test(lv)) return lv;
+      return 'ACCESS';
+    }
+    function parseAccessList(text) {
+      var rows = [];
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        if (!s) return;
+        if (/^(liste|list|num\b|num[eé]ro|end of|fin de|acc[eè]s|access list|entries for|niveau|level|masque|mask)\b/i.test(s)
+          && !/^\d+/.test(s)) return;
+        if (/vide|empty|no (sop|aop|hop|vop|entries|users)|aucun/i.test(s) && !/^\d+/.test(s)) return;
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)(?:[.:)])?\s+(\S+)\s+(\S+)(?:\s+\((\w+)\))?/);
+        if (!m) return;
+        if (/^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[3])) return;
+        rows.push({
+          n: m[1],
+          level: m[2],
+          nick: m[3].replace(/[.,;]+$/, ''),
+          system: inferAccessSystem(m[2], m[4] || ''),
+        });
+      });
+      return rows;
+    }
     function parseXopList(text, level) {
       var rows = [];
       String(text || '').split(/\n/).forEach(function (line) {
@@ -644,10 +701,10 @@
         if (/^(liste|list|num\b|end of|fin de|acc[eè]s|access list|entries for)/i.test(s)) return;
         if (/vide|empty|no (sop|aop|hop|vop|entries|users)|aucun/i.test(s) && !/^\d+/.test(s)) return;
         var m = s.match(/^(?:[-*]\s*)?\d+\s+(SOP|AOP|HOP|VOP|QOP)\s+(\S+)/i);
-        if (m) { rows.push({ level: m[1].toUpperCase(), nick: m[2].replace(/[.,;]+$/, '') }); return; }
+        if (m) { rows.push({ level: m[1].toUpperCase(), nick: m[2].replace(/[.,;]+$/, ''), system: 'XOP' }); return; }
         m = s.match(/^(?:[-*]\s*)?\d+\s+(\S+)/);
         if (m && !/^(num|nick|pseudo|level|niveau)$/i.test(m[1])) {
-          rows.push({ level: level, nick: m[1].replace(/[.,;]+$/, '') });
+          rows.push({ level: level, nick: m[1].replace(/[.,;]+$/, ''), system: 'XOP' });
         }
       });
       return rows;
@@ -762,6 +819,20 @@
       }
       if (kind === 'badwords') {
         patchUi({ badwords: parseBadwordsList(text), loading: false, flash: '', flashErr: false });
+        expectKind = '';
+        return;
+      }
+      if (kind === 'accesslist') {
+        var accRaw = stripIrc(text);
+        var accRows = parseAccessList(accRaw);
+        if (!accRows.length && looksLikeAccessHelp(accRaw)) {
+          xopRows = [];
+          xopQueue = ['SOP', 'AOP', 'HOP', 'VOP'];
+          beginExpect('xop', chan);
+          cs(xopQueue[0] + ' ' + chan + ' LIST');
+          return;
+        }
+        patchUi({ accessList: accRows, accessLoading: false, loading: false });
         expectKind = '';
         return;
       }
@@ -988,8 +1059,10 @@
         'display:inline-flex;align-items:center;gap:.28rem;padding:.35rem .48rem;border-radius:8px;cursor:pointer;flex:none;white-space:nowrap}',
         '.ocs-tab.is-on{color:var(--accent);background:var(--accent-soft)}',
         '.ocs-subtabs{display:flex;flex-wrap:wrap;gap:.3rem;overflow:visible}',
+        '.ocs-subtabs.ocs-modesubs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.35rem;width:100%}',
         '.ocs-stab{border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit;',
         'font-weight:750;font-size:.76rem;padding:.35rem .65rem;border-radius:999px;cursor:pointer;flex:none;white-space:nowrap}',
+        '.ocs-modesubs .ocs-stab{display:flex;align-items:center;justify-content:center;width:100%;text-align:center;border-radius:10px;padding:.48rem .35rem;font-size:.74rem}',
         '.ocs-stab.is-on{background:var(--accent);color:#fff;border-color:transparent}',
         '.ocs-setrow{display:flex;align-items:center;justify-content:space-between;gap:.5rem;',
         'padding:.4rem .55rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
@@ -1218,7 +1291,7 @@
       return [
         {
           id: 'join',
-          title: pick('Accès au salon', 'Joining'),
+          title: pick('Accès salon', 'Join access'),
           modes: [
             ['i', pick('Sur invitation', 'Invite only'), pick('Salon uniquement sur invitation : il faut être invité pour entrer.', 'Only invited users can join.')],
             ['A', pick('Autoriser les invitations', 'Allow invite'), pick('Les membres peuvent INVITE même si le salon est +i.', 'Members may INVITE even when the channel is +i.')],
@@ -1784,6 +1857,9 @@
       var ytValSt = useState('');
       var ytVal = ytValSt[0];
       var setYtVal = ytValSt[1];
+      var modeGroupSt = useState('join');
+      var modeGroup = modeGroupSt[0];
+      var setModeGroup = modeGroupSt[1];
       var setGroupSt = useState('sec');
       var setGroup = setGroupSt[0];
       var setSetGroup = setGroupSt[1];
@@ -1891,8 +1967,8 @@
         if (!m && op !== 'SET') return;
         goCs('MODE ' + ch + ' ' + op + (m ? ' ' + m : ''));
       }
-      function subTabs(current, setCurrent, items) {
-        return h('div', { className: 'ocs-subtabs', role: 'tablist' }, items.map(function (it) {
+      function subTabs(current, setCurrent, items, extraClass) {
+        return h('div', { className: 'ocs-subtabs' + (extraClass ? ' ' + extraClass : ''), role: 'tablist' }, items.map(function (it) {
           return h('button', {
             key: it.id, type: 'button',
             className: 'ocs-stab' + (current === it.id ? ' is-on' : ''),
@@ -2034,10 +2110,6 @@
           pushBtn(body, 'primary', function () {
             if (modeLine.trim()) csMode('SET', modeLine.trim());
           }, 'cog', pick('Appliquer', 'Apply'));
-          body.push(h('p', { className: 'ocs-sub' }, pick(
-            'Appliquer change les modes tout de suite. Verrouiller enregistre le champ dans le MLOCK ChanServ (il revient après un redémarrage). Le cadenas de chaque mode fait la même chose, un par un.',
-            'Apply changes modes now. Lock stores the field in ChanServ MLOCK (it comes back after a restart). Each row lock does the same, one mode at a time.'
-          )));
           var cat = modeCatalog();
           var used = {};
           cat.forEach(function (g) {
@@ -2046,7 +2118,14 @@
           var extraModes = flags.filter(function (letter) { return !used[letter]; }).map(function (letter) {
             return [letter, pick('Mode ', 'Mode ') + letter, pick('Mode de salon +', 'Channel mode +') + letter];
           });
+          var modeTabs = [
+            { id: 'join', label: pick('Accès salon', 'Join access') },
+            { id: 'talk', label: pick('Discussion', 'Talking') },
+            { id: 'other', label: pick('Autres', 'Other') },
+          ];
+          var gid = modeGroup === 'talk' || modeGroup === 'other' ? modeGroup : 'join';
           body.push(h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')));
+          body.push(subTabs(gid, setModeGroup, modeTabs, 'ocs-modesubs'));
           function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
             var locked = mlockHas(lockedModes, letter);
@@ -2073,36 +2152,20 @@
               )
             );
           }
+          var shown = [];
           cat.forEach(function (g) {
-            var rows = g.modes.filter(function (row) { return flags.indexOf(row[0]) >= 0; }).map(function (row) {
+            if (g.id !== gid) return;
+            shown = g.modes.filter(function (row) { return flags.indexOf(row[0]) >= 0; }).map(function (row) {
               return modeRow(row[0], row[1], row[2]);
             });
-            if (!rows.length) return;
-            body.push(h('p', { className: 'ocs-mg__h' }, g.title));
-            body.push(h('div', { className: 'ocs-mg__g' }, rows));
           });
-          if (extraModes.length) {
-            body.push(h('p', { className: 'ocs-mg__h' }, pick('Réseau', 'Network')));
-            body.push(h('div', { className: 'ocs-mg__g' }, extraModes.map(function (row) {
+          if (gid === 'other' && extraModes.length) {
+            shown = shown.concat(extraModes.map(function (row) {
               return modeRow(row[0], row[1], row[2]);
-            })));
+            }));
           }
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', {
-              type: 'button', className: 'ocs-btn',
-              title: pick('Enregistre le champ ci-dessus dans le MLOCK ChanServ', 'Store the field above in ChanServ MLOCK'),
-              onClick: function () {
-                if (modeLine.trim()) csMode('LOCK ADD', modeLine.trim());
-              },
-            }, labeled('lock', pick('Verrouiller le champ', 'Lock field'))),
-            h('button', {
-              type: 'button', className: 'ocs-btn',
-              title: pick('Retire le champ ci-dessus du MLOCK ChanServ', 'Remove the field above from ChanServ MLOCK'),
-              onClick: function () {
-                if (modeLine.trim()) csMode('LOCK DEL', modeLine.trim());
-              },
-            }, labeled('unlock', pick('Retirer le verrou', 'Remove lock')))
-          ));
+          if (shown.length) body.push(h('div', { className: 'ocs-mg__g' }, shown));
+          else body.push(h('p', { className: 'ocs-sub' }, pick('Aucun mode dans ce groupe.', 'No modes in this group.')));
           body.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' BANS'); } },
               labeled('ban', pick('Vider les bans', 'Clear bans'))),
@@ -2115,38 +2178,59 @@
 
         if (tab === 'access' && showAccess) {
           var accLabels = {
+            QOP: pick('Fondateur (QOP)', 'Founder (QOP)'),
             SOP: pick('SOP — Super-op / admin', 'SOP — Super-op / admin'),
             AOP: pick('AOP — Opérateur auto', 'AOP — Auto-op'),
             HOP: pick('HOP — Halfop auto', 'HOP — Auto-halfop'),
             VOP: pick('VOP — Voix auto', 'VOP — Auto-voice'),
+            ACCESS: pick('ACCESS (niveaux)', 'ACCESS (levels)'),
+            FLAGS: 'FLAGS',
           };
           body.push(h('p', { className: 'ocs-h' }, pick('Liste des accès', 'Access list')));
           if (s.accessLoading) {
             body.push(h('p', { className: 'ocs-sub' }, pick('Chargement de la liste…', 'Loading list…')));
           } else {
-            var grouped = { SOP: [], AOP: [], HOP: [], VOP: [] };
+            var grouped = {};
             (s.accessList || []).forEach(function (row) {
-              if (grouped[row.level]) grouped[row.level].push(row);
+              var g = accessGroupKey(row);
+              if (!grouped[g]) grouped[g] = [];
+              grouped[g].push(row);
+            });
+            var order = ['QOP', 'SOP', 'AOP', 'HOP', 'VOP', 'ACCESS', 'FLAGS'];
+            Object.keys(grouped).forEach(function (k) {
+              if (order.indexOf(k) < 0) order.push(k);
             });
             var any = false;
             var listKids = [];
-            ['SOP', 'AOP', 'HOP', 'VOP'].forEach(function (lv) {
-              if (!grouped[lv].length) return;
+            order.forEach(function (lv) {
+              if (!grouped[lv] || !grouped[lv].length) return;
               any = true;
+              var showLvl = lv === 'ACCESS' || lv === 'FLAGS';
               listKids.push(h('div', { key: lv, className: 'ocs-acc__g' },
                 [h('div', { className: 'ocs-acc__h' }, accLabels[lv] || lv)].concat(grouped[lv].map(function (row) {
-                  return h('div', { key: lv + row.nick, className: 'ocs-acc__row' },
+                  return h('div', { key: lv + (row.n || '') + row.nick, className: 'ocs-acc__row' },
                     h('span', { className: 'ocs-acc__nick' }, row.nick),
+                    showLvl ? h('span', { className: 'ocs-pill' }, row.level) : null,
                     h('button', {
                       type: 'button', className: 'ocs-btn',
-                      onClick: function () { goCs(lv + ' ' + ch + ' DEL ' + row.nick); },
+                      onClick: function () {
+                        var sys = String(row.system || '').toUpperCase();
+                        var rlv = String(row.level || '').toUpperCase();
+                        if (sys === 'FLAGS' || rlv.charAt(0) === '+' || rlv.charAt(0) === '-') {
+                          goCs('FLAGS ' + ch + ' ' + row.nick + ' -*');
+                        } else if (sys === 'XOP' || /^(QOP|SOP|AOP|HOP|VOP)$/.test(rlv)) {
+                          goCs(rlv + ' ' + ch + ' DEL ' + row.nick);
+                        } else {
+                          goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
+                        }
+                      },
                     }, pick('Retirer', 'Remove'))
                   );
                 }))
               ));
             });
             if (!any) {
-              body.push(h('p', { className: 'ocs-sub' }, pick('Aucun accès XOP pour l’instant.', 'No XOP access entries yet.')));
+              body.push(h('p', { className: 'ocs-sub' }, pick('Aucun accès.', 'No access entries yet.')));
             } else {
               body.push(h('div', { className: 'ocs-acc' }, listKids));
             }

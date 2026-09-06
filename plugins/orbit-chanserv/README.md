@@ -24,7 +24,7 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | Fondateur | Liste (Commandes bot) | Fondateur (`~`) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
 | AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
-| SOP+ | Panneau → Accès / SET | Liste XOP visible, ajout/retrait, SET |
+| SOP+ | Panneau → Accès / SET | Liste ACCESS complète (`LIST * ALL`), ajout XOP, SET |
 | SOP+ | Panneau → SET → Autres | FANTASY (ON/OFF) |
 | SOP+ | Panneau → SET → Modération | Kickers BotServ, BADWORDS |
 | Fondateur | Panneau → Divers | Suppression du salon (popup Orbit + code ChanServ) |
@@ -38,7 +38,7 @@ Hors v1 : AKICK, FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=48"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=50"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

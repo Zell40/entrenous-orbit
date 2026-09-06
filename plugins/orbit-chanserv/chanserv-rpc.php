@@ -6,7 +6,7 @@
  *   /app/plugins/third/orbit-chanserv/chanserv-rpc.php
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
- * Read-only: INFO / STATUS / BOTLIST / XOP LIST. REGISTER stays on IRC so Anope
+ * Read-only: INFO / STATUS / BOTLIST / ACCESS LIST * ALL. REGISTER stays on IRC so Anope
  * maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
@@ -178,6 +178,19 @@ if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access') {
 
 try {
   if ($action === 'access') {
+    try {
+      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'ChanServ', 'ACCESS', $channel, 'LIST', '*', 'ALL',
+      ]));
+      $fold = strtolower($list);
+      $isHelp = str_contains($fold, 'syntaxe:') || str_contains($fold, 'syntax:');
+      if ($list !== '' && !$isHelp) {
+        echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+      }
+    } catch (Throwable $e) {
+      $list = '';
+    }
     $lists = [];
     foreach (['SOP', 'AOP', 'HOP', 'VOP'] as $lv) {
       try {
