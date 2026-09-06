@@ -4,11 +4,11 @@ Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
 L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
 
-Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Bot**, **Divers**.
+Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Divers**.
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 **Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
 
-**Lectures** (INFO / STATUS / BOTLIST / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
+**Lectures** (INFO / STATUS / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
 **Actions** (SET, TOPIC, MODE, KICK, …) : IRC `PRIVMSG` vers ChanServ / BotServ. Syntaxe Anope 2 : `SET option canal paramètres`.
 Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panneau (pas dans Status).
 
@@ -23,18 +23,22 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | SOP+ | Liste (Commandes bot) | Admin (`&`), accès AOP/SOP |
 | Fondateur | Liste (Commandes bot) | Fondateur (`~`) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
-| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, entrymsg |
+| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, entrymsg, SAY / ACT / INFO BotServ, YTSTATS |
 | SOP+ | Panneau → Accès / SET | Liste XOP visible, ajout/retrait, SET |
-| AOP+ | Panneau → Bot | SAY / ACT, FANTASY, BADWORDS, INFO |
-| SOP+ | Panneau → Bot | ASSIGN / UNASSIGN / BOTLIST |
+| SOP+ | Panneau → SET → Autres | FANTASY (ON/OFF) |
+| SOP+ | Panneau → SET → Modération | BADWORDS (ajouter / retirer / liste) |
 | Fondateur | Panneau → Divers | Suppression du salon (popup Orbit + code ChanServ) |
+
+L’assignation de bot (`ASSIGN` / `UNASSIGN` / `BOTLIST`) n’est pas dans le panneau : seuls les opérateurs IRC l’utilisent en ligne de commande.
+
+Dans le tchat : `/cs` et `/chanserv` envoient à ChanServ (comme `/msg ChanServ`) ; `/bs` et `/botserv` envoient à BotServ (comme `/msg BotServ`). SAY / ACT : `SAY #salon message` / `ACT #salon message`.
 
 Hors v1 : AKICK, FLAGS.
 
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=40"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=43"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

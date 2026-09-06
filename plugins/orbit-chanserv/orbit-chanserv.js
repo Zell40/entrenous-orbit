@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=40"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=43"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -52,6 +52,8 @@
       access: 'none',
       bots: [],
       infoText: '',
+      botInfo: '',
+      ytStats: '',
       flash: '',
       flashErr: false,
       lastCmd: '',
@@ -67,7 +69,7 @@
       return {
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
-        infoText: ui.infoText, flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
+        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
         accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
       };
     }
@@ -175,28 +177,57 @@
     function isNamedService(n) {
       return /^(chan|bot|nick|host|memo|oper|help|global|link)serv$/i.test(String(n || '').replace(/\[.*$/, ''));
     }
+    function cleanBotNick(n) {
+      var s = String(n || '').replace(/^[(\[{]+|[)\]}]+$/g, '').replace(/[.,;]+$/, '').trim();
+      if (!s || /^(n\/?a|none|aucun|non|not|no|unassigned|-|\*|off|oui|yes)$/i.test(s)) return '';
+      if (isNamedService(s)) return '';
+      return s;
+    }
+    function parseBotNick(text) {
+      var found = '';
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        var m = s.match(/^([^:]{2,48}):\s*(\S+)/);
+        if (!m) return;
+        var key = foldText(m[1]);
+        if (/kicker|interdit|badword|flood|caps|color|gras|fantaisie|fantasy|repeat|italique|underline/.test(key)) return;
+        if (!/^(bot|botserv|robot|pseudo)\b/.test(key) && !/\b(bot|robot)\s+(assigne|assigned|du salon)\b/.test(key)) return;
+        var n = cleanBotNick(m[2]);
+        if (n) found = n;
+      });
+      if (found) return found;
+      var raw = stripIrc(text || '');
+      var bm = raw.match(/(?:^|\n)\s*(?:bot(?:serv)?|robot(?:\s+du\s+salon)?|pseudo(?:\s+du\s+bot)?)\s*:\s*(\S+)/i)
+        || raw.match(/(?:bot(?:serv)?|robot)\s*(?:assigne[e]?|assigned)\s*:\s*(\S+)/i)
+        || raw.match(/\bbot\s+(\S+)\s+(?:is assigned|assigne)/i);
+      return bm ? cleanBotNick(bm[1]) : '';
+    }
     function channelBotNick(chan, fromInfo) {
-      var info = String(fromInfo || '').replace(/[.,;]+$/, '').trim();
-      if (info && !/^(none|aucun|n\/?a|-|\*|no)$/i.test(info) && !isNamedService(info)) return info;
+      var info = cleanBotNick(fromInfo) || parseBotNick(ui.botInfo);
+      if (info) return info;
       var buf = findBuffer(chan);
       var members = (buf && buf.members) || {};
       var best = '';
       var bestRank = 99;
+      function consider(nick, member) {
+        if (!nick || isNamedService(nick)) return;
+        var p = (member && (member.prefixes || member.prefix)) || '';
+        var r = !p ? 90 : (p.indexOf('~') >= 0 ? 0 : p.indexOf('&') >= 0 ? 1 : p.indexOf('@') >= 0 ? 2 : p.indexOf('%') >= 0 ? 3 : p.indexOf('+') >= 0 ? 4 : 80);
+        if (r < bestRank) { bestRank = r; best = (member && member.nick) || nick; }
+      }
       Object.keys(members).forEach(function (n) {
         var m = members[n];
-        if (!m || !m.bot || isNamedService(n)) return;
-        var p = m.prefixes || m.prefix || '';
-        var r = !p ? 90 : (p.indexOf('~') >= 0 ? 0 : p.indexOf('&') >= 0 ? 1 : p.indexOf('@') >= 0 ? 2 : p.indexOf('%') >= 0 ? 3 : p.indexOf('+') >= 0 ? 4 : 80);
-        if (r < bestRank) { bestRank = r; best = m.nick || n; }
+        if (!m || !m.bot) return;
+        consider(m.nick || n, m);
       });
       if (best) return best;
       (ui.bots || []).forEach(function (bn) {
-        if (best || !bn) return;
+        if (!bn) return;
         var want = foldText(bn);
         Object.keys(members).forEach(function (n) {
-          if (best) return;
-          var nick = ((members[n] && members[n].nick) || n);
-          if (foldText(nick) === want || foldText(n) === want) best = nick;
+          var m = members[n];
+          var nick = (m && m.nick) || n;
+          if (foldText(nick) === want || foldText(n) === want) consider(nick, m);
         });
       });
       return best;
@@ -295,6 +326,7 @@
       patchUi({
         chan: chan, loading: false, registered: c.registered, founder: c.founder,
         bot: c.bot, access: c.access, infoText: c.infoText, flash: '',
+        botInfo: '', ytStats: '',
       });
       return true;
     }
@@ -333,15 +365,19 @@
       });
       rememberCache(chan);
       expectKind = '';
+      if (info.registered && !info.bot) queryBotInfo(chan);
     }
 
     function queryInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) {
-        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '' });
+        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '' });
         return;
       }
-      if (applyCache(chan)) return;
-      var next = { chan: chan, loading: true };
+      if (applyCache(chan)) {
+        if (ui.registered && !ui.bot) queryBotInfo(chan);
+        return;
+      }
+      var next = { chan: chan, loading: true, botInfo: '', ytStats: '' };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
       rpcCall('probe', chan).then(function (data) {
@@ -371,6 +407,12 @@
         beginExpect('botlist', chan);
         bs('BOTLIST');
       });
+    }
+
+    function queryBotInfo(chan) {
+      if (!isChannel(chan) || !identified()) return;
+      beginExpect('botinfo', chan);
+      bs('INFO ' + chan);
     }
 
     function queryAccess(chan, force) {
@@ -446,12 +488,7 @@
       }
       var fm = raw.match(/(?:fondateur|founder)\s*:\s*(\S+)/i);
       if (fm) out.founder = fm[1].replace(/[.,;]+$/, '');
-      var bm = raw.match(/\bbot(?:serv)?\s*:\s*(\S+)/i)
-        || raw.match(/(?:bot(?:serv)?|robot)\s*(?:assigne[e]?|assigned)\s*:\s*(\S+)/i)
-        || raw.match(/\bbot\s+(\S+)\s+(?:is assigned|assigne)/i);
-      if (bm && !/^(n\/?a|none|aucun|-|\*|no)$/i.test(bm[1]) && !isNamedService(bm[1])) {
-        out.bot = bm[1].replace(/[.,;]+$/, '');
-      }
+      out.bot = parseBotNick(raw);
       return out;
     }
 
@@ -468,14 +505,49 @@
         if (m) {
           var key = foldText(m[1]);
           var row = { k: m[1], v: m[2] };
-          if (/fondateur|founder/.test(key)) row.hi = true;
+          if (/fondateur|founder|pseudo|bot\b/.test(key)) row.hi = true;
           if (/^options?$/.test(key) && m[2]) {
             row.pills = m[2].split(/\s*,\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
           }
+          var fv = foldText(m[2]).replace(/[.,;]+$/, '');
+          if (/^(active|actif|enabled|on|oui)$/.test(fv)) { row.flag = true; row.flagOn = true; }
+          else if (/^(desactive|inactif|disabled|off|non)$/.test(fv)) { row.flag = true; row.flagOn = false; }
           rows.push(row);
         } else rows.push({ v: s });
       });
       return rows;
+    }
+    function infoCardNodes(text) {
+      return infoRows(text).map(function (row, i) {
+        if (row.head) return h('div', { key: 'h' + i, className: 'ocs-dl__head' }, row.v);
+        if (row.k) {
+          var val = row.pills && row.pills.length
+            ? h('div', { className: 'ocs-pills' }, row.pills.map(function (p) {
+              return h('span', { key: p, className: 'ocs-pill' }, p);
+            }))
+            : row.flag
+              ? h('span', { className: 'ocs-pill' + (row.flagOn ? ' is-on' : ' is-off') }, row.v)
+              : (row.v || '—');
+          return h('div', { key: 'r' + i, className: 'ocs-dl__row' + (row.hi ? ' is-hi' : '') },
+            h('div', { className: 'ocs-dl__k' }, row.k),
+            h('div', { className: 'ocs-dl__v' }, val)
+          );
+        }
+        return h('div', { key: 'v' + i, className: 'ocs-dl__v' }, row.v);
+      });
+    }
+    function parseBotFlag(text, keyRe) {
+      var on = false;
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        var m = s.match(/^([^:]{2,42}):\s*(.*)$/);
+        if (!m) return;
+        if (!keyRe.test(foldText(m[1]))) return;
+        var t = foldText(m[2]);
+        if (/\b(desactive|inactif|disabled|off|non)\b/.test(t)) on = false;
+        else if (/\b(active|actif|enabled|on|oui)\b/.test(t)) on = true;
+      });
+      return on;
     }
 
     function parseChanOptions(text) {
@@ -592,6 +664,18 @@
         expectKind = '';
         return;
       }
+      if (kind === 'botinfo') {
+        var botRaw = stripIrc(text);
+        var botNick = parseBotNick(botRaw);
+        patchUi({ botInfo: botRaw, loading: false, bot: botNick || ui.bot });
+        expectKind = '';
+        return;
+      }
+      if (kind === 'ytstats') {
+        patchUi({ ytStats: stripIrc(text), loading: false });
+        expectKind = '';
+        return;
+      }
       if (kind === 'xop') {
         var lv = xopQueue.shift() || 'AOP';
         xopRows = xopRows.concat(parseXopList(text, lv));
@@ -649,9 +733,13 @@
         expectKind = '';
         cache = {};
         if (!err && ui.chan) {
-          setTimeout(function () { queryInfo(ui.chan, { keepFlash: true }); }, 500);
-          if (ui.tab === 'access') {
-            setTimeout(function () { queryAccess(ui.chan, true); }, 700);
+          if (/^BotServ SET\b/i.test(ui.lastCmd || '')) {
+            setTimeout(function () { queryBotInfo(ui.chan); }, 400);
+          } else if (!/^BotServ\b/i.test(ui.lastCmd || '')) {
+            setTimeout(function () { queryInfo(ui.chan, { keepFlash: true }); }, 500);
+            if (ui.tab === 'access') {
+              setTimeout(function () { queryAccess(ui.chan, true); }, 700);
+            }
           }
         }
       }
@@ -708,10 +796,20 @@
         return;
       }
       patchUi({ open: true, chan: chan, flash: '', flashErr: false, lastCmd: '', tab: 'info' });
+      try { orbit.emit('orbit:panel', 'orbit-chanserv'); } catch (e) { /* ignore */ }
       queryInfo(chan);
     }
 
     function closePanel() { patchUi({ open: false }); }
+
+    function onTopbarPointer(e) {
+      if (!ui.open) return;
+      var el = e.target;
+      if (!el || !el.closest) return;
+      if (el.closest('.ocs-tb, .ocs-panel, .memberrsn, .memberrsn-scrim')) return;
+      if (el.closest('.topbar, .nmenu')) closePanel();
+    }
+    document.addEventListener('mousedown', onTopbarPointer, true);
 
     function injectStyles() {
       var el = document.getElementById(STYLE_ID);
@@ -775,6 +873,8 @@
         '.ocs-pills{display:flex;flex-wrap:wrap;gap:.3rem}',
         '.ocs-pill{font-size:.72rem;font-weight:700;padding:.15rem .5rem;border-radius:999px;',
         'background:var(--bg);border:1px solid var(--border);color:var(--ink)}',
+        '.ocs-pill.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));color:var(--accent)}',
+        '.ocs-pill.is-off{color:var(--muted)}',
         '.ocs-now{font-size:.82rem;line-height:1.4;padding:.5rem .65rem;border-radius:10px;',
         'background:var(--bg-soft);border:1px solid var(--border);color:var(--ink);white-space:pre-wrap}',
         '.ocs-flash__cmd{display:block;font-size:.72rem;font-weight:650;opacity:.75;margin-bottom:.25rem;word-break:break-all}',
@@ -1258,14 +1358,14 @@
       }, [open, nick]);
       useEffect(function () {
         if (!isChannel(chan) || !identified()) return undefined;
-        if (s.chan === chan && s.registered !== null) return undefined;
-        queryInfo(chan);
+        if (!(s.chan === chan && s.registered !== null)) queryInfo(chan);
+        if (!(s.bots && s.bots.length)) queryBotlist();
+        if (!s.bot && !s.botInfo) queryBotInfo(chan);
         return undefined;
       }, [chan]);
       useEffect(function () {
         if (!open || !isChannel(chan) || !identified()) return undefined;
         if (s.registered === true && can(ACCESS_RANK.aop)) queryAccess(chan);
-        if (!(s.bots && s.bots.length)) queryBotlist();
         return undefined;
       }, [open, chan, nick, s.registered, s.access]);
       var me = foldText(orbit.state.nick() || '');
@@ -1562,6 +1662,12 @@
       var botWordSt = useState('');
       var botWord = botWordSt[0];
       var setBotWord = botWordSt[1];
+      var ytKindSt = useState('channel');
+      var ytKind = ytKindSt[0];
+      var setYtKind = ytKindSt[1];
+      var ytValSt = useState('');
+      var ytVal = ytValSt[0];
+      var setYtVal = ytValSt[1];
       var modeGroupSt = useState('join');
       var modeGroup = modeGroupSt[0];
       var setModeGroup = modeGroupSt[1];
@@ -1571,12 +1677,8 @@
       var panelRef = useRef(null);
 
       useEffect(function () {
-        if (s.open && isChannel(chan) && s.chan !== chan) {
-          accessFetched = '';
-          patchUi({ chan: chan, flash: '', flashErr: false, lastCmd: '', tab: 'info', accessList: [] });
-          queryInfo(chan);
-        }
-      }, [chan, s.open]);
+        if (s.open && String(s.chan || '') !== String(chan || '')) closePanel();
+      }, [chan, s.open, s.chan]);
       useEffect(function () {
         if (!s.open) return undefined;
         if (s.tab === 'topic' || s.tab === 'sujet') setTopic(bufferTopic(s.chan || chan));
@@ -1589,8 +1691,9 @@
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
       useEffect(function () {
-        if (!s.open || s.tab !== 'bot' || s.registered !== true) return undefined;
-        queryBotlist();
+        if (!s.open || s.registered !== true) return undefined;
+        if (s.tab !== 'set' && s.tab !== 'divers') return undefined;
+        queryBotInfo(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered]);
       useLayoutEffect(function () {
@@ -1643,12 +1746,11 @@
       var showAccess = s.registered === true && can(ACCESS_RANK.sop);
       var showSet = s.registered === true && can(ACCESS_RANK.sop);
       var showDivers = s.registered === true && can(ACCESS_RANK.aop);
-      var showBot = s.registered === true && can(ACCESS_RANK.aop);
       if (tab === 'topic' && !showTopic) tab = 'info';
       if (tab === 'modes' && !showModes) tab = 'info';
       if (tab === 'access' && !showAccess) tab = 'info';
       if (tab === 'set' && !showSet) tab = 'info';
-      if (tab === 'bot' && !showBot) tab = 'info';
+      if (tab === 'bot') tab = showDivers ? 'divers' : 'info';
       if (tab === 'divers' && !showDivers) tab = 'info';
       function goCs(line) { runCmd('ChanServ', line, true); }
       function goBs(line) { runCmd('BotServ', line, true); }
@@ -1724,7 +1826,6 @@
         tabBtn('modes', 'cog', pick('Modes', 'Modes'), showModes);
         tabBtn('access', 'users', pick('Accès', 'Access'), showAccess);
         tabBtn('set', 'lock', 'SET', showSet);
-        tabBtn('bot', 'bot', 'Bot', showBot);
         tabBtn('divers', 'more', pick('Divers', 'Other'), showDivers);
         chrome.push(h('div', { className: 'ocs-tabs', role: 'tablist' }, tabs));
         body.push(h('div', { className: 'ocs-row' },
@@ -1739,21 +1840,7 @@
             cs('INFO ' + ch);
           }, 'info', pick('Actualiser l’info', 'Refresh info'));
           if (s.infoText) {
-            body.push(h('div', { className: 'ocs-info' }, infoRows(s.infoText).map(function (row, i) {
-              if (row.head) return h('div', { key: 'h' + i, className: 'ocs-dl__head' }, row.v);
-              if (row.k) {
-                var val = row.pills && row.pills.length
-                  ? h('div', { className: 'ocs-pills' }, row.pills.map(function (p) {
-                    return h('span', { key: p, className: 'ocs-pill' }, p);
-                  }))
-                  : (row.v || '—');
-                return h('div', { key: 'r' + i, className: 'ocs-dl__row' + (row.hi ? ' is-hi' : '') },
-                  h('div', { className: 'ocs-dl__k' }, row.k),
-                  h('div', { className: 'ocs-dl__v' }, val)
-                );
-              }
-              return h('div', { key: 'v' + i, className: 'ocs-dl__v' }, row.v);
-            })));
+            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.infoText)));
           }
         }
 
@@ -1970,6 +2057,7 @@
               ['PRIVATE', 'PRIVATE'],
               ['SIGNKICK', 'SIGNKICK'],
             ] },
+            { id: 'mod', label: pick('Modération', 'Moderation') },
             { id: 'other', label: pick('Autres', 'Other'), rows: [
               ['AUTOOP', 'AUTOOP'],
               ['PEACE', pick('Paix', 'Peace')],
@@ -1977,6 +2065,7 @@
               ['KEEPMODES', pick('Maintien des modes', 'Keep modes')],
               ['CHANSTATS', 'CHANSTATS'],
               ['TOPICHISTORY', pick('Historique des topics', 'Topic history')],
+              ['FANTASY', 'FANTASY', 'bs'],
             ] },
           ];
           var sg = setGroup;
@@ -1987,45 +2076,48 @@
           })));
           setGroups.forEach(function (g) {
             if (g.id !== sg) return;
-            g.rows.forEach(function (row) {
-              var on = !!setOn[row[0]];
+            if (g.id === 'mod') {
+              body.push(h(Field, { label: pick('Mot interdit (BADWORDS)', 'Forbidden word (BADWORDS)') },
+                h('input', { className: 'ocs-input', value: botWord, onChange: function (e) { setBotWord(e.target.value); } })
+              ));
+              body.push(h('div', { className: 'ocs-row' },
+                h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+                  if (botWord.trim()) goBs('BADWORDS ' + ch + ' ADD ' + botWord.trim());
+                } }, labeled('plus', pick('Ajouter', 'Add'))),
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+                  if (botWord.trim()) goBs('BADWORDS ' + ch + ' DEL ' + botWord.trim());
+                } }, labeled('novoice', pick('Retirer', 'Remove'))),
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('BADWORDS ' + ch + ' LIST'); } },
+                  labeled('list', pick('Liste', 'List')))
+              ));
+              return;
+            }
+            (g.rows || []).forEach(function (row) {
+              var viaBs = row[2] === 'bs';
+              var on = viaBs ? parseBotFlag(s.botInfo, /fantaisie|fantasy/) : !!setOn[row[0]];
               body.push(h('div', { className: 'ocs-setrow' + (on ? ' is-on' : ''), key: row[0] },
                 h('span', { className: 'ocs-label' }, row[1]),
                 h(OnOffSwitch, {
                   on: on,
                   label: row[1],
-                  onClick: function () { csSet(row[0], on ? 'OFF' : 'ON'); },
+                  onClick: function () {
+                    if (viaBs) goBs('SET ' + ch + ' ' + row[0] + ' ' + (on ? 'OFF' : 'ON'));
+                    else csSet(row[0], on ? 'OFF' : 'ON');
+                  },
                 })
               ));
             });
           });
         }
 
-        if (tab === 'bot' && showBot) {
+        if (tab === 'divers' && showDivers) {
           var assigned = channelBotNick(ch, s.bot);
           body.push(h('p', { className: 'ocs-h' }, pick('Bot du salon', 'Channel bot')));
           body.push(h('p', { className: 'ocs-sub' }, assigned
             ? pick('Assigné : ', 'Assigned: ') + assigned
             : pick('Aucun bot assigné.', 'No bot assigned.')));
-          if (can(ACCESS_RANK.sop)) {
-            body.push(h('p', { className: 'ocs-h' }, pick('Assigner un bot', 'Assign a bot')));
-            if (!(s.bots && s.bots.length)) {
-              body.push(h('p', { className: 'ocs-sub' }, pick('Chargement de la liste…', 'Loading list…')));
-            } else {
-              body.push(h('div', { className: 'ocs-row' }, s.bots.map(function (bn) {
-                return h('button', {
-                  key: bn, type: 'button',
-                  className: 'ocs-btn' + (foldText(bn) === foldText(assigned) ? ' ocs-btn--primary' : ''),
-                  onClick: function () { goBs('ASSIGN ' + ch + ' ' + bn); },
-                }, bn);
-              })));
-            }
-            body.push(h('div', { className: 'ocs-row' },
-              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotlist(); } },
-                labeled('list', pick('Actualiser BOTLIST', 'Refresh BOTLIST'))),
-              assigned ? h('button', { type: 'button', className: 'ocs-btn ocs-btn--warn', onClick: function () { goBs('UNASSIGN ' + ch); } },
-                labeled('unassign', pick('Retirer le bot', 'Unassign bot'))) : null
-            ));
+          if (s.botInfo) {
+            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.botInfo)));
           }
           body.push(h(Field, { label: pick('Faire parler le bot (SAY / ACT)', 'Make the bot talk (SAY / ACT)') },
             h('input', { className: 'ocs-input', value: botSay, onChange: function (e) { setBotSay(e.target.value); } })
@@ -2037,35 +2129,52 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
               if (botSay.trim()) goBs('ACT ' + ch + ' ' + botSay.trim());
             } }, labeled('act', 'ACT')),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('INFO ' + ch); } },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryBotInfo(ch); } },
               labeled('info', 'INFO'))
           ));
-          body.push(h('p', { className: 'ocs-h' }, pick('Options BotServ', 'BotServ options')));
-          body.push(h('div', { className: 'ocs-mg__g' },
-            h('div', { className: 'ocs-setrow' },
-              h('span', { className: 'ocs-label' }, 'FANTASY'),
-              h('span', { className: 'ocs-ml__btns' },
-                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('SET ' + ch + ' FANTASY ON'); } }, 'ON'),
-                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('SET ' + ch + ' FANTASY OFF'); } }, 'OFF')
-              )
-            )
+          body.push(h('p', { className: 'ocs-h' }, 'YTSTATS'));
+          body.push(h('p', { className: 'ocs-sub' }, pick(
+            'Statistiques du module YouTube (liens, durées, kicks spam).',
+            'YouTube module statistics (links, duration, spam kicks).'
+          )));
+          body.push(subTabs(ytKind, setYtKind, [
+            { id: 'channel', label: pick('Salon', 'Channel') },
+            { id: 'user', label: pick('Utilisateur', 'User') },
+            { id: 'video', label: pick('Vidéo', 'Video') },
+          ]));
+          body.push(h(Field, {
+            label: ytKind === 'video'
+              ? pick('Identifiant vidéo', 'Video id')
+              : ytKind === 'user'
+                ? pick('Pseudo', 'Nickname')
+                : pick('Salon (vide = ici)', 'Channel (empty = here)'),
+          },
+            h('input', {
+              className: 'ocs-input',
+              value: ytVal,
+              placeholder: ytKind === 'channel' ? ch : '',
+              onChange: function (e) { setYtVal(e.target.value); },
+            })
           ));
-          body.push(h(Field, { label: pick('Mot interdit (BADWORDS)', 'Forbidden word (BADWORDS)') },
-            h('input', { className: 'ocs-input', value: botWord, onChange: function (e) { setBotWord(e.target.value); } })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-              if (botWord.trim()) goBs('BADWORDS ' + ch + ' ADD ' + botWord.trim());
-            } }, labeled('plus', pick('Ajouter', 'Add'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              if (botWord.trim()) goBs('BADWORDS ' + ch + ' DEL ' + botWord.trim());
-            } }, labeled('novoice', pick('Retirer', 'Remove'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goBs('BADWORDS ' + ch + ' LIST'); } },
-              labeled('list', pick('Liste', 'List')))
-          ));
-        }
-
-        if (tab === 'divers' && showDivers) {
+          body.push(h('button', {
+            type: 'button',
+            className: 'ocs-btn ocs-btn--primary',
+            onClick: function () {
+              var v = ytVal.trim();
+              var line = ytKind === 'video'
+                ? (v ? 'YTSTATS VIDEO ' + v : '')
+                : ytKind === 'user'
+                  ? (v ? 'YTSTATS USER ' + v : '')
+                  : 'YTSTATS CHANNEL ' + (v || ch);
+              if (!line) return;
+              beginExpect('ytstats', ch);
+              patchUi({ lastCmd: 'BotServ ' + line, loading: true, flash: '', ytStats: '' });
+              bs(line);
+            },
+          }, labeled('list', pick('Afficher', 'Show'))));
+          if (s.ytStats) {
+            body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.ytStats)));
+          }
           body.push(h(Field, { label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
             h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })
           ));
@@ -2106,12 +2215,19 @@
     }
 
     orbit.on('raw', onRaw);
+    orbit.on('buffer.active', function (name) {
+      if (!ui.open) return;
+      if (foldText(name) !== foldText(ui.chan)) closePanel();
+    });
+    orbit.on('orbit:panel', function (id) {
+      if (id !== 'orbit-chanserv' && ui.open) closePanel();
+    });
     orbit.on('status', function (st) {
       if (st === 'registered') return;
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
@@ -2125,6 +2241,21 @@
       orbit.addMemberMenu(function (ctx) {
         return h(MemberServMenu, { nick: ctx.nick, close: ctx.close });
       });
+    }
+    if (typeof orbit.addCommand === 'function') {
+      function servSlash(service) {
+        return {
+          help: '/msg ' + service + ' …',
+          run: function (_args, rest) {
+            var line = String(rest || '').trim();
+            if (line) orbit.irc.msg(service, line);
+          },
+        };
+      }
+      orbit.addCommand('cs', servSlash('ChanServ'));
+      orbit.addCommand('chanserv', servSlash('ChanServ'));
+      orbit.addCommand('bs', servSlash('BotServ'));
+      orbit.addCommand('botserv', servSlash('BotServ'));
     }
     log('ChanServ/BotServ panel — topbar + overlay');
   });
