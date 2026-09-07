@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=60"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=61"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -572,6 +572,12 @@
           if (/^(active|actif|enabled|on|oui)$/.test(fv)) { row.flag = true; row.flagOn = true; }
           else if (/^(desactive|inactif|disabled|off|non)$/.test(fv)) { row.flag = true; row.flagOn = false; }
           rows.push(row);
+        } else if (rows.length && rows[rows.length - 1].k && !rows[rows.length - 1].head) {
+          var prev = rows[rows.length - 1];
+          prev.v = String(prev.v || '').replace(/\s+$/, '') + ' ' + s.replace(/^\s+/, '');
+          if (prev.pills) {
+            prev.pills = String(prev.v).split(/\s*,\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
+          }
         } else rows.push({ v: s });
       });
       return rows;
@@ -590,7 +596,14 @@
             }))
             : row.flag
               ? h('span', { className: 'ocs-pill' + (row.flagOn ? ' is-on' : ' is-off') }, row.v)
-              : (row.v || '—');
+              : (function () {
+                if (/^(bantype|type\s+de\s+bans?|type\s+de\s+bannissement)$/.test(foldText(row.k || ''))) {
+                  var bt = String(row.v || '').replace(/[^\d]/g, '').slice(0, 1);
+                  var opt = banTypeOptions().filter(function (o) { return o.id === bt; })[0];
+                  return opt ? bt + ' — ' + opt.mask : (row.v || '—');
+                }
+                return row.v || '—';
+              }());
           return h('div', { key: 'r' + i, className: 'ocs-dl__row' + (row.hi ? ' is-hi' : '') },
             h('div', { className: 'ocs-dl__k' }, row.k),
             h('div', { className: 'ocs-dl__v' }, val)
@@ -643,7 +656,14 @@
       if (/^(aucun|none|n\/a|vide|non definie|not set|-)$/i.test(foldText(found))) return '';
       return found;
     }
-
+    function banTypeOptions() {
+      return [
+        { id: '0', mask: '*!user@host', tip: pick('Le plus étroit : ident et hôte exacts.', 'Narrowest: exact ident and host.') },
+        { id: '1', mask: '*!*user@host', tip: pick('Ident (avec ou sans ~) et hôte exact.', 'Ident (with or without ~) and exact host.') },
+        { id: '2', mask: '*!*@host', tip: pick('Tout le monde sur cet hôte (le plus courant).', 'Everyone on that host (most common).') },
+        { id: '3', mask: '*!*user@*.domaine', tip: pick('Ident + tout le domaine (le plus large).', 'Ident + whole domain (widest).') },
+      ];
+    }
     function parseChanOptions(text) {
       var on = {};
       String(text || '').split(/\n/).forEach(function (line) {
@@ -1184,7 +1204,7 @@
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%}',
         '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0;max-width:100%}',
-        '.ocs-block{display:flex;flex-direction:column;gap:.55rem}',
+        '.ocs-block{display:flex;flex-direction:column;gap:.55rem;min-width:0}',
         '.ocs-block + .ocs-block{margin-top:.1rem;padding-top:.7rem;border-top:1px solid var(--border)}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
         '.ocs-title{margin:0;font-size:1.02rem;font-weight:800;display:flex;align-items:center;gap:.45rem}',
@@ -1199,6 +1219,7 @@
         '.ocs-field,.ocs-acwrap{min-width:0;max-width:100%}',
         '.ocs-input,.ocs-select{width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:38px;padding:.45rem .65rem;border-radius:10px;',
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit}',
+        '.ocs-textarea{min-height:7.2rem;height:auto;resize:vertical;line-height:1.45;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere}',
         '.ocs-input:focus,.ocs-select:focus{outline:2px solid var(--accent);outline-offset:-2px}',
         '.ocs-ac{margin-top:.15rem;max-height:11.5rem;overflow:auto;border:1px solid var(--border);border-radius:10px;',
         'background:var(--bg);box-shadow:0 8px 22px rgba(0,0,0,.12)}',
@@ -1220,18 +1241,18 @@
         'background:color-mix(in srgb,var(--danger,#dc2626) 14%,var(--bg));',
         'border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
         '.ocs-h{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}',
-        '.ocs-info{display:flex;flex-direction:column;gap:.35rem}',
+        '.ocs-info{display:flex;flex-direction:column;gap:.35rem;min-width:0}',
         '.ocs-dl__head{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);padding:.15rem 0}',
         '.ocs-caps{text-transform:uppercase;letter-spacing:.03em;font-weight:800}',
         '.ocs-sep{border:0;border-top:1px solid var(--border);margin:.2rem 0;width:100%}',
-        '.ocs-frame{border:1px solid var(--border);border-radius:12px;padding:.55rem .65rem;display:flex;flex-direction:column;gap:.45rem}',
-        '.ocs-dl__row{display:grid;grid-template-columns:minmax(7.5rem,9.2rem) 1fr;gap:.35rem .75rem;',
-        'padding:.45rem .6rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
-        '.ocs-dl__k{font-size:.7rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);align-self:center}',
-        '.ocs-dl__v{font-size:.86rem;line-height:1.4;color:var(--ink);word-break:break-word}',
+        '.ocs-frame{border:1px solid var(--border);border-radius:12px;padding:.55rem .65rem;display:flex;flex-direction:column;gap:.45rem;min-width:0}',
+        '.ocs-dl__row{display:grid;grid-template-columns:minmax(6.2rem,8.4rem) minmax(0,1fr);gap:.35rem .75rem;',
+        'padding:.45rem .6rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border);overflow:hidden;min-width:0}',
+        '.ocs-dl__k{font-size:.7rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);align-self:start;padding-top:.12rem}',
+        '.ocs-dl__v{font-size:.86rem;line-height:1.4;color:var(--ink);min-width:0;overflow-wrap:anywhere;word-break:break-word}',
         '.ocs-dl__row.is-hi{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border))}',
         '.ocs-dl__row.is-hi .ocs-dl__k{color:var(--accent)}',
-        '.ocs-pills{display:flex;flex-wrap:wrap;gap:.3rem}',
+        '.ocs-pills{display:flex;flex-wrap:wrap;gap:.3rem;min-width:0;max-width:100%}',
         '.ocs-pill{font-size:.72rem;font-weight:700;padding:.15rem .5rem;border-radius:999px;',
         'background:var(--bg);border:1px solid var(--border);color:var(--ink)}',
         '.ocs-pill.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));color:var(--accent)}',
@@ -1280,10 +1301,10 @@
         '.ocs-mg__g{display:flex;flex-direction:column;gap:.22rem}',
         '.ocs-ml__lab span{font-weight:650;color:var(--muted)}',
         '.ocs-ml{display:flex;align-items:center;justify-content:space-between;gap:.4rem;',
-        'padding:.28rem .5rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border)}',
+        'padding:.28rem .5rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border);min-width:0}',
         '.ocs-ml.is-on{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft)}',
         '.ocs-ml.is-lock{border-style:dashed}',
-        '.ocs-ml__lab{font-size:.8rem;font-weight:750;min-width:0;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-ml__lab{font-size:.8rem;font-weight:750;min-width:0;line-height:1.25;overflow:hidden;text-overflow:ellipsis}',
         '.ocs-ml__btns{display:flex;gap:.22rem;flex:none;white-space:nowrap}',
         '.ocs-ml__btns .ocs-btn{min-height:26px;padding:.12rem .45rem;font-size:.7rem}',
         '.ocs-ml__btns .ocs-btn .ocs-miwrap + span:empty{display:none}',
@@ -2050,6 +2071,9 @@
       var unbanNickSt = useState('');
       var unbanNick = unbanNickSt[0];
       var setUnbanNick = unbanNickSt[1];
+      var banTypeSt = useState('');
+      var banType = banTypeSt[0];
+      var setBanType = banTypeSt[1];
       var inviteSt = useState('');
       var inviteNick = inviteSt[0];
       var setInviteNick = inviteSt[1];
@@ -2115,9 +2139,19 @@
       }, [s.open, s.tab, setGroup, s.chan, s.registered]);
       useEffect(function () {
         if (!s.open || s.tab !== 'set') return undefined;
+        if (setInfoKind === 'BANTYPE') {
+          setSetInfoKind('DESC');
+          return undefined;
+        }
         setSetText(chanSetInfoValue(s.infoText, setInfoKind));
         return undefined;
       }, [s.open, s.tab, s.infoText, setInfoKind]);
+      useEffect(function () {
+        if (!s.open || s.tab !== 'bans') return undefined;
+        var v = String(chanSetInfoValue(s.infoText, 'BANTYPE') || '').replace(/[^\d]/g, '').slice(0, 1);
+        setBanType(v === '0' || v === '1' || v === '2' || v === '3' ? v : '2');
+        return undefined;
+      }, [s.open, s.tab, s.infoText]);
       useEffect(function () {
         if (!s.open || s.tab !== 'bans' || s.registered !== true) return undefined;
         if ((ACCESS_RANK[s.access] || 0) < ACCESS_RANK.aop) return undefined;
@@ -2381,8 +2415,6 @@
             { id: 'other', label: pick('Autres', 'Other') },
           ];
           var gid = modeGroup === 'talk' || modeGroup === 'other' ? modeGroup : 'join';
-          body.push(h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')));
-          body.push(subTabs(gid, setModeGroup, modeTabs, 'ocs-modesubs'));
           function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
             var locked = mlockHas(lockedModes, letter);
@@ -2421,8 +2453,13 @@
               return modeRow(row[0], row[1], row[2]);
             }));
           }
-          if (shown.length) body.push(h('div', { className: 'ocs-mg__g' }, shown));
-          else body.push(h('p', { className: 'ocs-sub' }, pick('Aucun mode dans ce groupe.', 'No modes in this group.')));
+          body.push(h('div', { className: 'ocs-block' }, [
+            h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')),
+            subTabs(gid, setModeGroup, modeTabs, 'ocs-modesubs'),
+            h('div', { className: 'ocs-frame' },
+              shown.length ? shown : [h('p', { key: 'empty', className: 'ocs-sub' }, pick('Aucun mode dans ce groupe.', 'No modes in this group.'))]
+            ),
+          ]));
           body.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', ''); } },
               labeled('cog', pick('Vider les modes', 'Clear modes')))
@@ -2514,6 +2551,30 @@
                 h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', 'bans'); } },
                   labeled('unassign', pick('Vider les bans', 'Clear bans')))
               ),
+            ]));
+          }
+          if (can(ACCESS_RANK.sop)) {
+            var btOpts = banTypeOptions();
+            var btCur = btOpts.filter(function (o) { return o.id === banType; })[0] || btOpts[2];
+            body.push(h('div', { className: 'ocs-block' }, [
+              h('p', { className: 'ocs-h' }, pick('Type de Ban', 'Ban type')),
+              h('p', { className: 'ocs-sub' }, pick(
+                'Masque utilisé par ChanServ quand il pose un ban (BAN, AKICK…). Plus le numéro est élevé, plus le ban est large.',
+                'Mask ChanServ uses when placing a ban (BAN, AKICK…). Higher numbers are wider.'
+              )),
+              h('select', { className: 'ocs-select', value: banType || '2', onChange: function (e) { setBanType(e.target.value); } },
+                btOpts.map(function (o) {
+                  return h('option', { key: o.id, value: o.id }, o.id + ' — ' + o.mask);
+                })
+              ),
+              h('p', { className: 'ocs-sub' }, btCur ? (btCur.id + ' : ' + btCur.mask + ' — ' + btCur.tip) : ''),
+              h('button', {
+                type: 'button',
+                className: 'ocs-btn ocs-btn--primary',
+                onClick: function () {
+                  if (banType) csSet('BANTYPE', banType);
+                },
+              }, labeled('check', pick('Enregistrer', 'Save'))),
             ]));
           }
           body.push(h('div', { className: 'ocs-block' }, [
@@ -2722,19 +2783,28 @@
             { id: 'URL', label: pick('Site internet', 'Website') },
             { id: 'EMAIL', label: pick('Adresse email', 'Email address') },
             { id: 'SUCCESSOR', label: pick('Successeur', 'Successor') },
-            { id: 'BANTYPE', label: pick('Type de Ban', 'Ban type') },
           ];
+          var infoKind = setInfoKind === 'BANTYPE' ? 'DESC' : setInfoKind;
           body.push(h('div', { className: 'ocs-block' }, [
             h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
-            h('select', { className: 'ocs-select', value: setInfoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
+            h('select', { className: 'ocs-select', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
               infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
             ),
-            h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
+            infoKind === 'DESC'
+              ? h('textarea', {
+                className: 'ocs-input ocs-textarea',
+                rows: 5,
+                value: setText,
+                onChange: function (e) { setSetText(e.target.value); },
+              })
+              : h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
             h('button', {
               type: 'button',
               className: 'ocs-btn ocs-btn--primary',
               onClick: function () {
-                if (setText.trim()) csSet(setInfoKind, setText.trim());
+                var v = setText.trim();
+                if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
+                if (v) csSet(infoKind, v);
               },
             }, labeled('plus', pick('Ajouter', 'Add'))),
           ]));

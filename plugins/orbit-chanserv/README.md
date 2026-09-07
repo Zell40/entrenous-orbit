@@ -26,6 +26,7 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, MODE CLEAR, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
 | HOP+ | Panneau → Bans | UNBAN |
 | AOP+ | Panneau → Bans | AKICK, BAN, MODE CLEAR bans |
+| SOP+ | Panneau → Bans | Type de Ban (BANTYPE) |
 | SOP+ | Panneau → Accès / SET | Liste ACCESS complète (`LIST * ALL`), ajout XOP (QOP fondateur), SET |
 | SOP+ | Panneau → Set → Autres | Commandes fantaisies (FANTASY) |
 | SOP+ | Panneau → Set → Modération | Kick automatique, BADWORDS |
@@ -40,7 +41,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=60"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=61"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
