@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=53"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=54"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -661,9 +661,8 @@
     }
     function isFlagToken(s) {
       var t = String(s || '');
-      if (!t) return false;
-      if (t === '=' || t === '*' || t === '+*' || t === '=*') return true;
-      return /^[+\-=]/.test(t) && t.length <= 32;
+      if (!t || t === '=') return false;
+      return /^[+\-=*]/.test(t) && /[A-Za-z0-9*]/.test(t) && t.length <= 32;
     }
     function isLevelToken(s) {
       return /^-?\d+$/.test(String(s || ''))
@@ -681,26 +680,16 @@
       return 'ACCESS';
     }
     function accessTypeSort(row) {
-      var u = String(row.level || '').toUpperCase();
-      if (u === 'QOP' || u === 'FOUNDER') return 0;
-      if (u === 'SOP') return 1;
-      if (u === 'AOP') return 2;
-      if (u === 'HOP') return 3;
-      if (u === 'VOP') return 4;
-      if (String(row.system || '').toUpperCase() === 'FLAGS' || isFlagToken(row.level)) return 5;
-      if (/^-?\d+$/.test(String(row.level || ''))) return 6;
-      return 7;
+      var n = parseInt(row.n, 10);
+      return isNaN(n) ? 9999 : n;
     }
     function accessTypeLabel(row) {
       var lv = String(row.level || '');
       var u = lv.toUpperCase();
       if (/^(QOP|SOP|AOP|HOP|VOP)$/.test(u)) return u;
-      if (u === 'FOUNDER') return pick('Fondateur', 'Founder');
-      if (isFlagToken(lv)) {
-        if (lv === '=' || lv === '*' || lv === '+*' || lv === '=*') return 'FLAGS';
-        return 'FLAGS ' + lv;
-      }
-      if (/^-?\d+$/.test(lv)) return pick('niv. ', 'lvl ') + lv;
+      if (u === 'FOUNDER') return 'QOP';
+      if (isFlagToken(lv)) return lv;
+      if (/^-?\d+$/.test(lv)) return lv;
       if (lv) return lv;
       return String(row.system || '').toUpperCase() || '?';
     }
@@ -712,12 +701,27 @@
         if (/^(liste|list|num\b|num[eé]ro|end of|fin de|acc[eè]s|access list|entries for|niveau|level|masque|mask)\b/i.test(s)
           && !/^\d+/.test(s)) return;
         if (/vide|empty|no (sop|aop|hop|vop|entries|users)|aucun/i.test(s) && !/^\d+/.test(s)) return;
-        var m = s.match(/^(?:[-*•]\s*)?(\d+)(?:[.:)])?\s+(\S+)\s+(\S+)(?:\s+\((\w+)\))?/);
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s+(\S+)\s*=\s*(\S+)/)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s+(\S+)\s*=\s*(\S+)/);
+        if (m) {
+          var nickEq = m[2].replace(/[.,;]+$/, '');
+          var typeEq = m[3].replace(/[.,;]+$/, '');
+          if (/^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(nickEq)) return;
+          rows.push({
+            n: m[1],
+            nick: nickEq,
+            level: typeEq,
+            system: inferAccessSystem(typeEq, ''),
+          });
+          return;
+        }
+        m = s.match(/^(?:[-*•]\s*)?(\d+)(?:[.:)])?\s+(\S+)\s+(\S+)(?:\s+\((\w+)\))?/);
         if (!m) return;
         if (/^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[2])
           || /^(num|nick|pseudo|level|niveau|mask|masque)$/i.test(m[3])) return;
         var a = m[2];
         var b = m[3].replace(/[.,;]+$/, '');
+        if (b === '=') return;
         var level = a;
         var nick = b;
         if (isAccessTypeToken(b) && !isAccessTypeToken(a)) {
@@ -726,11 +730,6 @@
         } else if (isAccessTypeToken(a) && !isAccessTypeToken(b)) {
           level = a;
           nick = b;
-        }
-        if (nick === '=' || nick === '*' || nick === '+*' || nick === '=*') {
-          var tmp = nick;
-          nick = level;
-          level = tmp;
         }
         rows.push({
           n: m[1],
@@ -2244,10 +2243,7 @@
             body.push(h('p', { className: 'ocs-sub' }, pick('Chargement de la liste…', 'Loading list…')));
           } else {
             var rows = (s.accessList || []).slice().sort(function (a, b) {
-              var ra = accessTypeSort(a);
-              var rb = accessTypeSort(b);
-              if (ra !== rb) return ra - rb;
-              return String(a.nick || '').localeCompare(String(b.nick || ''));
+              return accessTypeSort(a) - accessTypeSort(b);
             });
             if (!rows.length) {
               body.push(h('p', { className: 'ocs-sub' }, pick('Aucun accès.', 'No access entries yet.')));
