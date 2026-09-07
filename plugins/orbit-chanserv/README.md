@@ -4,7 +4,7 @@ Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
 L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
 
-Le panneau du haut : **Info**, **Topic**, **Modes**, **Accès**, **SET**, **Divers**.
+Le panneau du haut : **Info**, **Topic**, **Modes**, **Bans**, **Accès**, **SET**, **Divers**.
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 **Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
 
@@ -23,7 +23,9 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | SOP+ | Liste (Commandes bot) | Admin (`&`), accès AOP/SOP |
 | Fondateur | Liste (Commandes bot) | Fondateur (`~`), accès QOP (propriétaire) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
-| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
+| AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, MODE CLEAR, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
+| HOP+ | Panneau → Bans | UNBAN |
+| AOP+ | Panneau → Bans | AKICK, BAN, MODE CLEAR bans |
 | SOP+ | Panneau → Accès / SET | Liste ACCESS complète (`LIST * ALL`), ajout XOP (QOP fondateur), SET |
 | SOP+ | Panneau → Set → Autres | Commandes fantaisies (FANTASY) |
 | SOP+ | Panneau → Set → Modération | Kick automatique, BADWORDS |
@@ -33,12 +35,12 @@ L’assignation de bot (`ASSIGN` / `UNASSIGN` / `BOTLIST`) n’est pas dans le p
 
 Dans le tchat : `/cs` et `/chanserv` envoient à ChanServ (comme `/msg ChanServ`) ; `/bs` et `/botserv` envoient à BotServ (comme `/msg BotServ`). SAY / ACT : `SAY #salon message` / `ACT #salon message`.
 
-Hors v1 : AKICK, FLAGS.
+Hors v1 : FLAGS.
 
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=59"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=60"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

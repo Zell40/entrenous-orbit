@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=59"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=60"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -57,6 +57,7 @@
       entryMsgs: [],
       badwords: [],
       topicHistory: [],
+      akickList: [],
       flash: '',
       flashErr: false,
       lastCmd: '',
@@ -72,7 +73,7 @@
       return {
         open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
-        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(), topicHistory: ui.topicHistory.slice(),
+        infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(), topicHistory: ui.topicHistory.slice(), akickList: ui.akickList.slice(),
         flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
         accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
       };
@@ -390,7 +391,7 @@
 
     function queryInfo(chan, opts) {
       if (!isChannel(chan) || !identified()) {
-        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [] });
+        patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [] });
         return;
       }
       if (applyCache(chan)) return;
@@ -446,6 +447,13 @@
       beginExpect('topichistory', chan);
       cs('TOPICHISTORY ' + chan + ' LIST');
     }
+
+    function queryAkick(chan) {
+      if (!isChannel(chan) || !identified()) return;
+      beginExpect('akick', chan);
+      cs('AKICK ' + chan + (queryAkick.listOnly ? ' LIST' : ' VIEW'));
+    }
+    queryAkick.listOnly = false;
 
     function queryBadwords(chan) {
       if (!isChannel(chan) || !identified()) return;
@@ -789,7 +797,7 @@
       return rows;
     }
 
-    function parseEntryList(text) {
+    function parseEntryList(text, joinWrap) {
       var rows = [];
       String(text || '').split(/\n/).forEach(function (line) {
         var s = stripIrc(line).trim();
@@ -797,10 +805,59 @@
         var m = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s*(.+)$/)
           || s.match(/^\[(\d+)\]\s*(.+)$/)
           || s.match(/^(?:[-*•]\s*)?(\d+)\s{2,}(.+)$/);
-        if (!m) return;
+        if (!m) {
+          if (joinWrap && rows.length && !/^(end of|fin de|liste|list|syntaxe|syntax)\b/i.test(s)) {
+            var prev = rows[rows.length - 1];
+            var glue = (/[A-Za-zÀ-ÿ]$/.test(prev.text) && /^[a-zà-ÿ]/.test(s)) ? '' : ' ';
+            prev.text = prev.text.replace(/\s+$/, '') + glue + s.replace(/^\s+/, '');
+          }
+          return;
+        }
         var rest = m[2].trim();
         if (!rest || /^(end of|fin de|liste|list)\b/i.test(rest)) return;
         rows.push({ n: m[1], text: rest });
+      });
+      return rows;
+    }
+    function formatEnDateFr(en) {
+      var days = { sun: 'dim.', mon: 'lun.', tue: 'mar.', wed: 'mer.', thu: 'jeu.', fri: 'ven.', sat: 'sam.' };
+      var months = { jan: 'janv.', feb: 'févr.', mar: 'mars', apr: 'avr.', may: 'mai', jun: 'juin', jul: 'juil.', aug: 'août', sep: 'sept.', oct: 'oct.', nov: 'nov.', dec: 'déc.' };
+      var m = String(en || '').match(/^(\w+)\s+(\w+)\s+(\d{1,2})\s+(\d{1,2}:\d{2})(?::\d{2})?\s+(\d{4})/);
+      if (!m) return String(en || '').trim();
+      var d = days[m[1].slice(0, 3).toLowerCase()] || m[1];
+      var mo = months[m[2].slice(0, 3).toLowerCase()] || m[2];
+      return d + ' ' + m[3] + ' ' + mo + ' ' + m[5] + ' à ' + m[4];
+    }
+    function parseTopicStamp(text) {
+      var s = String(text || '').trim();
+      var m = s.match(/^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s*[¤:]\s*(.*)$/i)
+        || s.match(/^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+(.*)$/i);
+      if (!m) return { when: '', who: '', topic: s };
+      return { when: formatEnDateFr(m[1]), who: m[2], topic: String(m[3] || '').trim() };
+    }
+    function parseAkickList(text) {
+      var rows = [];
+      var cur = null;
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        if (!s) return;
+        if (/^(liste|list|akick|syntaxe|syntax|fin de|end of|gere la liste|gère la liste)\b/i.test(s) && !/^\d+/.test(s)) return;
+        if (/(vide|empty|aucun|no (akick|entries))/i.test(s) && !/^\d+/.test(s)) return;
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s+(\S+)(?:\s+\((.+)\))?/)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s+(\S+)(?:\s+\((.+)\))?/);
+        if (m) {
+          var mask = m[2].replace(/[.,;]+$/, '');
+          if (/^(num|mask|masque|nick|pseudo|raison|reason)$/i.test(mask)) return;
+          cur = { n: m[1], mask: mask, extra: m[3] || '', reason: '' };
+          rows.push(cur);
+          return;
+        }
+        if (!cur) return;
+        var r = s.match(/^(?:la\s+)?(?:raison|reason)\s*:\s*(.+)$/i);
+        if (r) cur.reason = r[1].trim();
+        else if (/^(par|by|set by|ajoute|ajout[ée]e?\s+par|derniere|last used|expire)/i.test(s)) {
+          cur.extra = cur.extra ? cur.extra + ' · ' + s : s;
+        }
       });
       return rows;
     }
@@ -898,13 +955,40 @@
       }
       if (kind === 'topichistory') {
         var thRaw = stripIrc(text);
-        var thRows = parseEntryList(thRaw);
+        var thRows = parseEntryList(thRaw, true).map(function (row) {
+          var p = parseTopicStamp(row.text);
+          return { n: row.n, text: row.text, when: p.when, who: p.who, topic: p.topic };
+        });
         var thErr = looksLikeServError(thRaw) && !thRows.length && !/vide|empty/.test(foldText(thRaw));
         patchUi({
           topicHistory: thErr ? ui.topicHistory : thRows,
           loading: false,
           flash: thErr ? thRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
           flashErr: !!thErr,
+        });
+        expectKind = '';
+        return;
+      }
+      if (kind === 'akick') {
+        var akRaw = stripIrc(text);
+        if (/syntaxe:\s*akick|syntax:\s*akick/i.test(foldText(akRaw))) {
+          if (queryAkick.listOnly) {
+            queryAkick.listOnly = false;
+          } else {
+            queryAkick.listOnly = true;
+            beginExpect('akick', chan);
+            cs('AKICK ' + chan + ' LIST');
+            return;
+          }
+        }
+        queryAkick.listOnly = false;
+        var akRows = parseAkickList(akRaw);
+        var akErr = looksLikeServError(akRaw) && !akRows.length && !/vide|empty/.test(foldText(akRaw));
+        patchUi({
+          akickList: akErr ? ui.akickList : akRows,
+          loading: false,
+          flash: akErr ? akRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
+          flashErr: !!akErr,
         });
         expectKind = '';
         return;
@@ -1003,6 +1087,8 @@
             setTimeout(function () { queryBadwords(ui.chan); }, 400);
           } else if (/^ChanServ ENTRYMSG\b/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryEntryMsg(ui.chan); }, 400);
+          } else if (/^ChanServ AKICK\b/i.test(ui.lastCmd || '')) {
+            setTimeout(function () { queryAkick(ui.chan); }, 500);
           } else if (/TOPICHISTORY/i.test(ui.lastCmd || '')) {
             setTimeout(function () { queryInfo(ui.chan, { keepFlash: true }); }, 500);
             setTimeout(function () { queryTopicHistory(ui.chan); }, 700);
@@ -1213,6 +1299,14 @@
         '.ocs-acc__nick{font-weight:700;word-break:break-all;min-width:0;flex:1}',
         '.ocs-acc__type{flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.ocs-acc__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none}',
+        '.ocs-th__row{display:flex;flex-direction:column;align-items:stretch;gap:.22rem;',
+        'padding:.5rem .65rem;border-top:1px solid var(--border)}',
+        '.ocs-th__row:first-child{border-top:0}',
+        '.ocs-th__top{display:flex;align-items:flex-start;justify-content:space-between;gap:.45rem}',
+        '.ocs-th__meta{font-size:.72rem;color:var(--muted);font-weight:650;line-height:1.35;min-width:0}',
+        '.ocs-th__who{font-weight:800;color:var(--ink)}',
+        '.ocs-th__text{font-size:.86rem;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}',
+        '.ocs-th__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none;align-self:flex-start}',
         '.ocs-acclip{max-height:calc(5 * 2.55rem);overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft)}',
         '.ocs-acclip .ocs-acc__row:first-child{border-top:0}',
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
@@ -1394,46 +1488,46 @@
       return [
         {
           id: 'join',
-          title: pick('Accès salon', 'Join access'),
+          title: pick('Sécurité', 'Security'),
           modes: [
             ['i', pick('Sur invitation', 'Invite only'), pick('Salon uniquement sur invitation : il faut être invité pour entrer.', 'Only invited users can join.')],
-            ['A', pick('Autoriser les invitations', 'Allow invite'), pick('Les membres peuvent INVITE même si le salon est +i.', 'Members may INVITE even when the channel is +i.')],
-            ['R', pick('Compte enregistré', 'Registered nick'), pick('Il faut un pseudo enregistré (NickServ) pour rejoindre.', 'A registered nickname is required to join.')],
-            ['z', pick('Connexion chiffrée', 'TLS only'), pick('Uniquement les connexions chiffrées (TLS/SSL).', 'Only TLS/SSL connections may join.')],
             ['s', pick('Secret', 'Secret'), pick('Le salon n’apparaît pas dans les listes publiques.', 'The channel is hidden from public lists.')],
             ['p', pick('Privé', 'Private'), pick('Le salon n’apparaît pas comme salon public.', 'The channel is marked private.')],
+            ['R', pick('Compte enregistré', 'Registered nick'), pick('Il faut un pseudo enregistré (NickServ) pour rejoindre.', 'A registered nickname is required to join.')],
+            ['z', pick('Connexion chiffrée', 'TLS only'), pick('Uniquement les connexions chiffrées (TLS/SSL).', 'Only TLS/SSL connections may join.')],
+            ['A', pick('Autoriser les invitations', 'Allow invite'), pick('Les membres peuvent INVITE même si le salon est +i.', 'Members may INVITE even when the channel is +i.')],
           ],
         },
         {
           id: 'talk',
           title: pick('Discussion', 'Talking'),
           modes: [
-            ['m', pick('Modéré', 'Moderated'), pick('Seuls les personnes avec voix ou op peuvent écrire.', 'Only voiced or opped users can speak.')],
-            ['U', pick('Op-modéré', 'Op-moderated'), pick('Les messages des membres sans voix/op sont masqués pour les autres membres sans privilège.', 'Messages from unprivileged users are hidden from other unprivileged users.')],
             ['n', pick('Pas de msg extérieur', 'No external msgs'), pick('Impossible d’écrire depuis l’extérieur du salon.', 'Messages from outside the channel are blocked.')],
             ['t', pick('Topic protégé', 'Topic locked'), pick('Seuls les opérateurs peuvent changer le sujet.', 'Only operators can change the topic.')],
-            ['M', pick('Parler si enregistré', 'Registered to speak'), pick('Il faut un pseudo enregistré pour parler.', 'A registered nickname is required to speak.')],
-            ['N', pick('Pas de changement de pseudo', 'No nick change'), pick('Impossible de changer de pseudo dans ce salon.', 'Nickname changes are blocked in this channel.')],
+            ['m', pick('Modéré', 'Moderated'), pick('Seuls les personnes avec voix ou op peuvent écrire.', 'Only voiced or opped users can speak.')],
+            ['c', pick('Bloquer les couleurs', 'Block colors'), pick('Les messages avec couleurs IRC sont refusés.', 'Messages containing IRC colors are rejected.')],
             ['C', pick('Pas de CTCP', 'No CTCP'), pick('Les requêtes CTCP (hors ACTION) sont bloquées.', 'CTCP requests (except ACTION) are blocked.')],
             ['T', pick('Pas de NOTICE', 'No NOTICE'), pick('Les messages NOTICE vers le salon sont bloqués.', 'Channel NOTICE messages are blocked.')],
-            ['c', pick('Bloquer les couleurs', 'Block colors'), pick('Les messages avec couleurs IRC sont refusés.', 'Messages containing IRC colors are rejected.')],
+            ['N', pick('Pas de changement de pseudo', 'No nick change'), pick('Impossible de changer de pseudo dans ce salon.', 'Nickname changes are blocked in this channel.')],
+            ['M', pick('Parler si enregistré', 'Registered to speak'), pick('Il faut un pseudo enregistré pour parler.', 'A registered nickname is required to speak.')],
             ['S', pick('Retirer les couleurs', 'Strip colors'), pick('Les couleurs IRC sont enlevées des messages.', 'IRC colors are stripped from messages.')],
             ['G', pick('Filtre de mots', 'Badword filter'), pick('Les mots filtrés par le serveur sont censurés.', 'Server-filtered words are censored.')],
             ['Q', pick('Pas d’expulsion', 'No kicks'), pick('Les kicks par les opérateurs du salon sont interdits.', 'Channel operator kicks are forbidden.')],
+            ['U', pick('Op-modéré', 'Op-moderated'), pick('Les messages des membres sans voix/op sont masqués pour les autres membres sans privilège.', 'Messages from unprivileged users are hidden from other unprivileged users.')],
           ],
         },
         {
           id: 'other',
           title: pick('Autres', 'Other'),
           modes: [
+            ['r', pick('Salon enregistré', 'Registered channel'), pick('Marqueur de salon enregistré (souvent posé par les services).', 'Registered-channel flag (usually set by services).')],
+            ['P', pick('Permanent', 'Permanent'), pick('Le salon n’est pas détruit même vide.', 'The channel is not destroyed when empty.')],
             ['K', pick('Pas de knock', 'No knock'), pick('La commande KNOCK (toquer) est interdite.', 'The KNOCK command is disabled.')],
+            ['V', pick('Pas d’invitation', 'No invite'), pick('Les invitations par les membres sont interdites.', 'INVITE by channel members is forbidden.')],
             ['D', pick('Entrée différée', 'Delay join'), pick('Les arrivées ne s’affichent qu’au premier message.', 'Joins are hidden until the user speaks.')],
             ['d', pick('Membres masqués', 'Hidden members'), pick('Les membres inactifs peuvent être masqués (delay join).', 'Idle members may be hidden (delay join).')],
             ['H', pick('Masquer les arrivées', 'Hide joins'), pick('Les messages d’arrivée/départ sont masqués.', 'Join and part messages are hidden.')],
-            ['P', pick('Permanent', 'Permanent'), pick('Le salon n’est pas détruit même vide.', 'The channel is not destroyed when empty.')],
-            ['r', pick('Salon enregistré', 'Registered channel'), pick('Marqueur de salon enregistré (souvent posé par les services).', 'Registered-channel flag (usually set by services).')],
             ['u', pick('Auditorium', 'Auditorium'), pick('Les simples membres ne se voient pas entre eux.', 'Regular members cannot see each other.')],
-            ['V', pick('Pas d’invitation', 'No invite'), pick('Les invitations par les membres sont interdites.', 'INVITE by channel members is forbidden.')],
           ],
         },
       ];
@@ -1938,9 +2032,24 @@
       var setInfoKindSt = useState('DESC');
       var setInfoKind = setInfoKindSt[0];
       var setSetInfoKind = setInfoKindSt[1];
-      var extraSt = useState('');
-      var extra = extraSt[0];
-      var setExtra = extraSt[1];
+      var banNickSt = useState('');
+      var banNick = banNickSt[0];
+      var setBanNick = banNickSt[1];
+      var banExpSt = useState('');
+      var banExp = banExpSt[0];
+      var setBanExp = banExpSt[1];
+      var banReasonSt = useState('');
+      var banReason = banReasonSt[0];
+      var setBanReason = banReasonSt[1];
+      var akickNickSt = useState('');
+      var akickNick = akickNickSt[0];
+      var setAkickNick = akickNickSt[1];
+      var akickReasonSt = useState('');
+      var akickReason = akickReasonSt[0];
+      var setAkickReason = akickReasonSt[1];
+      var unbanNickSt = useState('');
+      var unbanNick = unbanNickSt[0];
+      var setUnbanNick = unbanNickSt[1];
       var inviteSt = useState('');
       var inviteNick = inviteSt[0];
       var setInviteNick = inviteSt[1];
@@ -2009,6 +2118,12 @@
         setSetText(chanSetInfoValue(s.infoText, setInfoKind));
         return undefined;
       }, [s.open, s.tab, s.infoText, setInfoKind]);
+      useEffect(function () {
+        if (!s.open || s.tab !== 'bans' || s.registered !== true) return undefined;
+        if ((ACCESS_RANK[s.access] || 0) < ACCESS_RANK.aop) return undefined;
+        queryAkick(s.chan || chan);
+        return undefined;
+      }, [s.open, s.tab, s.chan, s.registered, s.access]);
       useLayoutEffect(function () {
         if (!s.open) return undefined;
         var el = panelRef.current;
@@ -2064,11 +2179,13 @@
       if (tab === 'sujet') tab = 'topic';
       var showTopic = s.registered === true && can(ACCESS_RANK.aop);
       var showModes = s.registered === true && can(ACCESS_RANK.aop);
+      var showBans = s.registered === true && can(ACCESS_RANK.hop);
       var showAccess = s.registered === true && can(ACCESS_RANK.sop);
       var showSet = s.registered === true && can(ACCESS_RANK.sop);
       var showDivers = s.registered === true && can(ACCESS_RANK.aop);
       if (tab === 'topic' && !showTopic) tab = 'info';
       if (tab === 'modes' && !showModes) tab = 'info';
+      if (tab === 'bans' && !showBans) tab = 'info';
       if (tab === 'access' && !showAccess) tab = 'info';
       if (tab === 'set' && !showSet) tab = 'info';
       if (tab === 'bot') tab = showDivers ? 'divers' : 'info';
@@ -2083,7 +2200,7 @@
       }
       function csMode(op, modes) {
         var m = String(modes || '').trim();
-        if (!m && op !== 'SET') return;
+        if (!m && op !== 'SET' && op !== 'CLEAR') return;
         goCs('MODE ' + ch + ' ' + op + (m ? ' ' + m : ''));
       }
       function subTabs(current, setCurrent, items, extraClass) {
@@ -2149,6 +2266,7 @@
         tabBtn('info', 'info', 'Info', true);
         tabBtn('topic', 'topic', 'Topic', showTopic);
         tabBtn('modes', 'cog', pick('Modes', 'Modes'), showModes);
+        tabBtn('bans', 'ban', pick('Bans', 'Bans'), showBans);
         tabBtn('access', 'users', pick('Accès', 'Access'), showAccess);
         tabBtn('set', 'lock', pick('Set', 'Set'), showSet);
         tabBtn('divers', 'more', pick('Divers', 'Other'), showDivers);
@@ -2179,21 +2297,6 @@
             } }, labeled('check', pick('Définir', 'Set'))),
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' SET'); } },
               labeled('novoice', pick('Effacer', 'Clear')))
-          ));
-          body.push(h(Field, { label: pick('Ajouter au topic', 'Append / prepend') },
-            h('input', { className: 'ocs-input', value: extra, onChange: function (e) { setExtra(e.target.value); } })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              var add = extra.trim();
-              if (!add) return;
-              goCs('TOPIC ' + ch + ' APPEND ' + add);
-            } }, labeled('plus', pick('À la fin', 'Append'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-              var add = extra.trim();
-              if (!add) return;
-              goCs('TOPIC ' + ch + ' PREPEND ' + add);
-            } }, labeled('plus', pick('Au début', 'Prepend')))
           ));
           var topicOpts = parseChanOptions(s.infoText);
           var topicLocked = parseTopicLocked(s.infoText);
@@ -2230,12 +2333,20 @@
               body.push(h('div', { className: 'ocs-acc' },
                 h('div', { className: 'ocs-acc__g' },
                   [h('div', { className: 'ocs-acc__h' }, pick('Sujets enregistrés', 'Saved topics'))].concat(s.topicHistory.map(function (row) {
-                    return h('div', { key: row.n, className: 'ocs-acc__row' },
-                      h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.text),
-                      h('button', {
-                        type: 'button', className: 'ocs-btn',
-                        onClick: function () { goCs('TOPICHISTORY ' + ch + ' SET ' + row.n); },
-                      }, pick('Restaurer', 'Restore'))
+                    var topicTxt = row.topic || row.text;
+                    return h('div', { key: row.n, className: 'ocs-th__row' },
+                      h('div', { className: 'ocs-th__top' },
+                        h('div', { className: 'ocs-th__meta' },
+                          row.when || row.who
+                            ? [row.when || '', row.who ? h('span', { key: 'w', className: 'ocs-th__who' }, (row.when ? ' · ' : '') + row.who) : null]
+                            : ('#' + row.n)
+                        ),
+                        h('button', {
+                          type: 'button', className: 'ocs-btn',
+                          onClick: function () { goCs('TOPICHISTORY ' + ch + ' SET ' + row.n); },
+                        }, pick('Restaurer', 'Restore'))
+                      ),
+                      h('div', { className: 'ocs-th__text' }, topicTxt)
                     );
                   }))
                 )
@@ -2256,12 +2367,6 @@
           var lockedModes = parseMlock(s.infoText);
           body.push(h('p', { className: 'ocs-h' }, pick('Modes actuels', 'Current modes')));
           body.push(h('div', { className: 'ocs-now' }, nowModes || '—'));
-          body.push(h(Field, { label: pick('Mode ChanServ (ex. +nt-k)', 'ChanServ mode (e.g. +nt-k)') },
-            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt', onChange: function (e) { setModeLine(e.target.value); } })
-          ));
-          pushBtn(body, 'primary', function () {
-            if (modeLine.trim()) csMode('SET', modeLine.trim());
-          }, 'cog', pick('Appliquer', 'Apply'));
           var cat = modeCatalog();
           var used = {};
           cat.forEach(function (g) {
@@ -2271,7 +2376,7 @@
             return [letter, pick('Mode ', 'Mode ') + letter, pick('Mode de salon +', 'Channel mode +') + letter];
           });
           var modeTabs = [
-            { id: 'join', label: pick('Accès salon', 'Join access') },
+            { id: 'join', label: pick('Sécurité', 'Security') },
             { id: 'talk', label: pick('Discussion', 'Talking') },
             { id: 'other', label: pick('Autres', 'Other') },
           ];
@@ -2319,13 +2424,114 @@
           if (shown.length) body.push(h('div', { className: 'ocs-mg__g' }, shown));
           else body.push(h('p', { className: 'ocs-sub' }, pick('Aucun mode dans ce groupe.', 'No modes in this group.')));
           body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' BANS'); } },
-              labeled('ban', pick('Vider les bans', 'Clear bans'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('CLEAR ' + ch + ' MODES'); } },
-              labeled('cog', pick('Vider les modes', 'Clear modes'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('UNBAN ' + ch); } },
-              labeled('unlock', pick('Unban (toi)', 'Unban (you)')))
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', ''); } },
+              labeled('cog', pick('Vider les modes', 'Clear modes')))
           ));
+          body.push(h(Field, { label: pick('Modification manuelle (ex. +nt-k)', 'Manual edit (e.g. +nt-k)') },
+            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt', onChange: function (e) { setModeLine(e.target.value); } })
+          ));
+          pushBtn(body, 'primary', function () {
+            if (modeLine.trim()) csMode('SET', modeLine.trim());
+          }, 'cog', pick('Appliquer', 'Apply'));
+        }
+
+        if (tab === 'bans' && showBans) {
+          var aopBan = can(ACCESS_RANK.aop);
+          if (aopBan) {
+            var akKids = [
+              h('p', { className: 'ocs-h' }, pick('Kicks automatiques (AKICK)', 'Auto-kicks (AKICK)')),
+              h('p', { className: 'ocs-sub' }, pick(
+                'Si une personne de la liste rejoint, ChanServ la ban puis l’expulse.',
+                'If someone on the list joins, ChanServ bans then kicks them.'
+              )),
+            ];
+            if (!(s.akickList && s.akickList.length)) {
+              akKids.push(h('p', { className: 'ocs-sub' }, pick('Aucun AKICK.', 'No AKICK entries.')));
+            } else {
+              akKids.push(h('div', { className: 'ocs-acclip' }, s.akickList.map(function (row) {
+                return h('div', { key: row.n + row.mask, className: 'ocs-acc__row' },
+                  h('span', { className: 'ocs-acc__nick', title: [row.extra, row.reason].filter(Boolean).join(' — ') },
+                    row.mask + (row.reason ? ' — ' + row.reason : '')),
+                  h('button', {
+                    type: 'button', className: 'ocs-btn',
+                    onClick: function () { goCs('AKICK ' + ch + ' DEL ' + (row.n || row.mask)); },
+                  }, pick('Supprimer', 'Delete'))
+                );
+              })));
+            }
+            akKids.push(h('div', { className: 'ocs-row' },
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryAkick(ch); } },
+                labeled('list', pick('Actualiser', 'Refresh'))),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('AKICK ' + ch + ' ENFORCE'); } },
+                labeled('ban', pick('Appliquer', 'Enforce'))),
+              h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('AKICK ' + ch + ' CLEAR'); } },
+                labeled('novoice', pick('Tout vider', 'Clear all')))
+            ));
+            akKids.push(h(Field, { label: pick('Pseudo / masque', 'Nick / mask') },
+              h(NickComplete, { chan: ch, value: akickNick, onChange: setAkickNick })
+            ));
+            akKids.push(h('input', {
+              className: 'ocs-input',
+              value: akickReason,
+              placeholder: pick('Raison (optionnel)', 'Reason (optional)'),
+              onChange: function (e) { setAkickReason(e.target.value); },
+            }));
+            pushBtn(akKids, 'primary', function () {
+              var t = akickNick.trim();
+              if (!t) return;
+              goCs('AKICK ' + ch + ' ADD ' + t + (akickReason.trim() ? ' ' + akickReason.trim() : ''));
+            }, 'plus', pick('Ajouter', 'Add'));
+            body.push(h('div', { className: 'ocs-block' }, akKids));
+            body.push(h('div', { className: 'ocs-block' }, [
+              h('p', { className: 'ocs-h' }, pick('Bannir', 'Ban')),
+              h(Field, { label: pick('Pseudo / masque', 'Nick / mask') },
+                h(NickComplete, { chan: ch, value: banNick, onChange: setBanNick })
+              ),
+              h('input', {
+                className: 'ocs-input',
+                value: banExp,
+                placeholder: pick('Expiration optionnelle (+1h, +1d…)', 'Optional expiry (+1h, +1d…)'),
+                onChange: function (e) { setBanExp(e.target.value); },
+              }),
+              h('input', {
+                className: 'ocs-input',
+                value: banReason,
+                placeholder: pick('Raison (optionnel)', 'Reason (optional)'),
+                onChange: function (e) { setBanReason(e.target.value); },
+              }),
+              h('div', { className: 'ocs-row' },
+                h('button', {
+                  type: 'button', className: 'ocs-btn ocs-btn--primary',
+                  onClick: function () {
+                    var t = banNick.trim();
+                    if (!t) return;
+                    var exp = banExp.trim();
+                    if (exp && exp.charAt(0) !== '+') exp = '+' + exp;
+                    var why = banReason.trim() || defaultKickReason();
+                    goCs('BAN ' + ch + (exp ? ' ' + exp : '') + ' ' + t + ' ' + why);
+                  },
+                }, labeled('ban', pick('Bannir', 'Ban'))),
+                h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', 'bans'); } },
+                  labeled('unassign', pick('Vider les bans', 'Clear bans')))
+              ),
+            ]));
+          }
+          body.push(h('div', { className: 'ocs-block' }, [
+            h('p', { className: 'ocs-h' }, pick('Unban', 'Unban')),
+            h('p', { className: 'ocs-sub' }, pick(
+              'Sans pseudo : retire tes propres bans. Avec un pseudo : les bans qui l’empêchent d’entrer.',
+              'Empty nick: remove bans that affect you. With a nick: bans blocking that user.'
+            )),
+            h(Field, { label: pick('Pseudo (optionnel)', 'Nick (optional)') },
+              h(NickComplete, { chan: ch, value: unbanNick, onChange: setUnbanNick })
+            ),
+            h('button', {
+              type: 'button', className: 'ocs-btn ocs-btn--primary',
+              onClick: function () {
+                goCs('UNBAN ' + ch + (unbanNick.trim() ? ' ' + unbanNick.trim() : ''));
+              },
+            }, labeled('unlock', unbanNick.trim() ? pick('Unban', 'Unban') : pick('Unban (toi)', 'Unban (you)'))),
+          ]));
         }
 
         if (tab === 'access' && showAccess) {
@@ -2689,7 +2895,7 @@
       cache = {};
       pending = [];
       expectKind = '';
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
