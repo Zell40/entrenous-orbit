@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=58"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=59"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -617,6 +617,23 @@
         ['ITALICS', pick('Italique', 'Italics'), /italique|italics?/],
         ['AMSG', 'AMSG', /\bamsg\b/],
       ];
+    }
+
+    function chanSetInfoValue(text, kind) {
+      var re = {
+        DESC: /^(description|desc)$/,
+        URL: /^(url|site(\s+internet)?)$/,
+        EMAIL: /^(e-?mails?|courriels?|adresse\s+e-?mail)$/,
+        SUCCESSOR: /^(successeurs?|successors?)$/,
+        BANTYPE: /^(bantype|type\s+de\s+bans?|type\s+de\s+bannissement)$/,
+      }[String(kind || '').toUpperCase()];
+      if (!re) return '';
+      var found = '';
+      infoRows(text).forEach(function (row) {
+        if (row.k && re.test(foldText(row.k))) found = String(row.v || '').trim();
+      });
+      if (/^(aucun|none|n\/a|vide|non definie|not set|-)$/i.test(foldText(found))) return '';
+      return found;
     }
 
     function parseChanOptions(text) {
@@ -1987,6 +2004,11 @@
         queryBadwords(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, setGroup, s.chan, s.registered]);
+      useEffect(function () {
+        if (!s.open || s.tab !== 'set') return undefined;
+        setSetText(chanSetInfoValue(s.infoText, setInfoKind));
+        return undefined;
+      }, [s.open, s.tab, s.infoText, setInfoKind]);
       useLayoutEffect(function () {
         if (!s.open) return undefined;
         var el = panelRef.current;
@@ -2491,13 +2513,13 @@
           body.push(h('div', { className: 'ocs-block' }, setKids));
           var infoKinds = [
             { id: 'DESC', label: pick('Description', 'Description') },
-            { id: 'URL', label: 'URL' },
-            { id: 'EMAIL', label: 'EMAIL' },
-            { id: 'SUCCESSOR', label: 'SUCCESSOR' },
-            { id: 'BANTYPE', label: 'BANTYPE' },
+            { id: 'URL', label: pick('Site internet', 'Website') },
+            { id: 'EMAIL', label: pick('Adresse email', 'Email address') },
+            { id: 'SUCCESSOR', label: pick('Successeur', 'Successor') },
+            { id: 'BANTYPE', label: pick('Type de Ban', 'Ban type') },
           ];
           body.push(h('div', { className: 'ocs-block' }, [
-            h('p', { className: 'ocs-h' }, pick('Ajouter une information', 'Add information')),
+            h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
             h('select', { className: 'ocs-select', value: setInfoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
               infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
             ),
