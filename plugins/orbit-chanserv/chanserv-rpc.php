@@ -192,7 +192,7 @@ try {
       $list = '';
     }
     $lists = [];
-    foreach (['SOP', 'AOP', 'HOP', 'VOP'] as $lv) {
+    foreach (['QOP', 'SOP', 'AOP', 'HOP', 'VOP'] as $lv) {
       try {
         $lists[$lv] = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
           $account, 'ChanServ', $lv, $channel, 'LIST',
