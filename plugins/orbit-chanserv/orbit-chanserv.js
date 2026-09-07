@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=57"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=58"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -177,10 +177,12 @@
         }
         if (r > bestR) {
           bestR = r;
-          best = /^(QOP|SOP|AOP|HOP|VOP)$/i.test(lv)
-            ? lv.toUpperCase()
-            : /founder/i.test(lv) || r >= 100 ? 'QOP'
-            : r >= 10 ? 'SOP' : r >= 5 ? 'AOP' : r >= 4 ? 'HOP' : 'VOP';
+          if (/^(QOP|SOP|AOP|HOP|VOP)$/i.test(lv)) best = lv.toUpperCase();
+          else if (/founder/i.test(lv) || r >= 100) best = 'QOP';
+          else if (r >= 10) best = 'SOP';
+          else if (r >= 5) best = 'AOP';
+          else if (r >= 4) best = 'HOP';
+          else best = 'VOP';
         }
       });
       return best;
@@ -2224,6 +2226,7 @@
                 labeled('novoice', pick('Tout vider', 'Clear all')))
             ));
           }
+        }
 
         if (tab === 'modes' && showModes) {
           var nowModes = bufferModes(ch);
