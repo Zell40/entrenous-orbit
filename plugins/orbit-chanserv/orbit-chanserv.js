@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=65"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=66"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1951,23 +1951,23 @@
       roleBtn('+', 'v', vop,
         function () { serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick); },
         function () { serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick); },
-        'voice', 'novoice', pick('Appliquer Voice (+)', 'Apply Voice (+)'), pick('Retirer Voice', 'Remove Voice'));
+        'voice', 'novoice', pick('Ajouter Voix (+)', 'Add Voice (+)'), pick('Retirer Voix (+)', 'Remove Voice (+)'));
       roleBtn('%', 'h', hopOk,
         function () { serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick); },
         function () { serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick); },
-        'hop', 'nohop', pick('Appliquer HalfOp (%)', 'Apply HalfOp (%)'), pick('Retirer HalfOp', 'Remove HalfOp'));
+        'hop', 'nohop', pick('Ajouter Halfop (%)', 'Add Halfop (%)'), pick('Retirer Halfop (%)', 'Remove Halfop (%)'));
       roleBtn('@', 'o', aop,
         function () { serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick); },
         function () { serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick); },
-        'op', 'noop', pick('Appliquer Op (@)', 'Apply Op (@)'), pick('Retirer Op', 'Remove Op'));
+        'op', 'noop', pick('Ajouter Op (@)', 'Add Op (@)'), pick('Retirer Op (@)', 'Remove Op (@)'));
       roleBtn('&', 'a', sop && hasPrefixLetter('a'),
         function () { serv ? go('PROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +a ' + nick); },
         function () { serv ? go('DEPROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -a ' + nick); },
-        'admin', 'noadmin', pick('Appliquer Admin (&)', 'Apply Admin (&)'), pick('Retirer Admin', 'Remove Admin'));
+        'admin', 'noadmin', pick('Ajouter Admin (&)', 'Add Admin (&)'), pick('Retirer Admin (&)', 'Remove Admin (&)'));
       roleBtn('~', 'q', founder && hasPrefixLetter('q'),
         function () { serv ? go('OWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +q ' + nick); },
         function () { serv ? go('DEOWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -q ' + nick); },
-        'founder', 'nofounder', pick('Appliquer Fondateur (~)', 'Apply Founder (~)'), pick('Retirer Fondateur', 'Remove Founder'));
+        'founder', 'nofounder', pick('Ajouter Fondateur (~)', 'Add Founder (~)'), pick('Retirer Fondateur (~)', 'Remove Founder (~)'));
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
         onMouseEnter: keepOpen,
