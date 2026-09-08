@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=63"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=65"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1236,8 +1236,10 @@
         'max-height:min(88vh,720px);overflow:hidden;background:var(--bg);color:var(--ink);',
         'border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45));',
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
-        '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%}',
-        '.ocs-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0;max-width:100%}',
+        '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%;',
+        'position:sticky;top:0;z-index:2;background:var(--bg)}',
+        '.ocs-body{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;',
+        'overscroll-behavior:contain;display:flex;flex-direction:column;gap:.55rem;width:100%;min-width:0;max-width:100%}',
         '.ocs-block{display:flex;flex-direction:column;gap:.55rem;min-width:0}',
         '.ocs-block + .ocs-block{margin-top:.1rem;padding-top:.7rem;border-top:1px solid var(--border)}',
         '.ocs-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}',
@@ -1352,6 +1354,8 @@
         '.ocs-acc__g{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-soft)}',
         '.ocs-acc__h{font-size:.72rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;',
         'padding:.35rem .6rem;color:var(--accent);background:var(--accent-soft)}',
+        '.ocs-acc__pad{display:flex;flex-direction:column;gap:.5rem;padding:.55rem .65rem}',
+        '.ocs-acc__pad .ocs-input,.ocs-acc__pad .ocs-select,.ocs-acc__pad .ocs-textarea{background:var(--bg)}',
         '.ocs-acc__row{display:flex;align-items:center;gap:.45rem;',
         'padding:.35rem .6rem;border-top:1px solid var(--border);font-size:.84rem}',
         '.ocs-acc__nick{font-weight:700;word-break:break-all;min-width:0;flex:1}',
@@ -1374,7 +1378,11 @@
         '.topbar__search.ocs-tb--free,.topbar__search.ocs-tb--none,.topbar__search.ocs-tb--wait{color:var(--muted)}',
         '.nmenu__ic .ocs-ic--ok{color:var(--accent)}',
         '.nmenu__ic .ocs-ic--free,.nmenu__ic .ocs-ic--none,.nmenu__ic .ocs-ic--wait{color:var(--muted)}',
-        '@media (max-width:880px){.ocs-panel{top:auto;bottom:72px;right:8px;left:8px;width:auto}}',
+        '@media (max-width:880px){',
+        '.ocs-panel{top:max(8px,env(safe-area-inset-top,0px));bottom:auto;right:8px;left:8px;width:auto;min-height:0;',
+        'max-height:calc(100vh - 80px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));',
+        'max-height:calc(100dvh - 80px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}',
+        '.ocs-tabs{max-width:100%;width:auto;overflow-x:auto}}',
       ].join('');
     }
     injectStyles();
@@ -2243,13 +2251,22 @@
         if (!el) return undefined;
         function place() {
           if (window.innerWidth <= 880) {
-            el.style.top = '';
+            var vv = window.visualViewport;
+            var visTop = vv ? vv.offsetTop : 0;
+            var visH = vv ? vv.height : window.innerHeight;
+            var topPad = 8;
+            var bottomPad = 72;
+            el.style.top = (visTop + topPad) + 'px';
             el.style.right = '';
             el.style.left = '';
             el.style.width = '';
             el.style.minWidth = '';
+            el.style.height = '';
+            el.style.maxHeight = Math.max(160, visH - topPad - bottomPad) + 'px';
             return;
           }
+          el.style.maxHeight = '';
+          el.style.height = '';
           var btn = document.querySelector('.topbar__search.ocs-tb');
           if (!btn) return;
           var r = btn.getBoundingClientRect();
@@ -2279,9 +2296,17 @@
         place();
         var raf = requestAnimationFrame(place);
         window.addEventListener('resize', place);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', place);
+          window.visualViewport.addEventListener('scroll', place);
+        }
         return function () {
           cancelAnimationFrame(raf);
           window.removeEventListener('resize', place);
+          if (window.visualViewport) {
+            window.visualViewport.removeEventListener('resize', place);
+            window.visualViewport.removeEventListener('scroll', place);
+          }
         };
       }, [s.open, s.chan, s.tab, s.registered, s.access, s.infoText, s.flash]);
 
@@ -2401,21 +2426,26 @@
         }
 
         if (tab === 'topic' && showTopic) {
-          body.push(h(Field, { caps: true, label: pick('Modifier le topic', 'Edit topic') },
-            h('textarea', {
-              className: 'ocs-input ocs-textarea',
-              rows: 4,
-              value: topic,
-              onChange: function (e) { setTopic(e.target.value); },
-            })
-          ));
-          body.push(h('div', { className: 'ocs-row' },
-            h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-              var t = topic.trim().replace(/\s+/g, ' ');
-              goCs('TOPIC ' + ch + ' SET' + (t ? ' ' + t : ''));
-            } }, labeled('check', pick('Définir', 'Set'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' SET'); } },
-              labeled('novoice', pick('Effacer', 'Clear')))
+          body.push(h('div', { className: 'ocs-acc' },
+            h('div', { className: 'ocs-acc__g' },
+              h('div', { className: 'ocs-acc__h' }, pick('Modifier le topic', 'Edit topic')),
+              h('div', { className: 'ocs-acc__pad' },
+                h('textarea', {
+                  className: 'ocs-input ocs-textarea',
+                  rows: 4,
+                  value: topic,
+                  onChange: function (e) { setTopic(e.target.value); },
+                }),
+                h('div', { className: 'ocs-row' },
+                  h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
+                    var t = topic.trim().replace(/\s+/g, ' ');
+                    goCs('TOPIC ' + ch + ' SET' + (t ? ' ' + t : ''));
+                  } }, labeled('check', pick('Définir', 'Set'))),
+                  h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' SET'); } },
+                    labeled('novoice', pick('Effacer', 'Clear')))
+                )
+              )
+            )
           ));
           body.push(h('hr', { className: 'ocs-sep' }));
           var topicOpts = parseChanOptions(s.infoText);
@@ -2449,11 +2479,11 @@
           ));
           if (topicOpts.TOPICHISTORY) {
             if (!(s.topicHistory && s.topicHistory.length)) {
-              body.push(h('p', { className: 'ocs-sub' }, pick('Aucun sujet enregistré.', 'No saved topics.')));
+              body.push(h('p', { className: 'ocs-sub' }, pick('Aucun topic enregistré.', 'No saved topics.')));
             } else {
               body.push(h('div', { className: 'ocs-acc' },
                 h('div', { className: 'ocs-acc__g' },
-                  [h('div', { className: 'ocs-acc__h' }, pick('Sujets enregistrés', 'Saved topics'))].concat(s.topicHistory.map(function (row) {
+                  [h('div', { className: 'ocs-acc__h' }, pick('Topic enregistrés', 'Saved topics'))].concat(s.topicHistory.map(function (row) {
                     var topicTxt = row.topic || row.text;
                     return h('div', { key: row.n, className: 'ocs-th__row' },
                       h('div', { className: 'ocs-th__top' },
@@ -2880,29 +2910,35 @@
             { id: 'SUCCESSOR', label: pick('Successeur', 'Successor') },
           ];
           var infoKind = setInfoKind === 'BANTYPE' ? 'DESC' : setInfoKind;
-          body.push(h('div', { className: 'ocs-block' }, [
-            h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
-            h('select', { className: 'ocs-select', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
-              infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
-            ),
-            infoKind === 'DESC'
-              ? h('textarea', {
-                className: 'ocs-input ocs-textarea',
-                rows: 5,
-                value: setText,
-                onChange: function (e) { setSetText(e.target.value); },
-              })
-              : h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
-            h('button', {
-              type: 'button',
-              className: 'ocs-btn ocs-btn--primary',
-              onClick: function () {
-                var v = setText.trim();
-                if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
-                if (v) csSet(infoKind, v);
-              },
-            }, labeled('plus', pick('Ajouter', 'Add'))),
-          ]));
+          body.push(h('div', { className: 'ocs-block' },
+            h('div', { className: 'ocs-acc' },
+              h('div', { className: 'ocs-acc__g' },
+                h('div', { className: 'ocs-acc__h' }, pick('Information du salon', 'Channel information')),
+                h('div', { className: 'ocs-acc__pad' },
+                  h('select', { className: 'ocs-select', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
+                    infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
+                  ),
+                  infoKind === 'DESC'
+                    ? h('textarea', {
+                      className: 'ocs-input ocs-textarea',
+                      rows: 5,
+                      value: setText,
+                      onChange: function (e) { setSetText(e.target.value); },
+                    })
+                    : h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
+                  h('button', {
+                    type: 'button',
+                    className: 'ocs-btn ocs-btn--primary',
+                    onClick: function () {
+                      var v = setText.trim();
+                      if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
+                      if (v) csSet(infoKind, v);
+                    },
+                  }, labeled('plus', pick('Ajouter', 'Add')))
+                )
+              )
+            )
+          ));
         }
 
         if (tab === 'divers' && showDivers) {

@@ -21,6 +21,7 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
     "server": "visio.entrenous.chat",
     "secure": false,
     "tokenEndpoint": "/app/plugins/third/orbit-conference/visio-jwt.php",
+    "inviteEndpoint": "/app/plugins/third/orbit-conference/visio-invite.php",
     "tagID": "1",
     "channels": true,
     "queries": true,
@@ -34,14 +35,15 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
     "requireGroups": [],
     "maxParticipantsChannel": 25,
     "maxParticipantsQuery": 2,
-    "publicLinkInInvite": true,
+    "publicLinkInInvite": false,
     "hideInviteForOrbit": true,
+    "secureInviteText": "-{{ nick }}- a lancé une visio. Rejoignez-la depuis votre profil EntreNous (Mon identité) — aucun lien public.",
     "inviteText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinText": "-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}",
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=8"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=18"
   ]
 }
 ```
@@ -81,6 +83,9 @@ $JITSI_DOMAIN = 'visio.entrenous.chat';
 $JWT_AUDIENCE = '';          // vide = audience = JITSI_APP_ID (recommandé)
 $JWT_TTL = 300;
 $START_CMODES = ['q', 'a', 'o']; // lettres PREFIX : ~ & @
+$INVITE_SHARED_SECRET = '...'; // même valeur que ENTRENOUS_VISIO_INVITE_SECRET (WP)
+$INVITE_TTL = 3600;
+$INVITE_MAX_REDEEMS = 3;
 ```
 
 Le JWT pose `affiliation=owner` seulement si l’EXTJWT du salon contient un de ces modes. Les autres participants reçoivent `member`.
@@ -101,20 +106,54 @@ Puis :
 docker compose up -d --force-recreate prosody jicofo web
 ```
 
-### 4. Principe
+### 4. Principe (Orbit)
 
 - Orbit demande `EXTJWT #salon` au serveur IRC
 - `visio-jwt.php` vérifie cette preuve signée par l’ircd
 - le script émet un JWT Jitsi limité à la salle demandée
 - Jitsi n’accepte plus les accès directs sans jeton valide
 
-### 5. Clients IRC externes
+### 5. Clients IRC externes (HexChat, mIRC, …) — via le profil web
 
-Le même endpoint peut accepter un `EXTJWT` obtenu depuis un autre client IRC
-enregistré. Il faut donc prévoir, côté UX, soit :
+**Pas de lien Jitsi dans l’IRC** (dangereux pour salons privés / secrets).
 
-- une petite page web de passerelle où coller / transmettre ce `EXTJWT`
-- soit un service/bot qui convertit la preuve IRC en lien court
+Flux :
+
+1. L’op démarre la visio dans Orbit (`secure: true`).
+2. Orbit appelle `visio-invite.php` (`action=create`) avec l’EXTJWT + la liste des **comptes NickServ** présents dans le salon.
+3. Un message IRC **informatif** est envoyé (sans URL) : *« … Rejoignez-la depuis votre profil EntreNous »*.
+4. L’utilisateur ouvre **Mon identité** sur le site → carte **Visio** → **Rejoindre**.
+5. WordPress appelle `visio-invite.php` (`mine` / `redeem`) avec le secret partagé + le compte NS → JWT Jitsi court → ouverture de la salle.
+
+#### Secrets
+
+Dans `visio-jwt.local.php` (webchat) :
+
+```php
+$INVITE_SHARED_SECRET = 'long-random-secret';
+$INVITE_TTL = 3600;
+$INVITE_MAX_REDEEMS = 3;
+```
+
+Côté WordPress, copier `customizr_enfant/inc/visio-invites.local.php.example` → `visio-invites.local.php` :
+
+```php
+define('ENTRENOUS_VISIO_INVITE_URL', 'https://webapp2.entrenous.chat/app/plugins/third/orbit-conference/visio-invite.php');
+define('ENTRENOUS_VISIO_INVITE_SECRET', 'long-random-secret'); // même valeur
+```
+
+#### Config Orbit (`conference`)
+
+```json
+{
+  "secure": true,
+  "publicLinkInInvite": false,
+  "inviteEndpoint": "/app/plugins/third/orbit-conference/visio-invite.php",
+  "secureInviteText": "-{{ nick }}- a lancé une visio. Rejoignez-la depuis votre profil EntreNous (Mon identité) — aucun lien public."
+}
+```
+
+Fichiers : `visio-invite.php` (API), `visio-invites.json` (store runtime, créé automatiquement).
 
 ## Tag IRC
 
