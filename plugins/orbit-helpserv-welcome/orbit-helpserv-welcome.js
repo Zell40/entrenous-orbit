@@ -15,10 +15,13 @@
  *       { "nick": "EcoutE", "needle": "…", "lines": ["…"] }
  *     ]
  *   }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=7"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=8"]
  *
  * Closing the PV drops the buffer; the welcome is shown again on reopen.
  * Switching away without closing keeps a single welcome (no spam).
+ *
+ * Also: when a desk bot asks the user to identify (require_account), show a
+ * « Se connecter » button that opens Settings → Account (same as guest login).
  */
 Orbit.plugin('helpserv-welcome', (orbit, log) => {
   const B = '\x02'; // IRC bold
@@ -211,6 +214,58 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     showWelcome(name);
   });
   orbit.on('helpserv:welcome', (name) => { if (name) showWelcome(name); });
+
+  function isIdentifyRequiredText(text) {
+    const t = String(text || '');
+    if (!/--force\b/i.test(t) && !/\b-f\b/.test(t)) return false;
+    return /identify to NickServ|must identify|vous devez vous identifier|auprès de NickServ|aupres de NickServ/i.test(t);
+  }
+
+  function openAccountLogin() {
+    const st = orbit.state.get();
+    if (st && typeof st.openSettings === 'function') st.openSettings('compte');
+    else if (st && typeof st.setModal === 'function') st.setModal('settings');
+  }
+
+  function injectLoginBtnStyles() {
+    const id = 'helpserv-welcome-login-btn';
+    if (document.getElementById(id)) return;
+    const el = document.createElement('style');
+    el.id = id;
+    el.textContent = [
+      '.helpserv-login-btn{display:inline-flex;align-items:center;gap:.35rem;margin:.45rem 0 0;',
+      'padding:.4rem .85rem;border-radius:999px;border:1px solid var(--border);',
+      'background:var(--accent);color:#fff;font:inherit;font-size:.88rem;font-weight:700;',
+      'cursor:pointer;line-height:1.2;vertical-align:middle}',
+      '.helpserv-login-btn:hover{filter:brightness(1.06)}',
+      '.helpserv-login-btn__ic{font-size:1rem;line-height:1}',
+    ].join('');
+    document.head.appendChild(el);
+  }
+  injectLoginBtnStyles();
+
+  if (typeof orbit.addMessageDecorator === 'function') {
+    orbit.addMessageDecorator((m) => {
+      if (!m || m.mine || orbit.state.account()) return null;
+      const bots = loadBots();
+      const from = fold(m.nick);
+      if (!bots.has(from)) return null;
+      if (!isIdentifyRequiredText(m.text)) return null;
+      const label = orbit.i18n.pick({ fr: 'Se connecter', en: 'Sign in' });
+      return orbit.h('button', {
+        type: 'button',
+        className: 'helpserv-login-btn',
+        onClick: (ev) => {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          openAccountLogin();
+        },
+      },
+        orbit.h('span', { className: 'helpserv-login-btn__ic', 'aria-hidden': true }, '🔑'),
+        label,
+      );
+    });
+  }
 
   const cur = orbit.state.active();
   if (cur) showWelcome(cur);

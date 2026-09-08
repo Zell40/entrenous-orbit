@@ -280,12 +280,16 @@ if [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.php" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.php" \
         "$WEBROOT/$CONFERENCE_DIR/"
 fi
+if [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-invite.php" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-invite.php" \
+        "$WEBROOT/$CONFERENCE_DIR/"
+fi
 if [ -f "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php" ]; then
   echo "$(date -Is) keep $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (secrets preserved)"
 elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" \
         "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php.example"
-  echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi token secrets)"
+  echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi + INVITE_SHARED_SECRET)"
 fi
 
 # Petit Bac — Orbit overlay for Limnoria game TAGMSG (incl. live board)

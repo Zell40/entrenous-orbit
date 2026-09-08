@@ -10,3 +10,8 @@ $JWT_AUDIENCE = ''; // empty = default to JITSI_APP_ID (recommended)
 $JWT_TTL = 300;
 $ALLOWED_CLOCK_SKEW = 30;
 $START_CMODES = ['q', 'a', 'o']; // ~ founder, & admin, @ op
+
+// Shared secret for WordPress → visio-invite.php (mine / redeem). Never expose to browsers.
+$INVITE_SHARED_SECRET = 'long-random-secret-shared-with-wp';
+$INVITE_TTL = 3600;
+$INVITE_MAX_REDEEMS = 3;

@@ -94,10 +94,13 @@
 
   function confCfg(orbit) {
     var c = (orbit.config().conference) || {};
+    var secure = !!c.secure;
     var out = {
       server: c.server || 'visio.entrenous.chat',
-      secure: !!c.secure,
+      secure: secure,
       tokenEndpoint: c.tokenEndpoint || '/app/plugins/third/orbit-conference/visio-jwt.php',
+      inviteEndpoint: c.inviteEndpoint || '/app/plugins/third/orbit-conference/visio-invite.php',
+      profileVisioHint: c.profileVisioHint || 'https://www.reseau-entrenous.fr/',
       tagID: c.tagID || '1',
       channels: c.channels !== false,
       queries: c.queries !== false,
@@ -107,6 +110,8 @@
       viewHeightMobile: c.viewHeightMobile || '28%',
       inviteText: c.inviteText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       joinText: c.joinText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
+      secureInviteText: c.secureInviteText
+        || '-{{ nick }}- a lancé une visio. Rejoignez-la depuis votre profil EntreNous (Mon identité) — aucun lien public.',
       joinButtonText: c.joinButtonText || 'Rejoindre',
       requireAccount: c.requireAccount !== false,
       requireChannelOp: c.requireChannelOp !== false,
@@ -117,7 +122,8 @@
       maxParticipantsQuery: c.maxParticipantsQuery || 2,
       anyoneCanStartIn: Array.isArray(c.anyoneCanStartIn) ? c.anyoneCanStartIn : [],
       channelRules: c.channelRules && typeof c.channelRules === 'object' ? c.channelRules : {},
-      publicLinkInInvite: c.publicLinkInInvite !== false,
+      // Secure mode never publishes a reusable Jitsi URL on IRC.
+      publicLinkInInvite: secure ? false : (c.publicLinkInInvite !== false),
       hideInviteForOrbit: c.hideInviteForOrbit !== false,
     };
     lastViewHeight = out.viewHeight;
@@ -438,6 +444,92 @@
     });
   }
 
+  /** Collect NickServ accounts present in the active buffer (WHOX / account-tag). */
+  function collectBufferAccounts(orbit, buffer) {
+    var accounts = [];
+    var seen = Object.create(null);
+    function pushAcct(a) {
+      a = String(a || '').trim();
+      if (!a) return;
+      var k = a.toLowerCase();
+      if (seen[k]) return;
+      seen[k] = true;
+      accounts.push(a);
+    }
+    try {
+      var me = orbit.state.account && orbit.state.account();
+      if (me) pushAcct(me);
+      else {
+        var st0 = orbit.state.get && orbit.state.get();
+        if (st0 && st0.account) pushAcct(st0.account);
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      var st = orbit.state.get && orbit.state.get();
+      var buffers = (st && st.buffers) || {};
+      var buf = buffers[buffer];
+      if (!buf) {
+        Object.keys(buffers).forEach(function (k) {
+          if (String(k).toLowerCase() === String(buffer).toLowerCase()) buf = buffers[k];
+        });
+      }
+      var members = (buf && buf.members) || {};
+      Object.keys(members).forEach(function (nick) {
+        var m = members[nick];
+        if (m && m.account) pushAcct(m.account);
+      });
+      // Query: other party may only appear as buffer name + profile cache
+      if (!isChannelName(buffer) && buf) {
+        // no members map — invitee account often unknown until WHOIS
+      }
+    } catch (e2) { /* ignore */ }
+    return accounts;
+  }
+
+  /** Register account-bound invites for non-Orbit clients (secure mode). */
+  function publishSecureInvites(orbit, buffer, room, extraAccounts) {
+    var cfg = confCfg(orbit);
+    if (!cfg.secure || !cfg.inviteEndpoint) return Promise.resolve(null);
+    var accounts = collectBufferAccounts(orbit, buffer);
+    if (Array.isArray(extraAccounts)) {
+      extraAccounts.forEach(function (a) {
+        a = String(a || '').trim();
+        if (a && accounts.indexOf(a) === -1) accounts.push(a);
+      });
+    }
+    var proofTarget = isChannelName(buffer) ? buffer : '*';
+    return requestExtJwt(orbit, proofTarget).then(function (proof) {
+      return fetch(cfg.inviteEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + proof,
+        },
+        body: JSON.stringify({
+          action: 'create',
+          room: room,
+          channel: isChannelName(buffer) ? buffer : '',
+          accounts: accounts,
+        }),
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            throw new Error((data && data.error) || ('http_' + res.status));
+          });
+        }
+        return res.json();
+      });
+    }).catch(function (err) {
+      try {
+        orbit.notify('Visio', orbit.i18n.pick({
+          fr: 'Invitations profil non publiées (' + (err && err.message ? err.message : 'erreur') + ').',
+          en: 'Profile invites not published (' + (err && err.message ? err.message : 'error') + ').',
+        }));
+      } catch (e) { /* ignore */ }
+      return null;
+    });
+  }
+
   /** Announce the conference on IRC once per open session (starter only). */
   function announceConference(orbit, buffer, opts) {
     opts = opts || {};
@@ -445,15 +537,38 @@
     announced[buffer] = true;
     var cfg = confCfg(orbit);
     var room = meetRoomFor(orbit, buffer);
-    // No public Jitsi URL: do not send a PRIVMSG that other IRC clients would
-    // see as "cliquez sur le lien" with no link. Orbit clients get a TAGMSG.
+    var nick = orbit.state.nick() || 'user';
+
+    if (cfg.secure) {
+      publishSecureInvites(orbit, buffer, room);
+      try {
+        orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
+      } catch (e) { /* ignore */ }
+      // Informative PRIVMSG — no Jitsi URL (safe for private/secret channels).
+      var secureTpl = cfg.secureInviteText || '';
+      var secureText = '* ' + secureTpl.replace(/\{\{\s*nick\s*\}\}/g, nick);
+      secureText = secureText.replace(/\s+/g, ' ').trim();
+      if (secureText && secureText !== '*') {
+        var tagsS = {};
+        tagsS[TAG] = cfg.tagID || '1';
+        try {
+          if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, secureText, tagsS);
+          else if (orbit.irc.msg) orbit.irc.msg(buffer, secureText);
+          else orbit.irc.send('PRIVMSG ' + buffer + ' :' + secureText);
+        } catch (e2) {
+          try { orbit.irc.msg(buffer, secureText); } catch (e3) { /* ignore */ }
+        }
+      }
+      return;
+    }
+
+    // No public Jitsi URL: TAGMSG only for Orbit clients.
     if (!cfg.publicLinkInInvite) {
       try {
         orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
       } catch (e) { /* ignore */ }
       return;
     }
-    var nick = orbit.state.nick() || 'user';
     var link = publicLink(orbit, buffer);
     var isChan = isChannelName(buffer);
     var tpl = isChan ? (cfg.joinText || '') : (cfg.inviteText || '');
