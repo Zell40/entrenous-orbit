@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=61"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=62"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -40,6 +40,7 @@
     var hideUntil = 0;
     var expectKind = '';
     var expectChan = '';
+    var expectTimer = 0;
     var cache = {};
 
     var ui = {
@@ -359,6 +360,17 @@
       hideUntil = Date.now() + HIDE_MS;
       pending = [];
       if (coalesceTimer) { clearTimeout(coalesceTimer); coalesceTimer = 0; }
+      if (expectTimer) clearTimeout(expectTimer);
+      expectTimer = setTimeout(function () {
+        expectTimer = 0;
+        if (!expectKind) return;
+        expectKind = '';
+        patchUi({ loading: false });
+      }, HIDE_MS);
+    }
+    function endExpect() {
+      expectKind = '';
+      if (expectTimer) { clearTimeout(expectTimer); expectTimer = 0; }
     }
 
     function founderMatch(founder) {
@@ -666,26 +678,33 @@
     }
     function parseChanOptions(text) {
       var on = {};
-      String(text || '').split(/\n/).forEach(function (line) {
-        var s = stripIrc(line).trim();
-        var m = s.match(/^options?\s*:\s*(.+)$/i);
-        if (!m) return;
-        m[1].split(/\s*,\s*/).forEach(function (part) {
-          var t = foldText(part);
-          if (/secureops|ops securises/.test(t)) on.SECUREOPS = true;
-          else if (/securefounder|securite de fondateur/.test(t)) on.SECUREFOUNDER = true;
-          else if (/restricted|restreint/.test(t)) on.RESTRICTED = true;
-          else if (/keeptopic|conserver le topic|maintien du topic/.test(t)) on.KEEPTOPIC = true;
-          else if (/keepmodes|maintien des modes/.test(t)) on.KEEPMODES = true;
-          else if (/^topiclock$/.test(t) || /verrouillage du (topic|sujet)/.test(t)) on.TOPICLOCK = true;
-          else if (/signkick|kicks signes/.test(t)) on.SIGNKICK = true;
-          else if (/autoop|op auto/.test(t)) on.AUTOOP = true;
-          else if (/chanstats/.test(t)) on.CHANSTATS = true;
-          else if (/topichistory|historique des sujets/.test(t)) on.TOPICHISTORY = true;
-          else if (/peace|paix/.test(t)) on.PEACE = true;
-          else if (/persist|persistant/.test(t)) on.PERSIST = true;
-          else if (/private|prive/.test(t)) on.PRIVATE = true;
+      var blob = '';
+      infoRows(text).forEach(function (row) {
+        if (row.k && /^options?$/.test(foldText(row.k))) blob = String(row.v || '');
+      });
+      if (!blob) {
+        String(text || '').split(/\n/).forEach(function (line) {
+          var s = stripIrc(line).trim();
+          var m = s.match(/^options?\s*:\s*(.+)$/i);
+          if (m) blob += (blob ? ', ' : '') + m[1];
         });
+      }
+      String(blob || '').split(/\s*,\s*/).forEach(function (part) {
+        var t = foldText(part);
+        if (!t) return;
+        if (/secureops|secure ops|ops securises|securite (des )?(ops?|operateur)/.test(t)) on.SECUREOPS = true;
+        else if (/securefounder|secure founder|fondateur securise|securite (de |du )?fondateur/.test(t)) on.SECUREFOUNDER = true;
+        else if (/restricted|restreint/.test(t)) on.RESTRICTED = true;
+        else if (/keeptopic|conserver le topic|maintien du topic/.test(t)) on.KEEPTOPIC = true;
+        else if (/keepmodes|maintien des modes/.test(t)) on.KEEPMODES = true;
+        else if (/^topiclock$/.test(t) || /verrouillage du (topic|sujet)/.test(t)) on.TOPICLOCK = true;
+        else if (/signkick|kicks signes/.test(t)) on.SIGNKICK = true;
+        else if (/autoop|op auto/.test(t)) on.AUTOOP = true;
+        else if (/chanstats/.test(t)) on.CHANSTATS = true;
+        else if (/topichistory|historique des sujets/.test(t)) on.TOPICHISTORY = true;
+        else if (/peace|paix/.test(t)) on.PEACE = true;
+        else if (/persist|persistant/.test(t)) on.PERSIST = true;
+        else if (/private|prive/.test(t)) on.PRIVATE = true;
       });
       return on;
     }
@@ -708,13 +727,28 @@
       return m ? m[1].replace(/^['"]+|['".,;]+$/g, '') : '';
     }
     function parseMlock(text) {
-      var m = String(text || '').match(/modes?\s+verrouill[ée]s?\s*:\s*(\S+)/i)
-        || String(text || '').match(/\bmlock\s*:\s*(\S+)/i)
-        || String(text || '').match(/mode lock\s*:\s*(\S+)/i);
-      return m ? m[1] : '';
+      var raw = '';
+      infoRows(text).forEach(function (row) {
+        if (!row.k) return;
+        var k = foldText(row.k);
+        if (/modes?\s+verrouill|verrouillage des modes|^mlock$|mode lock/.test(k)) raw = String(row.v || '').trim();
+      });
+      if (!raw) {
+        var m = String(text || '').match(/modes?\s+verrouill[ée]s?\s*:\s*(\S+)/i)
+          || String(text || '').match(/\bmlock\s*:\s*(\S+)/i)
+          || String(text || '').match(/mode lock\s*:\s*(\S+)/i);
+        raw = m ? m[1] : '';
+      }
+      raw = String(raw || '').split(/\s/)[0];
+      if (/^(aucun|none|n\/a|vide|-)$/i.test(foldText(raw))) return '';
+      if (!/^[+\-A-Za-z]+$/.test(raw)) return '';
+      return raw;
     }
     function mlockHas(mlock, letter) {
-      return String(mlock || '').indexOf(letter) >= 0;
+      return modeIsOn(mlock, letter);
+    }
+    function modeForcedLock(letter) {
+      return letter === 'r';
     }
     function isXopName(s) {
       return /^(QOP|SOP|AOP|HOP|VOP|FOUNDER)$/i.test(String(s || ''));
@@ -1276,6 +1310,8 @@
         '.ocs-setrow.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border))}',
         '.ocs-setrow .ocs-label{min-width:0;flex:1}',
         '.ocs-sw{display:inline-flex;align-items:center;gap:.32rem;flex:none}',
+        '.ocs-sw.is-off{opacity:.55}',
+        '.ocs-sw.is-off .switch{pointer-events:none;cursor:not-allowed}',
         '.ocs-sw__txt{font-size:.65rem;font-weight:800;letter-spacing:.04em;color:var(--muted);line-height:1}',
         '.ocs-sw__txt.is-on{color:var(--accent)}',
         '.ocs-sw .switch{width:40px;height:22px}',
@@ -1442,16 +1478,19 @@
     }
     function OnOffSwitch(props) {
       var on = !!props.on;
-      return h('span', { className: 'ocs-sw' },
+      var off = !!props.disabled;
+      return h('span', { className: 'ocs-sw' + (off ? ' is-off' : '') },
         h('span', { className: 'ocs-sw__txt' + (!on ? ' is-on' : ''), 'aria-hidden': true }, 'OFF'),
         h('button', {
           type: 'button',
           className: 'switch' + (on ? ' is-on' : ''),
           role: 'switch',
           'aria-checked': on,
+          'aria-disabled': off,
+          disabled: off,
           'aria-label': props.label || '',
-          title: props.title,
-          onClick: props.onClick,
+          title: off ? (props.lockTitle || props.title) : props.title,
+          onClick: off ? undefined : props.onClick,
         }, h('span', { className: 'switch__dot' })),
         h('span', { className: 'ocs-sw__txt' + (on ? ' is-on' : ''), 'aria-hidden': true }, 'ON')
       );
@@ -1724,6 +1763,9 @@
       var accOpenSt = useState(false);
       var accOpen = accOpenSt[0];
       var setAccOpen = accOpenSt[1];
+      var modOpenSt = useState(false);
+      var modOpen = modOpenSt[0];
+      var setModOpen = modOpenSt[1];
       var closeT = useRef(0);
       var flyRef = useRef(null);
       function keepOpen() {
@@ -1732,7 +1774,7 @@
       }
       function delayClose() {
         if (closeT.current) clearTimeout(closeT.current);
-        closeT.current = setTimeout(function () { closeT.current = 0; setOpen(false); setAccOpen(false); }, 280);
+        closeT.current = setTimeout(function () { closeT.current = 0; setOpen(false); setAccOpen(false); setModOpen(false); }, 280);
       }
       useEffect(function () {
         return function () { if (closeT.current) clearTimeout(closeT.current); };
@@ -1828,7 +1870,7 @@
           fly.push(h('div', {
             key: 'acc',
             className: 'ocs-mm' + (accOpen ? ' is-open' : ''),
-            onMouseEnter: function () { setAccOpen(true); keepOpen(); },
+              onMouseEnter: function () { setAccOpen(true); setModOpen(false); keepOpen(); },
             onMouseLeave: function () { setAccOpen(false); },
           },
             h('button', {
@@ -1840,6 +1882,7 @@
               onClick: function (e) {
                 e.stopPropagation();
                 setAccOpen(!accOpen);
+                if (!accOpen) setModOpen(false);
               },
             },
               h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
@@ -1850,6 +1893,46 @@
           ));
         }
       }
+      var modFly = [];
+      if (aop) {
+        modFly.push(menuBtn('k', true, function () { askReason('kick'); }, 'kick', pick('Expulser', 'Kick')));
+        modFly.push(menuBtn('b', true, function () { askReason('ban'); }, 'ban', pick('Bannir', 'Ban')));
+        modFly.push(menuBtn('bk', true, function () { askReason('bankick'); }, 'bankick', pick('Bannir + éjecter', 'Ban + kick')));
+        if (serv) {
+          modFly.push(menuBtn('aka', true, function () {
+            go('AKICK ' + ch + ' ADD ' + nick);
+          }, 'assign', pick('Ajouter AKICK', 'Add AKICK')));
+          modFly.push(menuBtn('akd', true, function () {
+            go('AKICK ' + ch + ' DEL ' + nick);
+          }, 'unassign', pick('Supprimer AKICK', 'Delete AKICK')));
+        }
+      }
+      if (modFly.length) {
+        fly.push(h('div', {
+          key: 'mod',
+          className: 'ocs-mm' + (modOpen ? ' is-open' : ''),
+          onMouseEnter: function () { setModOpen(true); setAccOpen(false); keepOpen(); },
+          onMouseLeave: function () { setModOpen(false); },
+        },
+          h('button', {
+            type: 'button',
+            className: 'memberctx__item memberctx__item--sub ocs-mm__trig',
+            role: 'menuitem',
+            'aria-haspopup': 'menu',
+            'aria-expanded': modOpen,
+            onClick: function (e) {
+              e.stopPropagation();
+              setModOpen(!modOpen);
+              if (!modOpen) setAccOpen(false);
+            },
+          },
+            h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
+            Mi('ban'),
+            h('span', null, pick('Modération', 'Moderation'))
+          ),
+          modOpen ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': pick('Modération', 'Moderation') }, modFly) : null
+        ));
+      }
       function roleBtn(sym, letter, canDo, addCmd, delCmd, addIcon, delIcon, addLab, delLab) {
         if (!canDo) return;
         var has = String(pfx || '').indexOf(sym) >= 0;
@@ -1859,28 +1942,23 @@
       roleBtn('+', 'v', vop,
         function () { serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick); },
         function () { serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick); },
-        'voice', 'novoice', pick('Voix (+)', 'Voice (+)'), pick('Retirer la voix', 'Devoice'));
+        'voice', 'novoice', pick('Appliquer Voice (+)', 'Apply Voice (+)'), pick('Retirer Voice', 'Remove Voice'));
       roleBtn('%', 'h', hopOk,
         function () { serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick); },
         function () { serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick); },
-        'hop', 'nohop', pick('Halfop (%)', 'Halfop (%)'), pick('Retirer halfop', 'Dehalfop'));
+        'hop', 'nohop', pick('Appliquer HalfOp (%)', 'Apply HalfOp (%)'), pick('Retirer HalfOp', 'Remove HalfOp'));
       roleBtn('@', 'o', aop,
         function () { serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick); },
         function () { serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick); },
-        'op', 'noop', pick('Op (@)', 'Op (@)'), pick('Retirer op', 'Deop'));
+        'op', 'noop', pick('Appliquer Op (@)', 'Apply Op (@)'), pick('Retirer Op', 'Remove Op'));
       roleBtn('&', 'a', sop && hasPrefixLetter('a'),
         function () { serv ? go('PROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +a ' + nick); },
         function () { serv ? go('DEPROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -a ' + nick); },
-        'admin', 'noadmin', pick('Admin (&)', 'Admin (&)'), pick('Retirer admin', 'Remove admin'));
+        'admin', 'noadmin', pick('Appliquer Admin (&)', 'Apply Admin (&)'), pick('Retirer Admin', 'Remove Admin'));
       roleBtn('~', 'q', founder && hasPrefixLetter('q'),
         function () { serv ? go('OWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +q ' + nick); },
         function () { serv ? go('DEOWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -q ' + nick); },
-        'founder', 'nofounder', pick('Fondateur (~)', 'Founder (~)'), pick('Retirer fondateur', 'Remove founder'));
-      if (aop) {
-        fly.push(menuBtn('k', true, function () { askReason('kick'); }, 'kick', pick('Expulser', 'Kick')));
-        fly.push(menuBtn('b', true, function () { askReason('ban'); }, 'ban', pick('Bannir', 'Ban')));
-        fly.push(menuBtn('bk', true, function () { askReason('bankick'); }, 'bankick', pick('Bannir + éjecter', 'Ban + kick')));
-      }
+        'founder', 'nofounder', pick('Appliquer Fondateur (~)', 'Apply Founder (~)'), pick('Retirer Fondateur', 'Remove Founder'));
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
         onMouseEnter: keepOpen,
@@ -2322,7 +2400,7 @@
         }
 
         if (tab === 'topic' && showTopic) {
-          body.push(h(Field, { label: pick('Modifier le topic', 'Edit topic') },
+          body.push(h(Field, { caps: true, label: pick('Modifier le topic', 'Edit topic') },
             h('input', { className: 'ocs-input', value: topic, onChange: function (e) { setTopic(e.target.value); } })
           ));
           body.push(h('div', { className: 'ocs-row' },
@@ -2332,8 +2410,10 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' SET'); } },
               labeled('novoice', pick('Effacer', 'Clear')))
           ));
+          body.push(h('hr', { className: 'ocs-sep' }));
           var topicOpts = parseChanOptions(s.infoText);
           var topicLocked = parseTopicLocked(s.infoText);
+          body.push(h('p', { className: 'ocs-h' }, pick('Paramètres du topic', 'Topic settings')));
           body.push(h('div', { className: 'ocs-mg__g' },
             h('div', { className: 'ocs-ml' + (topicLocked ? ' is-on' : '') },
               h('span', { className: 'ocs-ml__lab' }, pick('Verrouiller le topic', 'Lock topic')),
@@ -2417,18 +2497,26 @@
           var gid = modeGroup === 'talk' || modeGroup === 'other' ? modeGroup : 'join';
           function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
-            var locked = mlockHas(lockedModes, letter);
+            var forced = modeForcedLock(letter);
+            var locked = forced || mlockHas(lockedModes, letter);
             var sign = on ? '+' : '-';
-            return h('div', { key: letter, className: 'ocs-ml' + (on ? ' is-on' : '') + (locked ? ' is-lock' : ''), title: tip },
+            var lockTip = forced
+              ? pick('Mode posé par les services, non modifiable.', 'Set by services, cannot be changed.')
+              : (locked
+                ? pick('Mode verrouillé. Retirer le cadenas pour le modifier.', 'Mode is locked. Unlock it to change.')
+                : tip);
+            return h('div', { key: letter, className: 'ocs-ml' + (on ? ' is-on' : '') + (locked ? ' is-lock' : ''), title: lockTip },
               h('span', { className: 'ocs-ml__lab' }, name + ' ( ', h('span', null, letter), ' )'),
               h('span', { className: 'ocs-ml__btns' },
                 h(OnOffSwitch, {
                   on: on,
+                  disabled: locked,
                   label: name,
                   title: tip,
+                  lockTitle: lockTip,
                   onClick: function () { csMode('SET', (on ? '-' : '+') + letter); },
                 }),
-                h('button', {
+                forced ? null : h('button', {
                   type: 'button',
                   className: 'ocs-btn' + (locked ? ' ocs-btn--primary' : ''),
                   title: locked
@@ -2464,8 +2552,8 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', ''); } },
               labeled('cog', pick('Vider les modes', 'Clear modes')))
           ));
-          body.push(h(Field, { label: pick('Modification manuelle (ex. +nt-k)', 'Manual edit (e.g. +nt-k)') },
-            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt', onChange: function (e) { setModeLine(e.target.value); } })
+          body.push(h(Field, { caps: true, label: pick('Modification manuelle', 'Manual edit') },
+            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt-k', onChange: function (e) { setModeLine(e.target.value); } })
           ));
           pushBtn(body, 'primary', function () {
             if (modeLine.trim()) csMode('SET', modeLine.trim());
@@ -2965,6 +3053,7 @@
       cache = {};
       pending = [];
       expectKind = '';
+      if (expectTimer) { clearTimeout(expectTimer); expectTimer = 0; }
       patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
