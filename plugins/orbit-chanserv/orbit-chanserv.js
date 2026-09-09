@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=68"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=70"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1368,9 +1368,10 @@
         '.ocs-th__meta{font-size:.72rem;color:var(--muted);font-weight:650;line-height:1.35;min-width:0}',
         '.ocs-th__who{font-weight:800;color:var(--ink)}',
         '.ocs-th__text{font-size:.86rem;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}',
-        '.ocs-th__edit{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:4.8rem;',
-        'margin:0;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:.86rem;',
-        'line-height:1.4;overflow-wrap:anywhere;word-break:break-word;resize:vertical}',
+        '.ocs-th__edit,.ocs-setinfo{font:inherit;font-family:inherit;font-size:.86rem;line-height:1.4}',
+        '.ocs-th__edit{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:1.4em;',
+        'height:auto;margin:0;padding:0;border:0;background:transparent;color:var(--ink);',
+        'overflow:hidden;overflow-wrap:anywhere;word-break:break-word;resize:none}',
         '.ocs-th__edit:focus{outline:none}',
         '.ocs-th__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none;align-self:flex-start}',
         '.ocs-acclip{max-height:calc(5 * 2.55rem);overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft)}',
@@ -1386,7 +1387,13 @@
         '.ocs-panel{top:max(8px,env(safe-area-inset-top,0px));bottom:auto;right:8px;left:8px;width:auto;min-height:0;',
         'max-height:calc(100vh - 80px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));',
         'max-height:calc(100dvh - 80px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}',
-        '.ocs-tabs{max-width:100%;width:auto;overflow-x:auto}}',
+        '.ocs-tabs{max-width:100%;width:auto;overflow-x:auto}',
+        '.ocs-mm__bridge{display:none}',
+        '.ocs-mm__fly,.ocs-mm__fly .ocs-mm__fly{position:relative;right:auto;left:auto;top:auto!important;bottom:auto!important;',
+        'width:auto;min-width:0;max-width:none;max-height:none;margin:2px 0 4px;z-index:auto;box-shadow:none;',
+        'border:1px solid var(--border)}',
+        '.ocs-mm__trig,.memberctx__item.ocs-mirow,.ocs-mm__fly .memberctx__item{white-space:normal;overflow-wrap:anywhere}',
+        '.ocs-mm__chev{display:inline-block;transform:rotate(-90deg)}}',
       ].join('');
     }
     injectStyles();
@@ -1659,6 +1666,26 @@
       );
     }
 
+    function fitTextarea(el) {
+      if (!el) return;
+      el.style.height = '0px';
+      el.style.height = el.scrollHeight + 'px';
+    }
+
+    function AutoTextarea(props) {
+      var r = useRef(null);
+      useLayoutEffect(function () { fitTextarea(r.current); }, [props.value]);
+      var p = {};
+      Object.keys(props).forEach(function (k) { if (k !== 'onChange') p[k] = props[k]; });
+      p.ref = r;
+      p.rows = props.rows || 1;
+      p.onChange = function (e) {
+        fitTextarea(e.target);
+        if (props.onChange) props.onChange(e);
+      };
+      return h('textarea', p);
+    }
+
     function Field(props) {
       return h('div', { className: 'ocs-field' },
         props.label ? h('label', { className: 'ocs-label' + (props.caps ? ' ocs-caps' : '') }, props.label) : null,
@@ -1796,6 +1823,12 @@
         if (!open) return undefined;
         var el = flyRef.current;
         if (!el) return undefined;
+        if (window.innerWidth <= 880) {
+          el.style.top = '';
+          el.style.bottom = '';
+          el.style.maxHeight = '';
+          return undefined;
+        }
         el.style.top = '-4px';
         el.style.bottom = 'auto';
         el.style.maxHeight = '';
@@ -1863,7 +1896,7 @@
           accFly.push(menuBtn(lv + (add ? 'a' : 'd'), false, function () {
             go(lv + ' ' + ch + ' ' + (add ? 'ADD ' : 'DEL ') + nick);
           }, add ? 'assign' : 'unassign',
-            (add ? pick('Ajouter l\'accès ', 'Add access ') : pick('Retirer l\'accès ', 'Remove access ')) + label));
+            (add ? pick('Créer Accès ', 'Create Access ') : pick('Supprimer Accès ', 'Delete Access ')) + label));
         }
         accBtn('VOP', true, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
         accBtn('VOP', false, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
@@ -1871,10 +1904,10 @@
         accBtn('HOP', false, ACCESS_RANK.aop, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
         accBtn('AOP', true, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
         accBtn('AOP', false, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
-        accBtn('SOP', true, ACCESS_RANK.sop, pick('Administrateur (SOP)', 'Admin (SOP)'));
-        accBtn('SOP', false, ACCESS_RANK.sop, pick('Administrateur (SOP)', 'Admin (SOP)'));
-        accBtn('QOP', true, ACCESS_RANK.founder, pick('Propriétaire (QOP)', 'Owner (QOP)'));
-        accBtn('QOP', false, ACCESS_RANK.founder, pick('Propriétaire (QOP)', 'Owner (QOP)'));
+        accBtn('SOP', true, ACCESS_RANK.sop, pick('Admin (SOP)', 'Admin (SOP)'));
+        accBtn('SOP', false, ACCESS_RANK.sop, pick('Admin (SOP)', 'Admin (SOP)'));
+        accBtn('QOP', true, ACCESS_RANK.founder, pick('Fondateur (QOP)', 'Founder (QOP)'));
+        accBtn('QOP', false, ACCESS_RANK.founder, pick('Fondateur (QOP)', 'Founder (QOP)'));
         if (accFly.length) {
           fly.push(h('div', {
             key: 'acc',
@@ -1896,9 +1929,9 @@
             },
               h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
               Mi('users'),
-              h('span', null, pick('Accès Anope', 'Anope access'))
+              h('span', null, pick('Gérer les accès', 'Manage access'))
             ),
-            accOpen ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': pick('Accès Anope', 'Anope access') }, accFly) : null
+            accOpen ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': pick('Gérer les accès', 'Manage access') }, accFly) : null
           ));
         }
       }
@@ -1954,23 +1987,23 @@
         roleBtn('+', 'v', vop,
           function () { go('VOICE ' + ch + ' ' + nick); },
           function () { go('DEVOICE ' + ch + ' ' + nick); },
-          'voice', 'novoice', pick('Ajouter +v', 'Add +v'), pick('Retirer +v', 'Remove +v'));
+          'voice', 'novoice', pick('Ajouter Voice', 'Add Voice'), pick('Retirer Voice', 'Remove Voice'));
         roleBtn('%', 'h', hopOk,
           function () { go('HALFOP ' + ch + ' ' + nick); },
           function () { go('DEHALFOP ' + ch + ' ' + nick); },
-          'hop', 'nohop', pick('Ajouter +h', 'Add +h'), pick('Retirer +h', 'Remove +h'));
+          'hop', 'nohop', pick('Ajouter Halfop', 'Add Halfop'), pick('Retirer Halfop', 'Remove Halfop'));
         roleBtn('@', 'o', aop,
           function () { go('OP ' + ch + ' ' + nick); },
           function () { go('DEOP ' + ch + ' ' + nick); },
-          'op', 'noop', pick('Ajouter +o', 'Add +o'), pick('Retirer +o', 'Remove +o'));
+          'op', 'noop', pick('Ajouter Opérateur', 'Add Operator'), pick('Retirer Opérateur', 'Remove Operator'));
         roleBtn('&', 'a', sop && hasPrefixLetter('a'),
           function () { go('PROTECT ' + ch + ' ' + nick); },
           function () { go('DEPROTECT ' + ch + ' ' + nick); },
-          'admin', 'noadmin', pick('Ajouter +a', 'Add +a'), pick('Retirer +a', 'Remove +a'));
+          'admin', 'noadmin', pick('Ajouter Admin', 'Add Admin'), pick('Retirer Admin', 'Remove Admin'));
         roleBtn('~', 'q', founder && hasPrefixLetter('q'),
           function () { go('OWNER ' + ch + ' ' + nick); },
           function () { go('DEOWNER ' + ch + ' ' + nick); },
-          'founder', 'nofounder', pick('Ajouter +q', 'Add +q'), pick('Retirer +q', 'Remove +q'));
+          'founder', 'nofounder', pick('Ajouter Fondateur', 'Add Founder'), pick('Retirer Fondateur', 'Remove Founder'));
       }
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
@@ -2435,9 +2468,8 @@
             h('div', { className: 'ocs-acc__g' },
               h('div', { className: 'ocs-acc__h' }, pick('Topic actuel', 'Current topic')),
               h('div', { className: 'ocs-th__row' },
-                h('textarea', {
+                h(AutoTextarea, {
                   className: 'ocs-th__edit',
-                  rows: 4,
                   value: topic,
                   onChange: function (e) { setTopic(e.target.value); },
                 }),
@@ -2914,35 +2946,30 @@
             { id: 'SUCCESSOR', label: pick('Successeur', 'Successor') },
           ];
           var infoKind = setInfoKind === 'BANTYPE' ? 'DESC' : setInfoKind;
-          body.push(h('div', { className: 'ocs-block' },
-            h('div', { className: 'ocs-acc' },
-              h('div', { className: 'ocs-acc__g' },
-                h('div', { className: 'ocs-acc__h' }, pick('Information du salon', 'Channel information')),
-                h('div', { className: 'ocs-acc__pad' },
-                  h('select', { className: 'ocs-select', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
-                    infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
-                  ),
-                  infoKind === 'DESC'
-                    ? h('textarea', {
-                      className: 'ocs-input ocs-textarea',
-                      rows: 5,
-                      value: setText,
-                      onChange: function (e) { setSetText(e.target.value); },
-                    })
-                    : h('input', { className: 'ocs-input', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
-                  h('button', {
-                    type: 'button',
-                    className: 'ocs-btn ocs-btn--primary',
-                    onClick: function () {
-                      var v = setText.trim();
-                      if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
-                      if (v) csSet(infoKind, v);
-                    },
-                  }, labeled('plus', pick('Ajouter', 'Add')))
-                )
-              )
-            )
-          ));
+          body.push(h('div', { className: 'ocs-block' }, [
+            h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
+            h('div', { className: 'ocs-frame' },
+              h('select', { className: 'ocs-select ocs-setinfo', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
+                infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
+              ),
+              infoKind === 'DESC'
+                ? h(AutoTextarea, {
+                  className: 'ocs-th__edit',
+                  value: setText,
+                  onChange: function (e) { setSetText(e.target.value); },
+                })
+                : h('input', { className: 'ocs-input ocs-setinfo', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
+              h('button', {
+                type: 'button',
+                className: 'ocs-btn ocs-btn--primary',
+                onClick: function () {
+                  var v = setText.trim();
+                  if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
+                  if (v) csSet(infoKind, v);
+                },
+              }, labeled('plus', pick('Ajouter', 'Add')))
+            ),
+          ]));
         }
 
         if (tab === 'divers' && showDivers) {

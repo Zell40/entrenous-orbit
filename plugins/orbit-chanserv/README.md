@@ -9,7 +9,7 @@ Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 **Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
 
 - **Modes du salon** (`+v` / `+h` / `+o`…) : menu natif, sans créer d’accès Anope.
-- **Accès Anope** (VOP / HOP / AOP / SOP / QOP) : sous-menu *Accès Anope* — liste permanente.
+- **Accès Anope** (VOP / HOP / AOP / SOP / QOP) : sous-menu *Gérer les accès* — liste permanente.
 - ChanServ `VOICE` / `OP` n’apparaît que si tu as un accès services sans être oppé sur le salon.
 
 **Lectures** (INFO / STATUS / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
@@ -45,7 +45,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=68"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=70"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
