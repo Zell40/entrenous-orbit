@@ -15,3 +15,5 @@ $START_CMODES = ['q', 'a', 'o']; // ~ founder, & admin, @ op
 $INVITE_SHARED_SECRET = 'long-random-secret-shared-with-wp';
 $INVITE_TTL = 3600;
 $INVITE_MAX_REDEEMS = 3;
+// Optional: override writable store dir (default: __DIR__/visio-invite-data).
+// $INVITE_DATA_DIR = '/var/lib/entrenous/visio-invite-data';

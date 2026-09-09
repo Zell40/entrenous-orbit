@@ -25,7 +25,9 @@ $ALLOWED_CLOCK_SKEW = 30;
 $START_CMODES = ['q', 'a', 'o'];
 $INVITE_SHARED_SECRET = 'CHANGE_ME_INVITE_SHARED_SECRET';
 $INVITE_TTL = 3600; // session lifetime (1h)
-$INVITE_STORE = __DIR__ . '/visio-invites.json';
+// Writable data dir (plugin dir itself is often owned by deploy user, not www-data).
+$INVITE_DATA_DIR = __DIR__ . '/visio-invite-data';
+$INVITE_STORE = $INVITE_DATA_DIR . '/visio-invites.json';
 $INVITE_MAX_REDEEMS = 3; // allow reconnects without re-invite
 
 $__local = __DIR__ . '/visio-jwt.local.php';
@@ -34,6 +36,7 @@ if (is_file($__local)
     && !str_contains((string)@file_get_contents($__local), 'function verify_extjwt')) {
   require $__local;
 }
+$INVITE_STORE = rtrim((string)$INVITE_DATA_DIR, "/\\") . '/visio-invites.json';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -123,12 +126,37 @@ function invite_load(string $path): array {
   }
   return $data;
 }
+function invite_ensure_dir(string $dir): bool {
+  if (is_dir($dir)) return is_writable($dir);
+  if (!@mkdir($dir, 02775, true) && !is_dir($dir)) return false;
+  @chmod($dir, 02775);
+  // Deny web access to JSON store if Apache allows .htaccess
+  $ht = $dir . '/.htaccess';
+  if (!is_file($ht)) {
+    @file_put_contents($ht, "Require all denied\n");
+  }
+  return is_writable($dir);
+}
 function invite_save(string $path, array $data): bool {
+  $dir = dirname($path);
+  if (!invite_ensure_dir($dir)) {
+    error_log('visio-invite: data dir not writable: ' . $dir);
+    return false;
+  }
   $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
   if ($json === false) return false;
-  $tmp = $path . '.tmp';
-  if (@file_put_contents($tmp, $json, LOCK_EX) === false) return false;
-  return @rename($tmp, $path);
+  $tmp = $path . '.tmp.' . getmypid();
+  if (@file_put_contents($tmp, $json, LOCK_EX) === false) {
+    error_log('visio-invite: file_put_contents failed: ' . $tmp . ' — ' . (error_get_last()['message'] ?? ''));
+    return false;
+  }
+  if (!@rename($tmp, $path)) {
+    @unlink($tmp);
+    error_log('visio-invite: rename failed to ' . $path);
+    return false;
+  }
+  @chmod($path, 0664);
+  return true;
 }
 function invite_purge(array &$data, int $now): void {
   $sessions = [];

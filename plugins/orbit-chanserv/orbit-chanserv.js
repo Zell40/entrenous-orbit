@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=70"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=71"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -914,6 +914,18 @@
         }
       });
       return rows;
+    }
+    function nickInAkick(nick, list) {
+      var k = foldText(nick);
+      if (!k) return null;
+      for (var i = 0; i < (list || []).length; i++) {
+        var row = list[i];
+        var mask = String(row.mask || '');
+        var nickPart = foldText(mask.split('!')[0]);
+        if (!nickPart || nickPart === '*' || nickPart.indexOf('*') >= 0 || nickPart.indexOf('?') >= 0) continue;
+        if (nickPart === k) return row;
+      }
+      return null;
     }
     function parseBadwordsList(text) {
       var rows = [];
@@ -1857,7 +1869,10 @@
       }, [chan]);
       useEffect(function () {
         if (!open || !isChannel(chan) || !identified()) return undefined;
-        if (s.registered === true && can(ACCESS_RANK.aop)) queryAccess(chan);
+        if (s.registered === true && can(ACCESS_RANK.aop)) {
+          queryAccess(chan);
+          queryAkick(chan);
+        }
         return undefined;
       }, [open, chan, nick, s.registered, s.access]);
       var me = foldText(orbit.state.nick() || '');
@@ -1879,10 +1894,6 @@
       var hopOk = hop && (serv ? can(ACCESS_RANK.hop) : ircOp);
       var sop = serv ? can(ACCESS_RANK.sop) : ircOp;
       var founder = serv ? can(ACCESS_RANK.founder) : ircOp;
-      function askReason(kind) {
-        patchUi({ reasonAsk: { nick: nick, chan: ch, kind: kind, serv: !!serv } });
-        close();
-      }
       var fly = [];
       var pfx = memberPrefixChars(ch, nick);
       if (serv && can(ACCESS_RANK.aop)) {
@@ -1936,17 +1947,53 @@
         }
       }
       var modFly = [];
-      if (aop) {
-        modFly.push(menuBtn('k', true, function () { askReason('kick'); }, 'kick', pick('Expulser', 'Kick')));
-        modFly.push(menuBtn('b', true, function () { askReason('ban'); }, 'ban', pick('Bannir', 'Ban')));
-        modFly.push(menuBtn('bk', true, function () { askReason('bankick'); }, 'bankick', pick('Bannir + éjecter', 'Ban + kick')));
-        if (serv) {
+      var canWarn = aop || hopOk;
+      var canAkick = serv && aop;
+      if (canWarn) {
+        function sendModText(tag, body) {
+          var line = nick + ', [' + tag + '] ' + body;
+          try { orbit.irc.msg(ch, line); } catch (e) { /* ignore */ }
+          try { orbit.irc.send('NOTICE ' + nick + ' :' + line); } catch (e2) { /* ignore */ }
+          close();
+        }
+        modFly.push(menuBtn('mw', false, function () {
+          sendModText(
+            pick('Avertissement', 'Warning'),
+            pick(
+              'Ceci est un avertissement de la modération. Merci de rester courtois et de respecter les règles du salon.',
+              'This is a moderation warning. Please stay polite and follow the channel rules.'
+            )
+          );
+        }, 'say', pick('Avertissement', 'Warning')));
+        modFly.push(menuBtn('mc', false, function () {
+          sendModText(
+            pick('Comportement', 'Behaviour'),
+            pick(
+              'Ton comportement n’est pas acceptable. Merci de te calmer, sinon des sanctions pourront être appliquées.',
+              'Your behaviour is not acceptable. Please calm down, or sanctions may follow.'
+            )
+          );
+        }, 'say', pick('Comportement', 'Behaviour')));
+        modFly.push(menuBtn('ml', false, function () {
+          sendModText(
+            pick('Langage', 'Language'),
+            pick(
+              'Merci de surveiller ton langage. Les propos injurieux ou vulgaires ne sont pas autorisés ici.',
+              'Please watch your language. Insults and vulgarity are not allowed here.'
+            )
+          );
+        }, 'say', pick('Langage', 'Language')));
+      }
+      if (canAkick) {
+        var akRow = nickInAkick(nick, s.akickList);
+        if (akRow) {
+          modFly.push(menuBtn('akd', true, function () {
+            go('AKICK ' + ch + ' DEL ' + (akRow.n || akRow.mask || nick));
+          }, 'unassign', pick('Supprimer AKICK', 'Delete AKICK')));
+        } else {
           modFly.push(menuBtn('aka', true, function () {
             go('AKICK ' + ch + ' ADD ' + nick);
           }, 'assign', pick('Ajouter AKICK', 'Add AKICK')));
-          modFly.push(menuBtn('akd', true, function () {
-            go('AKICK ' + ch + ' DEL ' + nick);
-          }, 'unassign', pick('Supprimer AKICK', 'Delete AKICK')));
         }
       }
       if (modFly.length) {

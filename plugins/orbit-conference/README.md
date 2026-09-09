@@ -153,7 +153,7 @@ define('ENTRENOUS_VISIO_INVITE_SECRET', 'long-random-secret'); // même valeur
 }
 ```
 
-Fichiers : `visio-invite.php` (API), `visio-invites.json` (store runtime, créé automatiquement).
+Fichiers : `visio-invite.php` (API), `visio-invite-data/visio-invites.json` (store runtime, doit être writable par www-data).
 
 ## Tag IRC
 

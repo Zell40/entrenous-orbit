@@ -284,6 +284,12 @@ if [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-invite.php" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-conference/visio-invite.php" \
         "$WEBROOT/$CONFERENCE_DIR/"
 fi
+# Writable store for profile invites (www-data must write JSON here).
+mkdir -p "$WEBROOT/$CONFERENCE_DIR/visio-invite-data"
+chmod 2775 "$WEBROOT/$CONFERENCE_DIR/visio-invite-data" 2>/dev/null || true
+if [ -f "$WEBROOT/$CONFERENCE_DIR/visio-invite-data/visio-invites.json" ]; then
+  chmod 664 "$WEBROOT/$CONFERENCE_DIR/visio-invite-data/visio-invites.json" 2>/dev/null || true
+fi
 if [ -f "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php" ]; then
   echo "$(date -Is) keep $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (secrets preserved)"
 elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]; then
@@ -291,6 +297,7 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-conference/visio-jwt.local.php.example" ]
         "$WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php.example"
   echo "$(date -Is) NOTE: create $WEBROOT/$CONFERENCE_DIR/visio-jwt.local.php (EXTJWT + Jitsi + INVITE_SHARED_SECRET)"
 fi
+echo "$(date -Is) conference data dir: $WEBROOT/$CONFERENCE_DIR/visio-invite-data"
 
 # Petit Bac — Orbit overlay for Limnoria game TAGMSG (incl. live board)
 mkdir -p "$WEBROOT/$PETITBAC_DIR/assets"
