@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=66"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=68"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1368,6 +1368,10 @@
         '.ocs-th__meta{font-size:.72rem;color:var(--muted);font-weight:650;line-height:1.35;min-width:0}',
         '.ocs-th__who{font-weight:800;color:var(--ink)}',
         '.ocs-th__text{font-size:.86rem;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}',
+        '.ocs-th__edit{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:4.8rem;',
+        'margin:0;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:.86rem;',
+        'line-height:1.4;overflow-wrap:anywhere;word-break:break-word;resize:vertical}',
+        '.ocs-th__edit:focus{outline:none}',
         '.ocs-th__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none;align-self:flex-start}',
         '.ocs-acclip{max-height:calc(5 * 2.55rem);overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft)}',
         '.ocs-acclip .ocs-acc__row:first-child{border-top:0}',
@@ -1837,10 +1841,6 @@
         runCmd('ChanServ', line, false);
         close();
       }
-      function goIrc(line) {
-        orbit.irc.send(line);
-        close();
-      }
       var aop = serv ? can(ACCESS_RANK.aop) : ircOp;
       var vop = serv ? can(ACCESS_RANK.vop) : ircOp;
       var hopOk = hop && (serv ? can(ACCESS_RANK.hop) : ircOp);
@@ -1863,18 +1863,18 @@
           accFly.push(menuBtn(lv + (add ? 'a' : 'd'), false, function () {
             go(lv + ' ' + ch + ' ' + (add ? 'ADD ' : 'DEL ') + nick);
           }, add ? 'assign' : 'unassign',
-            (add ? pick('Ajouter ', 'Add ') : pick('Supprimer ', 'Delete ')) + label));
+            (add ? pick('Ajouter l\'accès ', 'Add access ') : pick('Retirer l\'accès ', 'Remove access ')) + label));
         }
-        accBtn('VOP', true, ACCESS_RANK.aop, pick('Voice (+)', 'Voice (+)'));
-        accBtn('VOP', false, ACCESS_RANK.aop, pick('Voice (+)', 'Voice (+)'));
-        accBtn('HOP', true, ACCESS_RANK.aop, pick('HalfOp (%)', 'HalfOp (%)'));
-        accBtn('HOP', false, ACCESS_RANK.aop, pick('HalfOp (%)', 'HalfOp (%)'));
-        accBtn('AOP', true, ACCESS_RANK.sop, pick('Opérateur (@)', 'Operator (@)'));
-        accBtn('AOP', false, ACCESS_RANK.sop, pick('Opérateur (@)', 'Operator (@)'));
-        accBtn('SOP', true, ACCESS_RANK.sop, pick('Administrateur (&)', 'Admin (&)'));
-        accBtn('SOP', false, ACCESS_RANK.sop, pick('Administrateur (&)', 'Admin (&)'));
-        accBtn('QOP', true, ACCESS_RANK.founder, pick('Propriétaire (~)', 'Owner (~)'));
-        accBtn('QOP', false, ACCESS_RANK.founder, pick('Propriétaire (~)', 'Owner (~)'));
+        accBtn('VOP', true, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
+        accBtn('VOP', false, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
+        accBtn('HOP', true, ACCESS_RANK.aop, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
+        accBtn('HOP', false, ACCESS_RANK.aop, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
+        accBtn('AOP', true, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
+        accBtn('AOP', false, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
+        accBtn('SOP', true, ACCESS_RANK.sop, pick('Administrateur (SOP)', 'Admin (SOP)'));
+        accBtn('SOP', false, ACCESS_RANK.sop, pick('Administrateur (SOP)', 'Admin (SOP)'));
+        accBtn('QOP', true, ACCESS_RANK.founder, pick('Propriétaire (QOP)', 'Owner (QOP)'));
+        accBtn('QOP', false, ACCESS_RANK.founder, pick('Propriétaire (QOP)', 'Owner (QOP)'));
         if (accFly.length) {
           fly.push(h('div', {
             key: 'acc',
@@ -1896,9 +1896,9 @@
             },
               h('span', { className: 'ocs-mm__chev', 'aria-hidden': true }, '‹'),
               Mi('users'),
-              h('span', null, pick('Gérer les accès', 'Manage access'))
+              h('span', null, pick('Accès Anope', 'Anope access'))
             ),
-            accOpen ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': pick('Gérer les accès', 'Manage access') }, accFly) : null
+            accOpen ? h('div', { className: 'ocs-mm__fly', role: 'menu', 'aria-label': pick('Accès Anope', 'Anope access') }, accFly) : null
           ));
         }
       }
@@ -1948,26 +1948,30 @@
         if (has) fly.push(menuBtn(letter + 'd', false, delCmd, delIcon, delLab));
         else fly.push(menuBtn(letter, false, addCmd, addIcon, addLab));
       }
-      roleBtn('+', 'v', vop,
-        function () { serv ? go('VOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +v ' + nick); },
-        function () { serv ? go('DEVOICE ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -v ' + nick); },
-        'voice', 'novoice', pick('Ajouter Voix (+)', 'Add Voice (+)'), pick('Retirer Voix (+)', 'Remove Voice (+)'));
-      roleBtn('%', 'h', hopOk,
-        function () { serv ? go('HALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +h ' + nick); },
-        function () { serv ? go('DEHALFOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -h ' + nick); },
-        'hop', 'nohop', pick('Ajouter Halfop (%)', 'Add Halfop (%)'), pick('Retirer Halfop (%)', 'Remove Halfop (%)'));
-      roleBtn('@', 'o', aop,
-        function () { serv ? go('OP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +o ' + nick); },
-        function () { serv ? go('DEOP ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -o ' + nick); },
-        'op', 'noop', pick('Ajouter Op (@)', 'Add Op (@)'), pick('Retirer Op (@)', 'Remove Op (@)'));
-      roleBtn('&', 'a', sop && hasPrefixLetter('a'),
-        function () { serv ? go('PROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +a ' + nick); },
-        function () { serv ? go('DEPROTECT ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -a ' + nick); },
-        'admin', 'noadmin', pick('Ajouter Admin (&)', 'Add Admin (&)'), pick('Retirer Admin (&)', 'Remove Admin (&)'));
-      roleBtn('~', 'q', founder && hasPrefixLetter('q'),
-        function () { serv ? go('OWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' +q ' + nick); },
-        function () { serv ? go('DEOWNER ' + ch + ' ' + nick) : goIrc('MODE ' + ch + ' -q ' + nick); },
-        'founder', 'nofounder', pick('Ajouter Fondateur (~)', 'Add Founder (~)'), pick('Retirer Fondateur (~)', 'Remove Founder (~)'));
+      // Session flags via ChanServ only when we cannot MODE ourselves (not currently opped).
+      // Otherwise the native menu already does MODE +v/+h/+o — duplicating it here is noise.
+      if (serv && !ircOp) {
+        roleBtn('+', 'v', vop,
+          function () { go('VOICE ' + ch + ' ' + nick); },
+          function () { go('DEVOICE ' + ch + ' ' + nick); },
+          'voice', 'novoice', pick('Ajouter +v', 'Add +v'), pick('Retirer +v', 'Remove +v'));
+        roleBtn('%', 'h', hopOk,
+          function () { go('HALFOP ' + ch + ' ' + nick); },
+          function () { go('DEHALFOP ' + ch + ' ' + nick); },
+          'hop', 'nohop', pick('Ajouter +h', 'Add +h'), pick('Retirer +h', 'Remove +h'));
+        roleBtn('@', 'o', aop,
+          function () { go('OP ' + ch + ' ' + nick); },
+          function () { go('DEOP ' + ch + ' ' + nick); },
+          'op', 'noop', pick('Ajouter +o', 'Add +o'), pick('Retirer +o', 'Remove +o'));
+        roleBtn('&', 'a', sop && hasPrefixLetter('a'),
+          function () { go('PROTECT ' + ch + ' ' + nick); },
+          function () { go('DEPROTECT ' + ch + ' ' + nick); },
+          'admin', 'noadmin', pick('Ajouter +a', 'Add +a'), pick('Retirer +a', 'Remove +a'));
+        roleBtn('~', 'q', founder && hasPrefixLetter('q'),
+          function () { go('OWNER ' + ch + ' ' + nick); },
+          function () { go('DEOWNER ' + ch + ' ' + nick); },
+          'founder', 'nofounder', pick('Ajouter +q', 'Add +q'), pick('Retirer +q', 'Remove +q'));
+      }
       return h('div', {
         className: 'ocs-mm' + (open ? ' is-open' : ''),
         onMouseEnter: keepOpen,
@@ -2426,12 +2430,13 @@
         }
 
         if (tab === 'topic' && showTopic) {
+          body.push(h('p', { className: 'ocs-h' }, pick('Modifier le topic', 'Edit topic')));
           body.push(h('div', { className: 'ocs-acc' },
             h('div', { className: 'ocs-acc__g' },
-              h('div', { className: 'ocs-acc__h' }, pick('Modifier le topic', 'Edit topic')),
-              h('div', { className: 'ocs-acc__pad' },
+              h('div', { className: 'ocs-acc__h' }, pick('Topic actuel', 'Current topic')),
+              h('div', { className: 'ocs-th__row' },
                 h('textarea', {
-                  className: 'ocs-input ocs-textarea',
+                  className: 'ocs-th__edit',
                   rows: 4,
                   value: topic,
                   onChange: function (e) { setTopic(e.target.value); },
@@ -2589,9 +2594,8 @@
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { csMode('CLEAR', ''); } },
               labeled('cog', pick('Vider les modes', 'Clear modes')))
           ));
-          body.push(h(Field, { caps: true, label: pick('Modification manuelle', 'Manual edit') },
-            h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt-k', onChange: function (e) { setModeLine(e.target.value); } })
-          ));
+          body.push(h('p', { className: 'ocs-h' }, pick('Modification manuelle des modes', 'Manual mode edit')));
+          body.push(h('input', { className: 'ocs-input', value: modeLine, placeholder: '+nt-k', onChange: function (e) { setModeLine(e.target.value); } }));
           pushBtn(body, 'primary', function () {
             if (modeLine.trim()) csMode('SET', modeLine.trim());
           }, 'cog', pick('Appliquer', 'Apply'));

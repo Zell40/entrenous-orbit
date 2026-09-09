@@ -8,6 +8,10 @@ Le panneau du haut : **Info**, **Topic**, **Modes**, **Bans**, **Accès**, **SET
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 **Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
 
+- **Modes du salon** (`+v` / `+h` / `+o`…) : menu natif, sans créer d’accès Anope.
+- **Accès Anope** (VOP / HOP / AOP / SOP / QOP) : sous-menu *Accès Anope* — liste permanente.
+- ChanServ `VOICE` / `OP` n’apparaît que si tu as un accès services sans être oppé sur le salon.
+
 **Lectures** (INFO / STATUS / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
 **Actions** (SET, TOPIC, MODE, KICK, …) : IRC `PRIVMSG` vers ChanServ / BotServ. Syntaxe Anope 2 : `SET option canal paramètres`.
 Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panneau (pas dans Status).
@@ -17,11 +21,11 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | Accès | Où | Actions |
 | --- | --- | --- |
 | Identifié, salon libre | Panneau | Enregistrer le salon |
-| VOP+ | Liste (Commandes bot) | Voice / Devoice |
-| HOP+ | Liste (Commandes bot) | Halfop / Dehalfop (si le réseau a `%`) |
-| AOP+ | Liste (Commandes bot) | Op / Deop, Kick, Ban, accès VOP/HOP |
-| SOP+ | Liste (Commandes bot) | Admin (`&`), accès AOP/SOP |
-| Fondateur | Liste (Commandes bot) | Fondateur (`~`), accès QOP (propriétaire) |
+| VOP+ | Liste (Accès Anope) | Accès Voice (VOP) |
+| HOP+ | Liste (Accès Anope) | Accès HalfOp (HOP), si le réseau a `%` |
+| AOP+ | Liste (Accès Anope / Modération) | Accès VOP/HOP, Kick, Ban, AKICK |
+| SOP+ | Liste (Accès Anope) | Accès AOP/SOP, Admin (SOP) |
+| Fondateur | Liste (Accès Anope) | Accès QOP (propriétaire) |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
 | AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, MODE CLEAR, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
 | HOP+ | Panneau → Bans | UNBAN |
@@ -41,7 +45,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=66"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=68"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

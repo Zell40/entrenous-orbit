@@ -43,7 +43,7 @@ Plugin vidéo/audio pour Orbit — tag `+entrenous.fr/conference`.
     "joinButtonText": "Rejoindre"
   },
   "plugins": [
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=18"
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=19"
   ]
 }
 ```

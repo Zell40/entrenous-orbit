@@ -157,16 +157,12 @@ if ($EXTJWT_SECRET === 'CHANGE_ME_EXTJWT_SECRET'
   echo json_encode(['error' => 'server_not_configured']);
   exit;
 }
-if ($INVITE_SHARED_SECRET === 'CHANGE_ME_INVITE_SHARED_SECRET' || $INVITE_SHARED_SECRET === '') {
-  http_response_code(500);
-  echo json_encode(['error' => 'invite_secret_not_configured']);
-  exit;
-}
 
 $jwtAudience = $JWT_AUDIENCE !== '' ? $JWT_AUDIENCE : $JITSI_APP_ID;
 $startCmodes = is_array($START_CMODES) ? $START_CMODES : ['q', 'a', 'o'];
 $inviteTtl = max(300, (int)$INVITE_TTL);
 $maxRedeems = max(1, (int)$INVITE_MAX_REDEEMS);
+$inviteSecretConfigured = !($INVITE_SHARED_SECRET === 'CHANGE_ME_INVITE_SHARED_SECRET' || $INVITE_SHARED_SECRET === '');
 
 $raw = file_get_contents('php://input');
 $req = json_decode((string)$raw, true);
@@ -195,7 +191,12 @@ function require_extjwt_auth(string $secret): array {
   return $claims;
 }
 
-function require_invite_secret(string $expected): void {
+function require_invite_secret(string $expected, bool $configured): void {
+  if (!$configured) {
+    http_response_code(500);
+    echo json_encode(['error' => 'invite_secret_not_configured']);
+    exit;
+  }
   $got = trim((string)($_SERVER['HTTP_X_VISIO_INVITE_SECRET'] ?? ''));
   if ($got === '' || !hash_equals($expected, $got)) {
     http_response_code(401);
@@ -300,7 +301,7 @@ if ($action === 'create' || $action === 'add') {
 }
 
 if ($action === 'mine' || $action === 'redeem') {
-  require_invite_secret($INVITE_SHARED_SECRET);
+  require_invite_secret($INVITE_SHARED_SECRET, $inviteSecretConfigured);
   $account = trim((string)($req['account'] ?? ''));
   if ($account === '' || strlen($account) > 64) {
     http_response_code(400);

@@ -521,6 +521,7 @@
       });
     }).catch(function (err) {
       try {
+        console.warn('[orbit-conference] publishSecureInvites failed', err);
         orbit.notify('Visio', orbit.i18n.pick({
           fr: 'Invitations profil non publiées (' + (err && err.message ? err.message : 'erreur') + ').',
           en: 'Profile invites not published (' + (err && err.message ? err.message : 'error') + ').',
