@@ -486,39 +486,68 @@
     return accounts;
   }
 
+  /** Refresh WHOX so member.account is filled before collecting invites. */
+  function refreshBufferAccounts(orbit, buffer) {
+    return new Promise(function (resolve) {
+      try {
+        if (isChannelName(buffer) && orbit.irc && orbit.irc.send) {
+          // Same WHOX token as Orbit core (152) so 354 updates the member list.
+          orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+        }
+      } catch (e) { /* ignore */ }
+      setTimeout(resolve, 700);
+    });
+  }
+
   /** Register account-bound invites for non-Orbit clients (secure mode). */
   function publishSecureInvites(orbit, buffer, room, extraAccounts) {
     var cfg = confCfg(orbit);
     if (!cfg.secure || !cfg.inviteEndpoint) return Promise.resolve(null);
-    var accounts = collectBufferAccounts(orbit, buffer);
-    if (Array.isArray(extraAccounts)) {
-      extraAccounts.forEach(function (a) {
-        a = String(a || '').trim();
-        if (a && accounts.indexOf(a) === -1) accounts.push(a);
-      });
-    }
     var proofTarget = isChannelName(buffer) ? buffer : '*';
-    return requestExtJwt(orbit, proofTarget).then(function (proof) {
-      return fetch(cfg.inviteEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + proof,
-        },
-        body: JSON.stringify({
-          action: 'create',
-          room: room,
-          channel: isChannelName(buffer) ? buffer : '',
-          accounts: accounts,
-        }),
-      }).then(function (res) {
-        if (!res.ok) {
-          return res.json().catch(function () { return {}; }).then(function (data) {
-            throw new Error((data && data.error) || ('http_' + res.status));
-          });
-        }
-        return res.json();
+    return refreshBufferAccounts(orbit, buffer).then(function () {
+      var accounts = collectBufferAccounts(orbit, buffer);
+      if (Array.isArray(extraAccounts)) {
+        extraAccounts.forEach(function (a) {
+          a = String(a || '').trim();
+          if (a && accounts.indexOf(a) === -1) accounts.push(a);
+        });
+      }
+      return requestExtJwt(orbit, proofTarget).then(function (proof) {
+        return fetch(cfg.inviteEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + proof,
+          },
+          body: JSON.stringify({
+            action: 'create',
+            room: room,
+            channel: isChannelName(buffer) ? buffer : '',
+            accounts: accounts,
+          }),
+        }).then(function (res) {
+          if (!res.ok) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              throw new Error((data && data.error) || ('http_' + res.status));
+            });
+          }
+          return res.json();
+        });
       });
+    }).then(function (data) {
+      if (!data || !data.ok) return data;
+      try {
+        var n = Array.isArray(data.accounts) ? data.accounts.length : 0;
+        orbit.notify('Visio', orbit.i18n.pick({
+          fr: n
+            ? ('Invitations profil publiées pour ' + n + ' compte' + (n > 1 ? 's' : '') + ' NickServ.')
+            : 'Invitation publiée (aucun autre compte NickServ détecté dans le salon).',
+          en: n
+            ? ('Profile invites published for ' + n + ' NickServ account' + (n > 1 ? 's' : '') + '.')
+            : 'Invite published (no other NickServ accounts detected in the channel).',
+        }));
+      } catch (e) { /* ignore */ }
+      return data;
     }).catch(function (err) {
       try {
         console.warn('[orbit-conference] publishSecureInvites failed', err);
