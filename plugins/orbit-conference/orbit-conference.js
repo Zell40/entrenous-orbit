@@ -267,7 +267,7 @@
       inviteText: c.inviteText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       joinText: c.joinText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       secureInviteText: c.secureInviteText
-        || '-{{ nick }}- a lancé une visio. Rejoignez-la depuis votre profil EntreNous (Mon identité) — aucun lien public.',
+        || '-{{ nick }}- a lancé une visio [room:{{ room }}]. Rejoignez-la via le bandeau Orbit ou votre profil EntreNous.',
       secureQueryInviteText: c.secureQueryInviteText
         || '-{{ nick }}- vous invite en visio. Acceptez ou refusez depuis le bandeau.',
       joinButtonText: c.joinButtonText || 'Rejoindre',
@@ -576,13 +576,19 @@
     var linkRe = host
       ? new RegExp('https?:\\/\\/' + host.replace(/\./g, '\\.') + '\\/[^\\s]+', 'i')
       : /https?:\/\/[^\s]+/i;
-    var linkMatch = String(text || '').match(linkRe);
+    var txt = String(text || '');
+    var linkMatch = txt.match(linkRe);
     var hasTag = !!(tags && Object.prototype.hasOwnProperty.call(tags, TAG));
-    if (!hasTag) {
-      if (!linkMatch) return null;
-      if (!/invite à rejoindre la conférence|rejoindre la conférence|visio/i.test(String(text || ''))) return null;
-    }
-    return { linkMatch: linkMatch, hasTag: hasTag };
+    var roomMark = txt.match(/\[room:([A-Za-z0-9._-]{1,90})\]/i);
+    // Secure invites have no public URL — match by tag, [room:…], or known invite phrasing.
+    var looksInvite = /a lanc[eé] une visio|invite en visio|invite à rejoindre la conférence|rejoindre la conférence/i.test(txt);
+    if (!hasTag && !linkMatch && !roomMark && !looksInvite) return null;
+    if (linkMatch && !hasTag && !roomMark && !/visio|conf[eé]rence|conference/i.test(txt)) return null;
+    return {
+      linkMatch: linkMatch,
+      hasTag: hasTag,
+      roomFromText: roomMark ? roomMark[1] : '',
+    };
   }
 
   function conferenceStopMatch(text) {
@@ -1010,8 +1016,14 @@
       var secureTpl = isQuery
         ? (cfg.secureQueryInviteText || cfg.secureInviteText || '')
         : (cfg.secureInviteText || '');
-      var secureText = '* ' + secureTpl.replace(/\{\{\s*nick\s*\}\}/g, nick);
+      var secureText = '* ' + secureTpl
+        .replace(/\{\{\s*nick\s*\}\}/g, nick)
+        .replace(/\{\{\s*room\s*\}\}/g, room);
       secureText = secureText.replace(/\s+/g, ' ').trim();
+      // Always include [room:…] so peers can join even if client-tags are stripped.
+      if (room && !/\[room:[A-Za-z0-9._-]+\]/i.test(secureText)) {
+        secureText = secureText.replace(/\.\s*$/, '') + ' [room:' + room + '].';
+      }
       if (secureText && secureText !== '*') {
         var tagsS = {};
         tagsS[TAG] = cfg.tagID || '1';
@@ -1169,9 +1181,9 @@
     var key = inviteKey(buffer);
     var live = liveVisio[key];
     var hasLive = !!(live && live.room) || !!getInviteFor(buffer);
-    // MP (and any live invite): never fork a second room — always join the live one.
-    // Both peers can "start"; without this, each click spawned a different Meet room.
-    if (!opts.joinOnly && hasLive && !opts.forceNew) {
+    // MP only: never fork a second room when a live invite exists.
+    // Channels must still (re)announce so other Orbit clients get the blue banner.
+    if (!opts.joinOnly && hasLive && !opts.forceNew && !isChannelName(buffer)) {
       opts = Object.assign({}, opts, { joinOnly: true });
     }
     var gate = opts.joinOnly ? canJoin(orbit, buffer) : canStart(orbit, buffer);
@@ -1185,7 +1197,7 @@
       leaveConference(orbit, conf.buffer);
     }
 
-    function go(room, sid, asStarter) {
+    function go(room, sid, asStarter, announceForce) {
       room = String(room || '').replace(/[^A-Za-z0-9._-]/g, '');
       if (!room) {
         orbit.notify('Visio', 'Impossible de déterminer la salle visio.');
@@ -1194,7 +1206,7 @@
       var useSid = sid || (live && live.sid) || (asStarter ? newSessionId() : '');
       bindQueryRoom(buffer, room, useSid, asStarter ? (orbit.state.nick() || '') : ((live && live.nick) || ''));
       setConf(buffer, room, { startedByMe: !!asStarter });
-      if (asStarter) announceConference(orbit, buffer);
+      if (asStarter) announceConference(orbit, buffer, announceForce ? { force: true } : {});
       else markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || (live && live.nick) || '', room, useSid);
       startIdleWatch(orbit);
       syncAwayClass(orbit);
@@ -1206,7 +1218,7 @@
       var joinRoom = (live && live.room) || (channelRooms[key] && channelRooms[key].name) || '';
       if (!joinRoom && !isChannelName(buffer)) joinRoom = queryMeetRoomId(orbit, buffer);
       if (!joinRoom) joinRoom = meetRoomFor(orbit, buffer);
-      go(joinRoom, (live && live.sid) || (getInviteFor(buffer) && getInviteFor(buffer).sid) || '', false);
+      go(joinRoom, (live && live.sid) || (getInviteFor(buffer) && getInviteFor(buffer).sid) || '', false, false);
       return;
     }
 
@@ -1224,13 +1236,18 @@
           || (channelRooms[key] && channelRooms[key].name)
           || (!isChannelName(buffer) ? queryMeetRoomId(orbit, buffer) : '')
           || meetRoomFor(orbit, buffer);
-        go(joinR, (live2 && live2.sid) || (inv2 && inv2.sid) || '', false);
+        if (!isChannelName(buffer)) {
+          go(joinR, (live2 && live2.sid) || (inv2 && inv2.sid) || '', false, false);
+          return;
+        }
+        // Channel: reopen the same room and re-broadcast the invite banner.
+        go(joinR, (live2 && live2.sid) || (inv2 && inv2.sid) || newSessionId(), true, true);
         return;
       }
       var room = isChannelName(buffer)
         ? allocateMeetRoom(orbit, buffer, !!opts.newRoom)
         : queryMeetRoomId(orbit, buffer);
-      go(room, newSessionId(), true);
+      go(room, newSessionId(), true, false);
     });
   }
 
@@ -2073,14 +2090,19 @@
       var target = (msg.params && msg.params[0]) || '';
       var buf = isChannelName(target) ? target : (msg.nick || target);
       if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
-      // Remember Meet room from the public link so joiners open the same room id.
+      // Remember Meet room from the public link / [room:…] so joiners open the same room id.
       if (linkMatch) {
         try {
           var path = (linkMatch[0].split('/').filter(Boolean).pop() || '').split('?')[0];
           if (path) channelRooms[inviteKey(buf)] = { name: decodeURIComponent(path), serial: 1 };
         } catch (e) { /* ignore */ }
       }
-      var privRoom = String((tags && tags[ROOM_TAG]) || (channelRooms[inviteKey(buf)] && channelRooms[inviteKey(buf)].name) || '').replace(/[^A-Za-z0-9._-]/g, '');
+      var privRoom = String(
+        (tags && tags[ROOM_TAG])
+        || inviteMatch.roomFromText
+        || (channelRooms[inviteKey(buf)] && channelRooms[inviteKey(buf)].name)
+        || ''
+      ).replace(/[^A-Za-z0-9._-]/g, '');
       var privSid = String((tags && tags[SESSION_TAG]) || '').replace(/[^A-Za-z0-9._-]/g, '');
       if (!privRoom && !isChannelName(buf)) privRoom = queryMeetRoomId(orbit, buf);
       bindQueryRoom(buf, privRoom, privSid, msg.nick || '');
@@ -2108,7 +2130,8 @@
       var last = announced[key + ':join'] || 0;
       if (now - last < 15000) return;
       announced[key + ':join'] = now;
-      // Secure mode: only refresh profile invites for the newcomer (no IRC spam).
+      // Secure mode: refresh profile invites AND re-send Orbit banner (TAGMSG/PRIVMSG)
+      // so late joiners see the blue bar — previously only Mon identité was updated.
       if (cfgJ.secure) {
         var room = meetRoomFor(orbit, joinedBuf);
         var joinerAcct = null;
@@ -2121,12 +2144,12 @@
         publishSecureInvites(orbit, joinedBuf, room, joinerAcct ? [joinerAcct] : null, {
           action: 'add',
           silent: true,
-        }).then(function () {
-          orbit.notify('Visio', (msg.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({
-            fr: 'a rejoint le salon : invitation profil mise à jour.',
-            en: 'joined the room: profile invite updated.',
-          }));
         });
+        announceConference(orbit, joinedBuf, { force: true });
+        orbit.notify('Visio', (msg.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({
+          fr: 'a rejoint le salon : invitation visio renvoyée.',
+          en: 'joined the room: conference invite sent again.',
+        }));
         return;
       }
       announceConference(orbit, joinedBuf, { force: true });
