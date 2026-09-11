@@ -79,6 +79,7 @@
 
   function setConf(buffer, room, meta) {
     meta = meta || {};
+    var prevBuf = conf.buffer;
     conf.active = !!buffer;
     conf.buffer = buffer || '';
     conf.room = buffer ? (room || conf.room || '') : '';
@@ -92,6 +93,10 @@
       announced = Object.create(null);
       dismissed = Object.create(null);
       conf.startedByMe = false;
+      // Closing the panel: next open must not reuse a near-expiry EXTJWT.
+      if (prevBuf) {
+        try { invalidateExtJwt(isChannelName(prevBuf) ? prevBuf : '*'); } catch (eInv) { /* ignore */ }
+      }
     }
     conf.listeners.forEach(function (l) { l(); });
   }
@@ -367,6 +372,38 @@
     return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
   }
 
+  /** Read EXTJWT payload.exp (ms). Returns 0 if unknown. */
+  function extJwtExpiryMs(proof) {
+    try {
+      var parts = String(proof || '').split('.');
+      if (parts.length < 2) return 0;
+      var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      var pad = b64.length % 4;
+      if (pad) b64 += '===='.slice(0, 4 - pad);
+      var payload = JSON.parse(atob(b64));
+      var exp = payload && payload.exp ? Number(payload.exp) : 0;
+      return exp > 0 ? exp * 1000 : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function rememberExtJwt(key, proof) {
+    var expMs = extJwtExpiryMs(proof);
+    // Never keep a proof more than ~20s locally: ircd EXTJWT TTLs are short,
+    // and reopening a visio must not reuse an already-expired token.
+    var cap = Date.now() + 20000;
+    var until = expMs ? Math.min(expMs - 5000, cap) : cap;
+    if (until <= Date.now() + 1000) return;
+    jwtCache[key] = { proof: proof, exp: until };
+  }
+
+  function invalidateExtJwt(target) {
+    var key = String(target || '*').toLowerCase();
+    delete jwtCache[key];
+    delete jwtInflight[key];
+  }
+
   function requestExtJwtOnce(orbit, target, waitMs) {
     target = String(target || '*');
     return new Promise(function (resolve, reject) {
@@ -406,21 +443,36 @@
     });
   }
 
-  /** One in-flight EXTJWT per target (visio JWT + invites used to race). Retry once: the first
-   *  request after attach is often swallowed while ZNC is still playing back. */
-  function requestExtJwt(orbit, target) {
+  /** One in-flight EXTJWT per target (visio JWT + invites used to race).
+   *  Several retries: right after connect / JOIN, ZNC playback or slow ircd often
+   *  swallows or delays the first EXTJWT (quick-click visio → jwt_timeout).
+   *  opts.force = bypass cache (after invalid/expired proof). */
+  function requestExtJwt(orbit, target, opts) {
+    opts = opts || {};
     target = String(target || '*');
     var key = target.toLowerCase();
-    var hit = jwtCache[key];
-    if (hit && hit.exp > Date.now() && hit.proof) return Promise.resolve(hit.proof);
+    if (opts.force) {
+      delete jwtCache[key];
+    } else {
+      var hit = jwtCache[key];
+      if (hit && hit.exp > Date.now() && hit.proof) return Promise.resolve(hit.proof);
+    }
     if (jwtInflight[key]) return jwtInflight[key];
-    jwtInflight[key] = requestExtJwtOnce(orbit, target, 3000)
-      .catch(function (err) {
-        if (String(err && err.message) !== 'jwt_timeout') throw err;
-        return delayMs(400).then(function () { return requestExtJwtOnce(orbit, target, 8000); });
-      })
+
+    function attempt(n) {
+      // 1st: 6s, 2nd: 10s, 3rd: 14s — quick launches after attach need headroom.
+      var waitMs = n === 1 ? 6000 : (n === 2 ? 10000 : 14000);
+      return requestExtJwtOnce(orbit, target, waitMs).catch(function (err) {
+        var code = String((err && err.message) || '');
+        var retryable = code === 'jwt_timeout' || code === 'no_such_target';
+        if (!retryable || n >= 3) throw err;
+        return delayMs(350 * n).then(function () { return attempt(n + 1); });
+      });
+    }
+
+    jwtInflight[key] = attempt(1)
       .then(function (proof) {
-        jwtCache[key] = { proof: proof, exp: Date.now() + 50000 };
+        rememberExtJwt(key, proof);
         return proof;
       })
       .finally(function () { delete jwtInflight[key]; });
@@ -436,17 +488,29 @@
       n += 1;
       var buf = orbit.state.active();
       if (!buf || !isChannelName(buf)) {
-        if (n < 20) window.setTimeout(tick, 250);
+        if (n < 40) window.setTimeout(tick, 250);
+        else extJwtWarming = false;
         return;
       }
-      requestExtJwt(orbit, buf).catch(function (err) {
+      requestExtJwt(orbit, buf).then(function () {
+        extJwtWarming = false;
+      }).catch(function (err) {
         var code = String((err && err.message) || '');
-        if ((code === 'no_such_target' || code === 'jwt_timeout') && n < 8) {
-          window.setTimeout(tick, 500);
+        if ((code === 'no_such_target' || code === 'jwt_timeout') && n < 12) {
+          window.setTimeout(tick, 600);
+          return;
         }
+        extJwtWarming = false;
       });
     }
-    window.setTimeout(tick, 200);
+    // Wait a bit so JOIN / account settle before the first EXTJWT.
+    window.setTimeout(tick, 600);
+  }
+
+  function clearExtJwtState() {
+    jwtCache = Object.create(null);
+    jwtInflight = Object.create(null);
+    extJwtWarming = false;
   }
 
   function loadJitsiApi(domain) {
@@ -476,7 +540,7 @@
   function requestConferenceJwt(orbit, buffer, room) {
     var cfg = confCfg(orbit);
     var proofTarget = isChannelName(buffer) ? buffer : '*';
-    return requestExtJwt(orbit, proofTarget).then(function (proof) {
+    function exchange(proof) {
       return fetch(cfg.tokenEndpoint, {
         method: 'POST',
         headers: {
@@ -497,6 +561,15 @@
       }).then(function (data) {
         if (!data || !data.token) throw new Error('missing_jitsi_token');
         return String(data.token);
+      });
+    }
+    return requestExtJwt(orbit, proofTarget).then(function (proof) {
+      return exchange(proof).catch(function (err) {
+        var code = String((err && err.message) || '');
+        // Stale cached EXTJWT after closing/reopening a visio quickly.
+        if (code !== 'invalid_extjwt' && code !== 'extjwt_expired') throw err;
+        invalidateExtJwt(proofTarget);
+        return requestExtJwt(orbit, proofTarget, { force: true }).then(exchange);
       });
     });
   }
@@ -726,6 +799,10 @@
         : meetRoomFor(orbit, buffer);
       revokeSecureInvites(orbit, buffer, room);
     } catch (e3) { /* ignore */ }
+    // Force a fresh EXTJWT on the next open (ircd proofs expire quickly).
+    try {
+      invalidateExtJwt(isChannelName(buffer) ? buffer : '*');
+    } catch (e4) { /* ignore */ }
   }
 
   function openConference(orbit, buffer, opts) {
@@ -1059,8 +1136,35 @@
       var tokenReady = live.secure
         ? requestConferenceJwt(orbit, buffer, room)
         : Promise.resolve('');
-      Promise.all([tokenReady, loadJitsiApi(domain)]).then(function (pair) {
-        if (!cancelled) mountApi(live.secure ? pair[0] : undefined);
+      function withJwtRetry(p) {
+        return p.catch(function (e) {
+          var code = String((e && e.message) || e || '');
+          if (code !== 'jwt_timeout' && code !== 'no_such_target') throw e;
+          if (cancelled) throw e;
+          setErr(orbit.i18n.pick({
+            fr: 'Connexion sécurisée en cours (nouvelle tentative)…',
+            en: 'Secure connect in progress (retrying)…',
+          }));
+          // Drop stale cache / inflight so the retry issues a fresh EXTJWT.
+          try {
+            var tk = (isChannelName(buffer) ? buffer : '*').toLowerCase();
+            delete jwtCache[tk];
+            delete jwtInflight[tk];
+          } catch (e2) { /* ignore */ }
+          return delayMs(700).then(function () {
+            if (cancelled) return Promise.reject(e);
+            return requestConferenceJwt(orbit, buffer, room);
+          });
+        });
+      }
+      Promise.all([
+        live.secure ? withJwtRetry(tokenReady) : tokenReady,
+        loadJitsiApi(domain),
+      ]).then(function (pair) {
+        if (!cancelled) {
+          setErr('');
+          mountApi(live.secure ? pair[0] : undefined);
+        }
       }).catch(function (e) {
         if (cancelled) return;
         var code = String((e && e.message) || e || '');
@@ -1070,12 +1174,20 @@
             en: 'Your IRC server does not support EXTJWT identity proof.',
           }),
           jwt_timeout: orbit.i18n.pick({
-            fr: 'Le serveur IRC n’a pas répondu à temps à la demande EXTJWT.',
-            en: 'The IRC server did not answer the EXTJWT request in time.',
+            fr: 'Le serveur IRC n’a pas répondu à temps à la demande EXTJWT. Réessaie dans une seconde.',
+            en: 'The IRC server did not answer the EXTJWT request in time. Try again in a moment.',
+          }),
+          no_such_target: orbit.i18n.pick({
+            fr: 'Pas encore bien présent dans le salon — réessaie la visio dans une seconde.',
+            en: 'Not fully joined yet — try the video call again in a moment.',
           }),
           invalid_extjwt: orbit.i18n.pick({
             fr: 'La preuve EXTJWT a été refusée par le service visio.',
             en: 'The EXTJWT proof was rejected by the conference service.',
+          }),
+          extjwt_expired: orbit.i18n.pick({
+            fr: 'La preuve IRC a expiré — ferme et rouvre la visio.',
+            en: 'The IRC proof expired — close and reopen the video call.',
           }),
           account_required: orbit.i18n.pick({
             fr: 'Un compte IRC enregistré est requis pour la visio sécurisée.',
@@ -1286,8 +1398,15 @@
       if (me) orbit.irc.send('WHOIS ' + me);
     } catch (e) { /* ignore */ }
     // Prefetch EXTJWT during splash so the first visio click is not the first ircd round-trip.
-    orbit.on('connected', function () { scheduleExtJwtWarm(orbit); });
+    orbit.on('connected', function () {
+      clearExtJwtState();
+      scheduleExtJwtWarm(orbit);
+    });
     orbit.on('boot:ready', function () { scheduleExtJwtWarm(orbit); });
+    orbit.on('status', function (st) {
+      var s = String(st || '');
+      if (s === 'closed' || s === 'error' || s === 'connecting') clearExtJwtState();
+    });
     scheduleExtJwtWarm(orbit);
 
     orbit.on('raw', function (msg) {

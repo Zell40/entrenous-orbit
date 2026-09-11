@@ -70,7 +70,13 @@ function verify_extjwt(string $token, string $secret): ?array {
   if (!hash_equals($calc, $sig)) return null;
   $payload = json_decode((string)base64url_decode($p64), true);
   if (!is_array($payload)) return null;
-  if (isset($payload['exp']) && time() > (int)$payload['exp']) return null;
+  $now = time();
+  $skew = 30;
+  if (isset($payload['nbf']) && $now + $skew < (int)$payload['nbf']) return null;
+  if (isset($payload['exp']) && $now > (int)$payload['exp']) {
+    // Distinct code so Orbit can drop its cache and request a fresh EXTJWT.
+    return ['_expired' => true];
+  }
   return $payload;
 }
 function sign_jitsi_jwt(array $claims, string $secret): string {
@@ -130,6 +136,11 @@ $claims = verify_extjwt($proof, $EXTJWT_SECRET);
 if (!$claims) {
   http_response_code(401);
   echo json_encode(['error' => 'invalid_extjwt']);
+  exit;
+}
+if (!empty($claims['_expired'])) {
+  http_response_code(401);
+  echo json_encode(['error' => 'extjwt_expired']);
   exit;
 }
 
