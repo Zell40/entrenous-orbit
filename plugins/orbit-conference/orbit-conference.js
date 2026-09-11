@@ -500,9 +500,11 @@
   }
 
   /** Register account-bound invites for non-Orbit clients (secure mode). */
-  function publishSecureInvites(orbit, buffer, room, extraAccounts) {
+  function publishSecureInvites(orbit, buffer, room, extraAccounts, opts) {
     var cfg = confCfg(orbit);
     if (!cfg.secure || !cfg.inviteEndpoint) return Promise.resolve(null);
+    opts = opts || {};
+    var action = opts.action === 'add' ? 'add' : 'create';
     var proofTarget = isChannelName(buffer) ? buffer : '*';
     return refreshBufferAccounts(orbit, buffer).then(function () {
       var accounts = collectBufferAccounts(orbit, buffer);
@@ -520,7 +522,7 @@
             Authorization: 'Bearer ' + proof,
           },
           body: JSON.stringify({
-            action: 'create',
+            action: action,
             room: room,
             channel: isChannelName(buffer) ? buffer : '',
             accounts: accounts,
@@ -536,6 +538,7 @@
       });
     }).then(function (data) {
       if (!data || !data.ok) return data;
+      if (opts.silent) return data;
       try {
         var n = Array.isArray(data.accounts) ? data.accounts.length : 0;
         orbit.notify('Visio', orbit.i18n.pick({
@@ -1246,6 +1249,7 @@
     orbit.on('raw', function (msg) {
       if (String(msg.command || '').toUpperCase() !== 'JOIN') return;
       if (!conf.active || !conf.startedByMe || !isChannelName(conf.buffer)) return;
+      var cfgJ = confCfg(orbit);
       var joinedBuf = (msg.params && msg.params[0]) || msg.target || '';
       if (!joinedBuf || inviteKey(joinedBuf) !== inviteKey(conf.buffer)) return;
       if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
@@ -1254,6 +1258,27 @@
       var last = announced[key + ':join'] || 0;
       if (now - last < 15000) return;
       announced[key + ':join'] = now;
+      // Secure mode: only refresh profile invites for the newcomer (no IRC spam).
+      if (cfgJ.secure) {
+        var room = meetRoomFor(orbit, joinedBuf);
+        var joinerAcct = null;
+        try {
+          var stJ = orbit.state.get && orbit.state.get();
+          var bufJ = stJ && stJ.buffers && stJ.buffers[joinedBuf];
+          var mem = bufJ && bufJ.members && bufJ.members[msg.nick];
+          if (mem && mem.account) joinerAcct = mem.account;
+        } catch (eJ) { /* ignore */ }
+        publishSecureInvites(orbit, joinedBuf, room, joinerAcct ? [joinerAcct] : null, {
+          action: 'add',
+          silent: true,
+        }).then(function () {
+          orbit.notify('Visio', (msg.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({
+            fr: 'a rejoint le salon : invitation profil mise à jour.',
+            en: 'joined the room: profile invite updated.',
+          }));
+        });
+        return;
+      }
       announceConference(orbit, joinedBuf, { force: true });
       orbit.notify('Visio', (msg.nick || 'Quelqu’un') + ' ' + orbit.i18n.pick({
         fr: 'a rejoint le salon : invitation visio renvoyée.',
