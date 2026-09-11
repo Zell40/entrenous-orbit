@@ -28,6 +28,10 @@
   var lastViewHeight = '46%';
   /** Buffers already announced on IRC for the current conference session. */
   var announced = Object.create(null);
+  /** Short-lived EXTJWT proofs (ircd tokens expire; 50s is well under typical TTL). */
+  var jwtCache = Object.create(null);
+  var jwtInflight = Object.create(null);
+  var extJwtWarming = false;
   /** Buffers where the user dismissed the invite banner (won't re-show until a new invite). */
   var dismissed = Object.create(null);
   /** Buffers where the conference was stopped — show a "visio ended" notice. */
@@ -359,7 +363,11 @@
     return /-[^-]+-\s+a arrêté la conférence\./i.test(String(text || ''));
   }
 
-  function requestExtJwt(orbit, target) {
+  function delayMs(ms) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
+  }
+
+  function requestExtJwtOnce(orbit, target, waitMs) {
     target = String(target || '*');
     return new Promise(function (resolve, reject) {
       var off;
@@ -367,12 +375,17 @@
       var timer = window.setTimeout(function () {
         if (off) off();
         reject(new Error('jwt_timeout'));
-      }, 10000);
+      }, waitMs || 3000);
       off = orbit.on('raw', function (msg) {
         var cmd = String(msg.command || '').toUpperCase();
         var params = msg.params || [];
         var p0 = params[0] || '';
         var p1 = params[1] || '';
+        if (cmd === 'FAIL' && String(p0).toUpperCase() === 'EXTJWT') {
+          window.clearTimeout(timer); off();
+          reject(new Error(String(p1).toUpperCase() === 'NOT_ON_CHANNEL' ? 'no_such_target' : 'extjwt_unsupported'));
+          return;
+        }
         if (cmd === '421' && String(p1).toUpperCase() === 'EXTJWT') {
           window.clearTimeout(timer); off(); reject(new Error('extjwt_unsupported')); return;
         }
@@ -386,10 +399,54 @@
         if (moreComing) return;
         window.clearTimeout(timer);
         off();
+        if (!acc) { reject(new Error('jwt_timeout')); return; }
         resolve(acc);
       });
       orbit.irc.send('EXTJWT ' + target);
     });
+  }
+
+  /** One in-flight EXTJWT per target (visio JWT + invites used to race). Retry once: the first
+   *  request after attach is often swallowed while ZNC is still playing back. */
+  function requestExtJwt(orbit, target) {
+    target = String(target || '*');
+    var key = target.toLowerCase();
+    var hit = jwtCache[key];
+    if (hit && hit.exp > Date.now() && hit.proof) return Promise.resolve(hit.proof);
+    if (jwtInflight[key]) return jwtInflight[key];
+    jwtInflight[key] = requestExtJwtOnce(orbit, target, 3000)
+      .catch(function (err) {
+        if (String(err && err.message) !== 'jwt_timeout') throw err;
+        return delayMs(400).then(function () { return requestExtJwtOnce(orbit, target, 8000); });
+      })
+      .then(function (proof) {
+        jwtCache[key] = { proof: proof, exp: Date.now() + 50000 };
+        return proof;
+      })
+      .finally(function () { delete jwtInflight[key]; });
+    return jwtInflight[key];
+  }
+
+  function scheduleExtJwtWarm(orbit) {
+    if (!confCfg(orbit).secure) return;
+    if (extJwtWarming) return;
+    extJwtWarming = true;
+    var n = 0;
+    function tick() {
+      n += 1;
+      var buf = orbit.state.active();
+      if (!buf || !isChannelName(buf)) {
+        if (n < 20) window.setTimeout(tick, 250);
+        return;
+      }
+      requestExtJwt(orbit, buf).catch(function (err) {
+        var code = String((err && err.message) || '');
+        if ((code === 'no_such_target' || code === 'jwt_timeout') && n < 8) {
+          window.setTimeout(tick, 500);
+        }
+      });
+    }
+    window.setTimeout(tick, 200);
   }
 
   function loadJitsiApi(domain) {
@@ -621,6 +678,34 @@
     }
   }
 
+  function revokeSecureInvites(orbit, buffer, room) {
+    var cfg = confCfg(orbit);
+    if (!cfg.secure || !cfg.inviteEndpoint || !room) return Promise.resolve(null);
+    var proofTarget = isChannelName(buffer) ? buffer : '*';
+    return requestExtJwt(orbit, proofTarget).then(function (proof) {
+      return fetch(cfg.inviteEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + proof,
+        },
+        body: JSON.stringify({ action: 'end', room: room }),
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            throw new Error((data && data.error) || ('http_' + res.status));
+          });
+        }
+        return res.json();
+      });
+    }).catch(function (err) {
+      try {
+        console.warn('[orbit-conference] revokeSecureInvites failed', err);
+      } catch (e) { /* ignore */ }
+      return null;
+    });
+  }
+
   function announceConferenceStopped(orbit, buffer) {
     if (!buffer) return;
     var nick = orbit.state.nick() || 'user';
@@ -634,6 +719,13 @@
     } catch (e) {
       try { orbit.irc.msg(buffer, text); } catch (e2) { /* ignore */ }
     }
+    // Drop profile invites immediately so Mon identité stops offering the room.
+    try {
+      var room = (conf.active && conf.buffer && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room)
+        ? conf.room
+        : meetRoomFor(orbit, buffer);
+      revokeSecureInvites(orbit, buffer, room);
+    } catch (e3) { /* ignore */ }
   }
 
   function openConference(orbit, buffer, opts) {
@@ -1193,6 +1285,10 @@
       var me = orbit.state.nick();
       if (me) orbit.irc.send('WHOIS ' + me);
     } catch (e) { /* ignore */ }
+    // Prefetch EXTJWT during splash so the first visio click is not the first ircd round-trip.
+    orbit.on('connected', function () { scheduleExtJwtWarm(orbit); });
+    orbit.on('boot:ready', function () { scheduleExtJwtWarm(orbit); });
+    scheduleExtJwtWarm(orbit);
 
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '');

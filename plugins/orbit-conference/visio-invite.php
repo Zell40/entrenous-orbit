@@ -8,6 +8,7 @@
  * Actions (JSON POST body "action", or ?action=):
  *   create  — Orbit starter (Bearer EXTJWT): register room + invited NickServ accounts
  *   add     — Orbit (Bearer EXTJWT): add more accounts to an existing session
+ *   end     — Orbit starter (Bearer EXTJWT): remove session when visio stops
  *   mine    — WP server-to-server (X-Visio-Invite-Secret): list open invites for an account
  *   redeem  — WP server-to-server: consume invite → short-lived Jitsi JWT
  *
@@ -428,5 +429,38 @@ if ($action === 'mine' || $action === 'redeem') {
   exit;
 }
 
+if ($action === 'end') {
+  $claims = require_extjwt_auth($EXTJWT_SECRET);
+  $room = trim((string)($req['room'] ?? ''));
+  if (!room_ok($room)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'invalid_room']);
+    exit;
+  }
+  $kept = [];
+  $removed = false;
+  foreach ($data['sessions'] as $sess) {
+    if (!is_array($sess)) continue;
+    if (strcasecmp((string)($sess['room'] ?? ''), $room) === 0) {
+      $removed = true;
+      continue;
+    }
+    $kept[] = $sess;
+  }
+  $data['sessions'] = $kept;
+  if ($removed && !invite_save($INVITE_STORE, $data)) {
+    http_response_code(500);
+    echo json_encode(['error' => 'store_failed']);
+    exit;
+  }
+  echo json_encode([
+    'ok' => true,
+    'removed' => $removed,
+    'room' => $room,
+    'by' => (string)($claims['account'] ?? ''),
+  ], JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
 http_response_code(400);
-echo json_encode(['error' => 'unknown_action', 'actions' => ['create', 'add', 'mine', 'redeem']]);
+echo json_encode(['error' => 'unknown_action', 'actions' => ['create', 'add', 'end', 'mine', 'redeem']]);
