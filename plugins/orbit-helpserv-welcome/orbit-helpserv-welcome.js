@@ -15,10 +15,12 @@
  *       { "nick": "EcoutE", "needle": "…", "lines": ["…"] }
  *     ]
  *   }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=8"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=9"]
  *
  * Closing the PV drops the buffer; the welcome is shown again on reopen.
  * Switching away without closing keeps a single welcome (no spam).
+ * If the bot already sent a real IRC message (ticket closed, response, etc.),
+ * the synthetic welcome is skipped — otherwise Orbit would confuse the user.
  *
  * Also: when a desk bot asks the user to identify (require_account), show a
  * « Se connecter » button that opens Settings → Account (same as guest login).
@@ -116,15 +118,29 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     return lines.map((l) => l.replace(/\{\{\s*nick\s*\}\}/gi, who));
   }
 
-  function bufferHasNeedle(st, key, needle) {
-    if (!needle) return false;
+  function eachDeskBuffer(st, key, fn) {
     const buffers = (st && st.buffers) || {};
     for (const k of Object.keys(buffers)) {
       if (fold(k) !== key && fold(buffers[k] && buffers[k].name) !== key) continue;
-      const msgs = (buffers[k] && buffers[k].messages) || [];
-      if (msgs.some((m) => m && typeof m.text === 'string' && m.text.includes(needle))) return true;
+      if (fn(buffers[k], k) === true) return true;
     }
     return false;
+  }
+
+  function bufferHasNeedle(st, key, needle) {
+    if (!needle) return false;
+    return eachDeskBuffer(st, key, (buf) => {
+      const msgs = (buf && buf.messages) || [];
+      return msgs.some((m) => m && typeof m.text === 'string' && m.text.includes(needle));
+    });
+  }
+
+  /** True if the PV already has real traffic (bot IRC message or user message). */
+  function bufferHasRealTraffic(st, key) {
+    return eachDeskBuffer(st, key, (buf) => {
+      const msgs = (buf && buf.messages) || [];
+      return msgs.some((m) => m && typeof m.text === 'string' && m.text.trim() !== '');
+    });
   }
 
   function resolveName(st, target, key) {
@@ -196,6 +212,12 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
           welcomed.add(key);
           return;
         }
+        // Bot (or user) already wrote in this PV — do not inject the scripted intro.
+        if (bufferHasRealTraffic(st, key) || welcomed.has(key)) {
+          welcomed.add(key);
+          log('skip welcome (existing traffic) for', key);
+          return;
+        }
         const name = resolveName(st, target, key);
         const ok = injectLines(name, desk.nick, expandLines(desk.lines, nick));
         if (ok) {
@@ -214,6 +236,18 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
     showWelcome(name);
   });
   orbit.on('helpserv:welcome', (name) => { if (name) showWelcome(name); });
+
+  // When a desk bot sends a real IRC line first (close, response, assign…),
+  // mark the PV as welcomed so buffer.active does not inject the intro after it.
+  orbit.on('message', (m) => {
+    if (!m || m.mine) return;
+    const bots = loadBots();
+    const from = fold(m.nick);
+    if (!bots.has(from)) return;
+    forgetClosedDesks();
+    welcomed.add(from);
+    pending.delete(from);
+  });
 
   function isIdentifyRequiredText(text) {
     const t = String(text || '');

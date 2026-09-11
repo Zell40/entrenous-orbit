@@ -62,7 +62,9 @@ Sans bloc `helpservWelcome`, les 3 bots par défaut (ci-dessus) s’appliquent.
 
 **Fermer le PV** (croix) puis le **rouvrir** réaffiche l’accueil. Changer d’onglet sans fermer ne le duplique pas.
 
-Après modification du `.js`, incrémenter `?v=` dans `plugins` pour forcer le cache navigateur (actuellement `?v=8`).
+Si le bot envoie d’abord un vrai message IRC (clôture de ticket, réponse, attribution…), l’accueil scripté **n’est pas** injecté — le PV s’ouvre avec uniquement le message du bot.
+
+Après modification du `.js`, incrémenter `?v=` dans `plugins` pour forcer le cache navigateur (actuellement `?v=9`).
 
 Quand HelpServ refuse un ticket faute d’identification (`require_account`), le plugin affiche un bouton **Se connecter** sous le message du bot : il ouvre Réglages → Compte (même formulaire que « J’ai déjà un compte »).
 

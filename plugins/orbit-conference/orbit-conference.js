@@ -118,6 +118,7 @@
     conf.room = buffer ? (room || conf.room || '') : '';
     conf.startedByMe = !!(buffer && meta.startedByMe);
     document.body.classList.toggle('oconf-open', !!buffer);
+    if (!buffer) document.body.classList.remove('oconf-away', 'oconf-idle-warn');
     if (buffer) {
       document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
       // Keep invite in memory so the blue rejoin banner comes back after leaving the panel.
@@ -131,6 +132,120 @@
       }
     }
     conf.listeners.forEach(function (l) { l(); });
+    if (!buffer) stopIdleWatch();
+  }
+  var idleWatch = { timer: null, last: 0, warned: false, orbit: null, moveGate: 0 };
+
+  function bumpIdleActivity() {
+    if (!conf.active) return;
+    idleWatch.last = Date.now();
+    if (idleWatch.warned) {
+      idleWatch.warned = false;
+      document.body.classList.remove('oconf-idle-warn');
+    }
+  }
+
+  function stopIdleWatch() {
+    if (idleWatch.timer) {
+      window.clearInterval(idleWatch.timer);
+      idleWatch.timer = null;
+    }
+    idleWatch.orbit = null;
+    idleWatch.warned = false;
+    document.body.classList.remove('oconf-idle-warn');
+  }
+
+  function startIdleWatch(orbit) {
+    stopIdleWatch();
+    if (!orbit || !conf.active) return;
+    var cfg = confCfg(orbit);
+    var timeoutMs = Math.max(0, Number(cfg.idleTimeoutSec) || 0) * 1000;
+    if (!timeoutMs) return;
+    var warnMs = Math.max(0, Number(cfg.idleWarnSec) || 0) * 1000;
+    idleWatch.orbit = orbit;
+    idleWatch.last = Date.now();
+    idleWatch.warned = false;
+    idleWatch.timer = window.setInterval(function () {
+      if (!conf.active || !idleWatch.orbit) {
+        stopIdleWatch();
+        return;
+      }
+      var elapsed = Date.now() - idleWatch.last;
+      if (elapsed >= timeoutMs) {
+        var o = idleWatch.orbit;
+        var buf = conf.buffer;
+        stopIdleWatch();
+        try {
+          o.notify('Visio', o.i18n.pick({
+            fr: 'Visio fermée pour inactivité (aucune réaction).',
+            en: 'Video call closed due to inactivity.',
+          }));
+        } catch (e) { /* ignore */ }
+        leaveConference(o, buf);
+        return;
+      }
+      if (!idleWatch.warned && warnMs > 0 && elapsed >= Math.max(0, timeoutMs - warnMs)) {
+        idleWatch.warned = true;
+        document.body.classList.add('oconf-idle-warn');
+        try {
+          idleWatch.orbit.notify('Visio', idleWatch.orbit.i18n.pick({
+            fr: 'Toujours là ? La visio se fermera bientôt faute d’activité.',
+            en: 'Still there? The video call will close soon due to inactivity.',
+          }));
+        } catch (e2) { /* ignore */ }
+      }
+    }, 4000);
+  }
+
+  function syncAwayClass(orbit) {
+    var active = '';
+    try { active = (orbit && orbit.state && orbit.state.active && orbit.state.active()) || ''; } catch (e) { /* ignore */ }
+    var away = !!(conf.active && conf.buffer && inviteKey(active) !== inviteKey(conf.buffer));
+    document.body.classList.toggle('oconf-away', away);
+  }
+
+  /** Switch UI back to the buffer that owns the open visio. */
+  function focusVisioBuffer(orbit, buffer) {
+    if (!buffer) return;
+    if (isChannelName(buffer)) {
+      try { orbit.irc.join(buffer); } catch (e) { /* ignore */ }
+      return;
+    }
+    try {
+      var want = String(buffer).replace(/^#/, '').toLowerCase();
+      var rooms = document.querySelectorAll('.room');
+      for (var i = 0; i < rooms.length; i++) {
+        var el = rooms[i];
+        var nameEl = el.querySelector('.room__name');
+        var label = String((nameEl && nameEl.textContent) || '').replace(/^#/, '').toLowerCase();
+        if (label === want) {
+          el.click();
+          return;
+        }
+      }
+    } catch (e2) { /* ignore */ }
+    try {
+      // Last resort: open/focus query by sending nothing invasive — join-like for nick N/A.
+      if (orbit.irc && orbit.irc.msg) { /* no-op keep panel visible */ }
+    } catch (e3) { /* ignore */ }
+  }
+
+  function bindIdleActivityListeners() {
+    function onPointer() { bumpIdleActivity(); }
+    function onMove() {
+      var now = Date.now();
+      if (now - idleWatch.moveGate < 2000) return;
+      idleWatch.moveGate = now;
+      bumpIdleActivity();
+    }
+    function onKey() { bumpIdleActivity(); }
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('touchstart', onPointer, { capture: true, passive: true });
+    window.addEventListener('mousemove', onMove, { passive: true });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) bumpIdleActivity();
+    });
   }
 
   function confCfg(orbit) {
@@ -163,6 +278,9 @@
       requireGroups: c.requireGroups || [],
       maxParticipantsChannel: c.maxParticipantsChannel || 20,
       maxParticipantsQuery: c.maxParticipantsQuery || 2,
+      // Auto-leave if no user/Jitsi interaction (0 = disabled). Warn idleWarnSec before.
+      idleTimeoutSec: Math.max(0, Number(c.idleTimeoutSec) || 600),
+      idleWarnSec: Math.max(0, Number(c.idleWarnSec) || 60),
       anyoneCanStartIn: Array.isArray(c.anyoneCanStartIn) ? c.anyoneCanStartIn : [],
       channelRules: c.channelRules && typeof c.channelRules === 'object' ? c.channelRules : {},
       // Secure mode never publishes a reusable Jitsi URL on IRC.
@@ -1078,6 +1196,9 @@
       setConf(buffer, room, { startedByMe: !!asStarter });
       if (asStarter) announceConference(orbit, buffer);
       else markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || (live && live.nick) || '', room, useSid);
+      startIdleWatch(orbit);
+      syncAwayClass(orbit);
+      bumpIdleActivity();
       orbit.emit(EVT_SHOW, { buffer: buffer });
     }
 
@@ -1139,19 +1260,26 @@
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
-    if (!bufferAllowed(orbit, activeBuf)) return null;
-    // Hide if cannot start and there is no invite to join.
+    if (!bufferAllowed(orbit, activeBuf) && !openBuf) return null;
+    // Hide if cannot start and there is no invite to join (unless a visio is open elsewhere).
     if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
     if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
-    var on = openBuf === activeBuf;
+    var onHere = !!(openBuf && inviteKey(openBuf) === inviteKey(activeBuf));
+    var onAway = !!(openBuf && !onHere);
     return h('button', {
       type: 'button',
-      className: 'topbar__search' + (on ? ' is-on' : ''),
-      title: orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }),
+      className: 'topbar__search' + (onHere ? ' is-on' : '') + (onAway ? ' oconf-cam-away' : ''),
+      title: onAway
+        ? orbit.i18n.pick({
+          fr: 'Visio en cours sur ' + openBuf + ' — vous êtes peut-être filmé',
+          en: 'Video call active on ' + openBuf + ' — you may still be on camera',
+        })
+        : orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }),
       'aria-label': orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }),
-      'aria-pressed': on,
+      'aria-pressed': onHere || onAway,
       onClick: function () {
-        if (on) leaveConference(orbit, activeBuf);
+        if (onHere) leaveConference(orbit, activeBuf);
+        else if (onAway) focusVisioBuffer(orbit, openBuf);
         else {
           var live = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
           openConference(orbit, activeBuf, { joinOnly: live });
@@ -1167,28 +1295,32 @@
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var cfg = confCfg(orbit);
-    if (!bufferAllowed(orbit, activeBuf)) return null;
+    if (!bufferAllowed(orbit, activeBuf) && !openBuf) return null;
     if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
     var joinGate = canJoin(orbit, activeBuf);
     if (!openBuf && !joinGate.ok && !hasInvite) return null;
     var needsRegister = !!(requireAccountFor(cfg, activeBuf) && !orbit.state.account());
     var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
-    var on = openBuf === activeBuf;
-    var label = on
+    var onHere = !!(openBuf && inviteKey(openBuf) === inviteKey(activeBuf));
+    var onAway = !!(openBuf && !onHere);
+    var label = onHere
       ? orbit.i18n.pick({ fr: 'Quitter la visio', en: 'Leave video' })
-      : (hasInvite
-        ? (needsRegister
-          ? orbit.i18n.pick({ fr: 'S’enregistrer pour la visio', en: 'Register to join video' })
-          : orbit.i18n.pick({ fr: 'Rejoindre la visio', en: 'Join video call' }))
-        : orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' }));
+      : (onAway
+        ? orbit.i18n.pick({ fr: 'Revenir à la visio', en: 'Return to video call' })
+        : (hasInvite
+          ? (needsRegister
+            ? orbit.i18n.pick({ fr: 'S’enregistrer pour la visio', en: 'Register to join video' })
+            : orbit.i18n.pick({ fr: 'Rejoindre la visio', en: 'Join video call' }))
+          : orbit.i18n.pick({ fr: 'Conférence vidéo', en: 'Video conference' })));
     return h('button', {
       type: 'button',
-      className: 'nmenu__item' + (!on && hasInvite && !joinGate.ok && !needsRegister ? ' is-disabled' : ''),
+      className: 'nmenu__item' + (!onHere && !onAway && hasInvite && !joinGate.ok && !needsRegister ? ' is-disabled' : ''),
       role: 'menuitem',
-      disabled: !on && hasInvite && !joinGate.ok && !needsRegister,
-      title: !on && hasInvite && !joinGate.ok ? joinGate.reason : undefined,
+      disabled: !onHere && !onAway && hasInvite && !joinGate.ok && !needsRegister,
+      title: !onHere && !onAway && hasInvite && !joinGate.ok ? joinGate.reason : undefined,
       onClick: function () {
-        if (on) leaveConference(orbit, activeBuf);
+        if (onHere) leaveConference(orbit, activeBuf);
+        else if (onAway) focusVisioBuffer(orbit, openBuf);
         else if (hasInvite && !joinGate.ok && needsRegister) window.open(registerUrl, '_blank', 'noopener');
         else {
           var liveM = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
@@ -1230,6 +1362,37 @@
         fr: 'Arrêter la visio pour tous',
         en: 'End video for everyone',
       })))
+    );
+  }
+
+  function AwayVisioBanner(props) {
+    var orbit = props.orbit;
+    var activeBuf = useActiveBuffer(orbit);
+    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    if (!openBuf) return null;
+    if (inviteKey(activeBuf) === inviteKey(openBuf)) return null;
+    return h('div', {
+      className: 'oconf-away-banner',
+      role: 'status',
+      'aria-live': 'polite',
+    },
+      h('span', { className: 'oconf-away-banner__ico', 'aria-hidden': true }, '📹'),
+      h('span', { className: 'oconf-away-banner__txt' },
+        orbit.i18n.pick({
+          fr: 'Visio toujours active sur ' + openBuf + ' — micro/caméra peuvent être actifs. Vous êtes peut-être filmé.',
+          en: 'Video call still active on ' + openBuf + ' — mic/camera may be on. You may still be filmed.',
+        })
+      ),
+      h('button', {
+        type: 'button',
+        className: 'oconf-away-banner__btn',
+        onClick: function () { focusVisioBuffer(orbit, openBuf); },
+      }, orbit.i18n.pick({ fr: 'Revenir', en: 'Return' })),
+      h('button', {
+        type: 'button',
+        className: 'oconf-away-banner__btn oconf-away-banner__btn--leave',
+        onClick: function () { leaveConference(orbit, openBuf); },
+      }, orbit.i18n.pick({ fr: 'Quitter la visio', en: 'Leave call' }))
     );
   }
 
@@ -1387,6 +1550,10 @@
       host.innerHTML = '';
       setJoined(false);
       setErr('');
+      try {
+        host.addEventListener('pointerdown', bumpIdleActivity);
+        host.addEventListener('keydown', bumpIdleActivity);
+      } catch (eHost) { /* ignore */ }
 
       var live = confCfg(orbit);
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -1456,9 +1623,16 @@
             },
           });
           apiRef.current = api;
+          bumpIdleActivity();
           // Register immediately — videoConferenceJoined can fire before `onload`.
           try { api.executeCommand('displayName', nick); } catch (e) { /* ignore */ }
           try { api.executeCommand('subject', roomNameFor(orbit, buffer)); } catch (e2) { /* ignore */ }
+          function onJitsiActivity() { bumpIdleActivity(); }
+          ['audioMuteStatusChanged', 'videoMuteStatusChanged', 'participantJoined',
+            'participantLeft', 'raiseHandUpdated', 'tileViewChanged', 'filmstripDisplayChanged',
+            'chatUpdated', 'notificationTriggered'].forEach(function (evName) {
+            try { api.addListener(evName, onJitsiActivity); } catch (eL) { /* ignore */ }
+          });
           api.addListener('connectionFailed', function () {
             if (!cancelled) setErr(orbit.i18n.pick({
               fr: 'Connexion Meet impossible (WebSocket/XMPP).',
@@ -1512,6 +1686,8 @@
             didJoin = true;
             setJoined(true);
             setErr('');
+            bumpIdleActivity();
+            startIdleWatch(orbit);
           }
           api.addListener('videoConferenceJoined', onJoined);
           // Title-only fallback if Meet never emits the join event.
@@ -1781,6 +1957,17 @@
       '.oconf-join{display:inline-flex;margin-left:.45rem;vertical-align:middle}',
       '.oconf-join__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
       '.topbar__search.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
+      '.oconf-away-banner{flex:none;display:flex;align-items:center;gap:.65rem;padding:.55rem .85rem;border-bottom:2px solid #dc2626;background:color-mix(in srgb,#b91c1c 22%,var(--bg,#111));box-shadow:0 10px 28px -18px rgba(185,28,28,.65);animation:oconfAwayPulse 1.8s ease-out infinite;z-index:25}',
+      '.oconf-away-banner__ico{flex:none;font-size:1.05rem}',
+      '.oconf-away-banner__txt{flex:1;min-width:0;font-size:.84rem;font-weight:800;color:var(--ink-strong,var(--ink));line-height:1.3}',
+      '.oconf-away-banner__btn{flex:none;border:1px solid color-mix(in srgb,#dc2626 50%,white);cursor:pointer;font:inherit;font-size:.78rem;font-weight:800;padding:.36rem .75rem;border-radius:999px;background:linear-gradient(180deg,#ef4444,#b91c1c);color:#fff;white-space:nowrap}',
+      '.oconf-away-banner__btn:hover{filter:brightness(1.06)}',
+      '.oconf-away-banner__btn--leave{background:linear-gradient(180deg,#6b7280,#4b5563);border-color:#9ca3af}',
+      '@media (max-width:640px){.oconf-away-banner{flex-wrap:wrap}.oconf-away-banner__txt{min-width:100%}.oconf-away-banner__btn{flex:1 1 auto}}',
+      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 10px 28px -18px rgba(185,28,28,.45)}50%{box-shadow:0 10px 28px -12px rgba(185,28,28,.9)}}',
+      'body.oconf-away .oconf-panel{outline:2px solid #dc2626;outline-offset:-2px}',
+      'body.oconf-idle-warn .oconf-panel{outline:2px solid #d97706;outline-offset:-2px}',
+      '.topbar__search.oconf-cam-away{color:#dc2626!important;animation:oconfAwayPulse 1.8s ease-out infinite}',
     ].join('');
     document.head.appendChild(el);
   }
@@ -1790,8 +1977,11 @@
       log('Orbit apiVersion >= 7 required (msgTagged + message tags).');
     }
     injectStyles();
+    bindIdleActivityListeners();
     var cfg = confCfg(orbit);
-    log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ')');
+    log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ', idle ' + cfg.idleTimeoutSec + 's)');
+    orbit.on('buffer.active', function () { syncAwayClass(orbit); });
+    syncAwayClass(orbit);
     // Do not preload external_api.js: Jitsi JSON.parse()s the *parent* page
     // query string (nick, channel, age…). Guest URLs then spam
     // "Failed to parse URL parameter value" and can look like a failed IRC connect.
@@ -1961,6 +2151,7 @@
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuEndItem, { orbit: orbit }); });
+    orbit.addUi('overlay', function () { return h(AwayVisioBanner, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
     // Standalone invite/stopped banner rendered for all layouts via overlay slot.
     orbit.addUi('overlay', function () { return h(InviteBanner, { orbit: orbit }); });
