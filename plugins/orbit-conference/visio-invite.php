@@ -29,7 +29,7 @@ $INVITE_TTL = 3600; // session lifetime (1h)
 // Writable data dir (plugin dir itself is often owned by deploy user, not www-data).
 $INVITE_DATA_DIR = __DIR__ . '/visio-invite-data';
 $INVITE_STORE = $INVITE_DATA_DIR . '/visio-invites.json';
-$INVITE_MAX_REDEEMS = 3; // allow reconnects without re-invite
+$INVITE_MAX_REDEEMS = 10; // reconnects / retries without re-invite
 
 $__local = __DIR__ . '/visio-jwt.local.php';
 if (is_file($__local)

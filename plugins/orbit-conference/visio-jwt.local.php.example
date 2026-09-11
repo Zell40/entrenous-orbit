@@ -14,6 +14,6 @@ $START_CMODES = ['q', 'a', 'o']; // ~ founder, & admin, @ op
 // Shared secret for WordPress → visio-invite.php (mine / redeem). Never expose to browsers.
 $INVITE_SHARED_SECRET = 'long-random-secret-shared-with-wp';
 $INVITE_TTL = 3600;
-$INVITE_MAX_REDEEMS = 3;
+$INVITE_MAX_REDEEMS = 10;
 // Optional: override writable store dir (default: __DIR__/visio-invite-data).
 // $INVITE_DATA_DIR = '/var/lib/entrenous/visio-invite-data';
