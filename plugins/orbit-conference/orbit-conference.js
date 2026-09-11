@@ -17,6 +17,7 @@
   var TAG = '+entrenous.fr/conference';
   var ROOM_TAG = '+entrenous.fr/conference-room';
   var REPLY_TAG = '+entrenous.fr/conference-reply';
+  var SESSION_TAG = '+entrenous.fr/conference-sid';
   var EVT_SHOW = 'plugin-conference.show';
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
@@ -80,12 +81,14 @@
   /** Visio still live in channel (until explicit stop) — keeps rejoin banner after leaving the panel. */
   var liveVisio = Object.create(null);
 
-  function markLiveVisio(buffer, nick, room) {
+  function markLiveVisio(buffer, nick, room, sid) {
     if (!buffer) return;
     var key = inviteKey(buffer);
+    var prev = liveVisio[key];
     liveVisio[key] = {
-      nick: String(nick || ''),
-      room: String(room || (channelRooms[key] && channelRooms[key].name) || ''),
+      nick: String(nick || (prev && prev.nick) || ''),
+      room: String(room || (prev && prev.room) || ''),
+      sid: String(sid || (prev && prev.sid) || ''),
     };
   }
 
@@ -103,6 +106,7 @@
     setInvite(buffer, {
       nick: live.nick || (orbit.state.nick && orbit.state.nick()) || '',
       link: publicLink(orbit, buffer),
+      sid: live.sid || '',
     });
   }
 
@@ -324,17 +328,66 @@
   }
 
   function roomNameFor(orbit, buffer) {
-    var nick = orbit.state.nick() || 'user';
     if (isChannelName(buffer)) return buffer;
-    var members = [nick, buffer].sort(function (a, b) {
-      return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    // Display label with accent; Meet room id stays ASCII Privee-… (see queryMeetRoomId).
+    var a = myAccountName(orbit);
+    var b = peerAccountForQuery(orbit, buffer);
+    var pair = [a, b].sort(function (x, y) {
+      return String(x).localeCompare(String(y), undefined, { sensitivity: 'base' });
     });
-    return 'query-' + members.join('+');
+    return 'Privée-' + pair[0] + '-' + pair[1];
+  }
+
+  function myAccountName(orbit) {
+    try {
+      var a = orbit.state.account && orbit.state.account();
+      if (a) return String(a);
+    } catch (e) { /* ignore */ }
+    try {
+      var st = orbit.state.get && orbit.state.get();
+      if (st && st.account) return String(st.account);
+    } catch (e2) { /* ignore */ }
+    return String(orbit.state.nick() || 'user');
+  }
+
+  function peerAccountForQuery(orbit, buffer) {
+    var meAcct = myAccountName(orbit).toLowerCase();
+    var meNick = String(orbit.state.nick() || '').toLowerCase();
+    var peerNick = String(buffer || '');
+    try {
+      var st = orbit.state.get && orbit.state.get();
+      var b = findBuffer(st, buffer);
+      var members = (b && b.members) || {};
+      var direct = members[peerNick] || members[Object.keys(members).find(function (k) {
+        return String(k).toLowerCase() === peerNick.toLowerCase();
+      }) || ''];
+      if (direct && direct.account) return String(direct.account);
+      for (var k in members) {
+        if (!Object.prototype.hasOwnProperty.call(members, k)) continue;
+        var m = members[k];
+        if (!m) continue;
+        if (meNick && String(k).toLowerCase() === meNick) continue;
+        if (m.account && String(m.account).toLowerCase() !== meAcct) return String(m.account);
+      }
+    } catch (e) { /* ignore */ }
+    return peerNick;
+  }
+
+  /** Stable MP room: Privee-<compteA>-<compteB> (sorted). Never use nicks. */
+  function queryMeetRoomId(orbit, buffer) {
+    var a = sanitizeMeetId(myAccountName(orbit));
+    var b = sanitizeMeetId(peerAccountForQuery(orbit, buffer));
+    var pair = [a, b].sort(function (x, y) {
+      return x.localeCompare(y, undefined, { sensitivity: 'base' });
+    });
+    return sanitizeMeetId('Privee-' + pair[0] + '-' + pair[1]);
   }
 
   /** Jitsi-safe id from an IRC channel / query label. */
   function sanitizeMeetId(s) {
     return String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/^[#&+!]/, '')
       .replace(/[^a-zA-Z0-9._-]+/g, '-')
       .replace(/-+/g, '-')
@@ -343,34 +396,54 @@
   }
 
   /**
-   * Meet room = IRC channel name (readable). Same channel → same room so everyone
-   * meets. If a new parallel room is forced, append -01, -02, …
+   * Meet room id. Channels: channel name (+ optional -01). Queries: always the
+   * deterministic Privee-<acct1>-<acct2> pair (no serial forks — that caused
+   * desync / duplicate self in MP).
    */
   function allocateMeetRoom(orbit, buffer, forceNew) {
     var key = inviteKey(buffer);
+    if (!isChannelName(buffer)) {
+      var qRoom = queryMeetRoomId(orbit, buffer);
+      channelRooms[key] = { name: qRoom, serial: 1 };
+      return qRoom;
+    }
     var cur = channelRooms[key];
     if (!forceNew && conf.active && conf.buffer && inviteKey(conf.buffer) === key && conf.room) {
       return conf.room;
     }
     if (!forceNew && cur && cur.name) return cur.name;
     var serial = cur ? cur.serial + 1 : 1;
-    var base = isChannelName(buffer)
-      ? sanitizeMeetId(buffer)
-      : sanitizeMeetId('q-' + [orbit.state.nick() || 'user', buffer].sort(function (a, b) {
-        return a.localeCompare(b, undefined, { sensitivity: 'base' });
-      }).join('-'));
+    var base = sanitizeMeetId(buffer);
     var name = serial <= 1 ? base : (base + '-' + (serial < 10 ? '0' + serial : String(serial)));
     channelRooms[key] = { name: name, serial: serial };
     return name;
   }
 
   function meetRoomFor(orbit, buffer) {
+    if (!isChannelName(buffer)) {
+      // Prefer room announced by peer (ROOM_TAG), else stable pair id.
+      var live = liveVisio[inviteKey(buffer)];
+      if (live && live.room) return live.room;
+      var curQ = channelRooms[inviteKey(buffer)];
+      if (curQ && curQ.name) return curQ.name;
+      return queryMeetRoomId(orbit, buffer);
+    }
     if (conf.active && conf.buffer && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room) {
       return conf.room;
     }
     var cur = channelRooms[inviteKey(buffer)];
     if (cur && cur.name) return cur.name;
     return allocateMeetRoom(orbit, buffer, false);
+  }
+
+  function newSessionId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function bindQueryRoom(buffer, room, sid, nick) {
+    var key = inviteKey(buffer);
+    if (room) channelRooms[key] = { name: room, serial: 1 };
+    markLiveVisio(buffer, nick || '', room || '', sid || '');
   }
 
   function publicLink(orbit, buffer) {
@@ -699,16 +772,20 @@
     return accounts;
   }
 
-  /** Refresh WHOX so member.account is filled before collecting invites. */
+  /** Refresh WHOX so member.account is filled before collecting invites / MP room id. */
   function refreshBufferAccounts(orbit, buffer) {
     return new Promise(function (resolve) {
       try {
-        if (isChannelName(buffer) && orbit.irc && orbit.irc.send) {
+        if (orbit.irc && orbit.irc.send) {
           // Same WHOX token as Orbit core (152) so 354 updates the member list.
-          orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+          if (isChannelName(buffer)) orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+          else {
+            orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+            orbit.irc.send('WHOIS ' + buffer);
+          }
         }
       } catch (e) { /* ignore */ }
-      setTimeout(resolve, 700);
+      setTimeout(resolve, isChannelName(buffer) ? 700 : 900);
     });
   }
 
@@ -726,6 +803,15 @@
           a = String(a || '').trim();
           if (a && accounts.indexOf(a) === -1) accounts.push(a);
         });
+      }
+      // MP: only the two NickServ accounts of the pair (never expand via profile invites).
+      if (!isChannelName(buffer)) {
+        var pair = [];
+        var meA = myAccountName(orbit);
+        var peerA = peerAccountForQuery(orbit, buffer);
+        if (meA) pair.push(meA);
+        if (peerA && String(peerA).toLowerCase() !== String(meA).toLowerCase()) pair.push(peerA);
+        accounts = pair;
       }
       return requestExtJwt(orbit, proofTarget).then(function (proof) {
         return fetch(cfg.inviteEndpoint, {
@@ -779,20 +865,26 @@
   /** Announce the conference on IRC once per open session (starter only). */
   function announceConference(orbit, buffer, opts) {
     opts = opts || {};
-    if (!buffer || (announced[buffer] && !opts.force)) return;
-    announced[buffer] = true;
+    var aKey = inviteKey(buffer);
+    if (!buffer || (announced[aKey] && !opts.force)) return;
+    announced[aKey] = true;
     var cfg = confCfg(orbit);
     var room = meetRoomFor(orbit, buffer);
     var nick = orbit.state.nick() || 'user';
-    markLiveVisio(buffer, nick, room);
+    var sid = (liveVisio[inviteKey(buffer)] && liveVisio[inviteKey(buffer)].sid) || newSessionId();
+    bindQueryRoom(buffer, room, sid, nick);
     // Starter also keeps a local invite so the blue banner returns after leaving the panel.
     delete dismissed[inviteKey(buffer)];
-    setInvite(buffer, { nick: nick, link: publicLink(orbit, buffer) });
+    setInvite(buffer, { nick: nick, link: publicLink(orbit, buffer), sid: sid });
+
+    var tagPrefix = '@' + TAG + '=' + (cfg.tagID || '1')
+      + ';' + ROOM_TAG + '=' + room
+      + ';' + SESSION_TAG + '=' + sid + ' ';
 
     if (cfg.secure) {
       publishSecureInvites(orbit, buffer, room);
       try {
-        orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
+        orbit.irc.send(tagPrefix + 'TAGMSG ' + buffer);
       } catch (e) { /* ignore */ }
       // Informative PRIVMSG — no Jitsi URL. In queries this PRIVMSG also opens the
       // peer's MP buffer (must not be swallowed by hideInviteForOrbit).
@@ -805,6 +897,8 @@
       if (secureText && secureText !== '*') {
         var tagsS = {};
         tagsS[TAG] = cfg.tagID || '1';
+        tagsS[ROOM_TAG] = room;
+        tagsS[SESSION_TAG] = sid;
         try {
           if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, secureText, tagsS);
           else if (orbit.irc.msg) orbit.irc.msg(buffer, secureText);
@@ -820,12 +914,14 @@
     // peer gets a real MP buffer / notification even with no prior conversation.
     if (!cfg.publicLinkInInvite) {
       try {
-        orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
+        orbit.irc.send(tagPrefix + 'TAGMSG ' + buffer);
       } catch (e) { /* ignore */ }
       if (!isChannelName(buffer)) {
-        var qText = '* -' + nick + '- vous a envoyé une demande de visio.';
+        var qText = '* -' + nick + '- vous invite en visio.';
         var tagsQ = {};
         tagsQ[TAG] = cfg.tagID || '1';
+        tagsQ[ROOM_TAG] = room;
+        tagsQ[SESSION_TAG] = sid;
         try {
           if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, qText, tagsQ);
           else if (orbit.irc.msg) orbit.irc.msg(buffer, qText);
@@ -844,6 +940,8 @@
     if (!text || text === '*') return;
     var tags = {};
     tags[TAG] = cfg.tagID || '1';
+    tags[ROOM_TAG] = room;
+    tags[SESSION_TAG] = sid;
     try {
       if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, text, tags);
       else if (orbit.irc.msg) orbit.irc.msg(buffer, text);
@@ -917,7 +1015,15 @@
       setConf(null);
       return;
     }
-    if (conf.room) markLiveVisio(buffer, (liveVisio[inviteKey(buffer)] && liveVisio[inviteKey(buffer)].nick) || orbit.state.nick() || '', conf.room);
+    var liveL = liveVisio[inviteKey(buffer)];
+    if (conf.room) {
+      markLiveVisio(
+        buffer,
+        (liveL && liveL.nick) || orbit.state.nick() || '',
+        conf.room,
+        (liveL && liveL.sid) || ''
+      );
+    }
     setConf(null);
     restoreRejoinInvite(orbit, buffer);
   }
@@ -942,6 +1048,14 @@
       orbit.emit(EVT_HIDE);
       return;
     }
+    var key = inviteKey(buffer);
+    var live = liveVisio[key];
+    var hasLive = !!(live && live.room) || !!getInviteFor(buffer);
+    // MP (and any live invite): never fork a second room — always join the live one.
+    // Both peers can "start"; without this, each click spawned a different Meet room.
+    if (!opts.joinOnly && hasLive && !opts.forceNew) {
+      opts = Object.assign({}, opts, { joinOnly: true });
+    }
     var gate = opts.joinOnly ? canJoin(orbit, buffer) : canStart(orbit, buffer);
     if (!gate.ok) {
       orbit.notify('Visio', gate.reason || 'Accès refusé.');
@@ -952,20 +1066,51 @@
       if (!window.confirm(msg)) return;
       leaveConference(orbit, conf.buffer);
     }
-    // Starters allocate (or reuse) a readable Meet room; joiners reuse the same id.
-    var room = opts.joinOnly
-      ? meetRoomFor(orbit, buffer)
-      : allocateMeetRoom(orbit, buffer, !!opts.newRoom);
-    if (opts.joinOnly && liveVisio[inviteKey(buffer)] && liveVisio[inviteKey(buffer)].room) {
-      channelRooms[inviteKey(buffer)] = { name: liveVisio[inviteKey(buffer)].room, serial: 1 };
-      room = liveVisio[inviteKey(buffer)].room;
+
+    function go(room, sid, asStarter) {
+      room = String(room || '').replace(/[^A-Za-z0-9._-]/g, '');
+      if (!room) {
+        orbit.notify('Visio', 'Impossible de déterminer la salle visio.');
+        return;
+      }
+      var useSid = sid || (live && live.sid) || (asStarter ? newSessionId() : '');
+      bindQueryRoom(buffer, room, useSid, asStarter ? (orbit.state.nick() || '') : ((live && live.nick) || ''));
+      setConf(buffer, room, { startedByMe: !!asStarter });
+      if (asStarter) announceConference(orbit, buffer);
+      else markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || (live && live.nick) || '', room, useSid);
+      orbit.emit(EVT_SHOW, { buffer: buffer });
     }
-    setConf(buffer, room, { startedByMe: !opts.joinOnly });
-    // Starters announce immediately so other IRC clients see the invite even if
-    // Meet's videoConferenceJoined event never fires.
-    if (!opts.joinOnly) announceConference(orbit, buffer);
-    else markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || '', room);
-    orbit.emit(EVT_SHOW, { buffer: buffer });
+
+    if (opts.joinOnly) {
+      var joinRoom = (live && live.room) || (channelRooms[key] && channelRooms[key].name) || '';
+      if (!joinRoom && !isChannelName(buffer)) joinRoom = queryMeetRoomId(orbit, buffer);
+      if (!joinRoom) joinRoom = meetRoomFor(orbit, buffer);
+      go(joinRoom, (live && live.sid) || (getInviteFor(buffer) && getInviteFor(buffer).sid) || '', false);
+      return;
+    }
+
+    // Fresh start: WHO peer account first so Privee-<acct1>-<acct2> is stable.
+    // Re-check live invite after WHO — peer may have announced during the wait.
+    var prep = Promise.resolve();
+    if (!isChannelName(buffer)) {
+      prep = refreshBufferAccounts(orbit, buffer).catch(function () { return null; });
+    }
+    prep.then(function () {
+      var live2 = liveVisio[key];
+      var inv2 = getInviteFor(buffer);
+      if (!opts.forceNew && ((live2 && live2.room) || inv2)) {
+        var joinR = (live2 && live2.room)
+          || (channelRooms[key] && channelRooms[key].name)
+          || (!isChannelName(buffer) ? queryMeetRoomId(orbit, buffer) : '')
+          || meetRoomFor(orbit, buffer);
+        go(joinR, (live2 && live2.sid) || (inv2 && inv2.sid) || '', false);
+        return;
+      }
+      var room = isChannelName(buffer)
+        ? allocateMeetRoom(orbit, buffer, !!opts.newRoom)
+        : queryMeetRoomId(orbit, buffer);
+      go(room, newSessionId(), true);
+    });
   }
 
   function useActiveBuffer(orbit) {
@@ -1007,7 +1152,10 @@
       'aria-pressed': on,
       onClick: function () {
         if (on) leaveConference(orbit, activeBuf);
-        else openConference(orbit, activeBuf, { joinOnly: hasInvite && !canStart(orbit, activeBuf).ok });
+        else {
+          var live = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
+          openConference(orbit, activeBuf, { joinOnly: live });
+        }
       },
     }, h(CameraIcon));
   }
@@ -1042,7 +1190,10 @@
       onClick: function () {
         if (on) leaveConference(orbit, activeBuf);
         else if (hasInvite && !joinGate.ok && needsRegister) window.open(registerUrl, '_blank', 'noopener');
-        else openConference(orbit, activeBuf, { joinOnly: hasInvite && !canStart(orbit, activeBuf).ok });
+        else {
+          var liveM = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
+          openConference(orbit, activeBuf, { joinOnly: liveM });
+        }
       },
     },
       h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon)),
@@ -1239,9 +1390,12 @@
 
       var live = confCfg(orbit);
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
-      var room = meetRoomFor(orbit, buffer);
+      var isQuery = !isChannelName(buffer);
+      var room = (conf.active && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room)
+        ? conf.room
+        : meetRoomFor(orbit, buffer);
       var nick = orbit.state.nick() || 'user';
-      var maxP = maxParticipantsFor(live, buffer);
+      var maxP = isQuery ? 2 : maxParticipantsFor(live, buffer);
       var timers = [];
 
       function mountApi(jwt) {
@@ -1254,6 +1408,37 @@
           return;
         }
         try {
+          if (apiRef.current) {
+            try { apiRef.current.dispose(); } catch (eDisp) { /* ignore */ }
+            apiRef.current = null;
+          }
+          var cfgOver = {
+            startWithAudioMuted: true,
+            startWithVideoMuted: true,
+            prejoinConfig: { enabled: false },
+            prejoinPageEnabled: false,
+            disableDeepLinking: true,
+            bosh: 'https://' + domain + '/http-bind',
+            websocket: 'wss://' + domain + '/xmpp-websocket',
+            maxParticipants: maxP || undefined,
+            disableInviteFunctions: true,
+            enableWelcomePage: false,
+            enableClosePage: false,
+          };
+          var toolbar = [
+            'microphone', 'camera', 'fullscreen', 'hangup',
+            'settings', 'videoquality', 'filmstrip', 'fodeviceselection',
+          ];
+          if (isQuery) {
+            // Private 1:1 — hard cap 2, hide invite/share, prefer P2P.
+            cfgOver.maxParticipants = 2;
+            cfgOver.p2p = { enabled: true };
+            cfgOver.toolbarButtons = toolbar;
+            cfgOver.remoteVideoMenu = { disableKick: true, disableGrantModerator: true };
+            cfgOver.disableProfile = true;
+          } else {
+            toolbar.push('stats', 'shortcuts');
+          }
           var api = new window.JitsiMeetExternalAPI(domain, {
             roomName: room,
             parentNode: host,
@@ -1261,24 +1446,13 @@
             height: '100%',
             jwt: jwt || undefined,
             userInfo: { displayName: nick },
-            configOverwrite: {
-              startWithAudioMuted: true,
-              startWithVideoMuted: true,
-              prejoinConfig: { enabled: false },
-              prejoinPageEnabled: false,
-              disableDeepLinking: true,
-              bosh: 'https://' + domain + '/http-bind',
-              websocket: 'wss://' + domain + '/xmpp-websocket',
-              maxParticipants: maxP || undefined,
-            },
+            configOverwrite: cfgOver,
             interfaceConfigOverwrite: {
               SHOW_JITSI_WATERMARK: false,
               SHOW_WATERMARK_FOR_GUESTS: false,
-              TOOLBAR_BUTTONS: [
-                'microphone', 'camera', 'fullscreen', 'hangup',
-                'settings', 'videoquality', 'filmstrip', 'fodeviceselection',
-                'stats', 'shortcuts',
-              ],
+              TOOLBAR_BUTTONS: toolbar,
+              DISABLE_JOIN_LEAVE_NOTIFICATIONS: !!isQuery,
+              HIDE_INVITE_MORE_HEADER: true,
             },
           });
           apiRef.current = api;
@@ -1296,15 +1470,42 @@
             var blob = JSON.stringify(ev || {}).toLowerCase();
             if (/max|full|participants|conference_max_users/.test(blob)) {
               setErr(orbit.i18n.pick({
-                fr: 'La visio a atteint sa limite de participants.',
-                en: 'The conference reached its participant limit.',
+                fr: isQuery
+                  ? 'Cette visio privée est limitée à 2 personnes.'
+                  : 'La visio a atteint sa limite de participants.',
+                en: isQuery
+                  ? 'This private video call is limited to 2 people.'
+                  : 'The conference reached its participant limit.',
               }));
               orbit.notify('Visio', orbit.i18n.pick({
-                fr: 'La visio est complète pour le moment.',
-                en: 'The conference is full right now.',
+                fr: isQuery
+                  ? 'Visio MP limitée à 2 — pour plus, ouvrez une visio salon.'
+                  : 'La visio est complète pour le moment.',
+                en: isQuery
+                  ? 'Query visio is limited to 2 — use a channel visio for more.'
+                  : 'The conference is full right now.',
               }));
             }
           });
+          if (isQuery) {
+            api.addListener('participantJoined', function () {
+              if (cancelled || !apiRef.current) return;
+              var n = 0;
+              try { n = apiRef.current.getNumberOfParticipants(); } catch (eN) { n = 0; }
+              // Includes local participant — >2 means a 3rd person joined.
+              if (n > 2) {
+                setErr(orbit.i18n.pick({
+                  fr: 'Visio MP limitée à 2 personnes. Utilisez une visio salon pour plus.',
+                  en: 'Query visio is limited to 2. Use a channel visio for more.',
+                }));
+                orbit.notify('Visio', orbit.i18n.pick({
+                  fr: 'Visio MP pleine (2 max). Ouvrez une visio salon pour plus de monde.',
+                  en: 'Query visio full (max 2). Open a channel visio for more people.',
+                }));
+                try { apiRef.current.executeCommand('hangup'); } catch (eH) { /* ignore */ }
+              }
+            });
+          }
           var didJoin = false;
           function onJoined() {
             if (cancelled || didJoin) return;
@@ -1634,10 +1835,13 @@
         }
         if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)) return;
         var meetId = String(tagTags[ROOM_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
+        var sid = String(tagTags[SESSION_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
+        if (!meetId && !isChannelName(tagBuf)) meetId = queryMeetRoomId(orbit, tagBuf);
         if (meetId) channelRooms[inviteKey(tagBuf)] = { name: meetId, serial: 1 };
-        markLiveVisio(tagBuf, msg.nick || '', meetId);
+        // New session id replaces any stale banner / room binding for this MP.
+        bindQueryRoom(tagBuf, meetId, sid, msg.nick || '');
         delete dismissed[inviteKey(tagBuf)];
-        setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf) });
+        setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf), sid: sid });
         if (!isChannelName(tagBuf)) {
           try {
             orbit.notify('Visio', orbit.i18n.pick({
@@ -1686,9 +1890,12 @@
           if (path) channelRooms[inviteKey(buf)] = { name: decodeURIComponent(path), serial: 1 };
         } catch (e) { /* ignore */ }
       }
-      markLiveVisio(buf, msg.nick || '', (channelRooms[inviteKey(buf)] && channelRooms[inviteKey(buf)].name) || '');
+      var privRoom = String((tags && tags[ROOM_TAG]) || (channelRooms[inviteKey(buf)] && channelRooms[inviteKey(buf)].name) || '').replace(/[^A-Za-z0-9._-]/g, '');
+      var privSid = String((tags && tags[SESSION_TAG]) || '').replace(/[^A-Za-z0-9._-]/g, '');
+      if (!privRoom && !isChannelName(buf)) privRoom = queryMeetRoomId(orbit, buf);
+      bindQueryRoom(buf, privRoom, privSid, msg.nick || '');
       delete dismissed[inviteKey(buf)];
-      setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf) });
+      setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf), sid: privSid });
       if (!isChannelName(buf)) {
         try {
           orbit.notify('Visio', orbit.i18n.pick({

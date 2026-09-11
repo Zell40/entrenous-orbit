@@ -172,6 +172,7 @@ $nick = trim((string)($claims['sub'] ?? $account));
 $startCmodes = is_array($START_CMODES) ? $START_CMODES : ['q', 'a', 'o'];
 $isMod = is_jitsi_moderator($claims, $startCmodes);
 $now = time();
+$isPrivateMp = preg_match('/^Privee-/i', $room) === 1;
 $jwtClaims = [
   'aud' => $jwtAudience,
   'iss' => $JITSI_APP_ID,
@@ -191,7 +192,16 @@ $jwtClaims = [
     ],
   ],
 ];
-
+// MP rooms (Privee-<acct1>-<acct2>): disable share/broadcast features; max 2 is enforced client-side + Prosody if configured.
+if ($isPrivateMp) {
+  $jwtClaims['context']['features'] = [
+    'livestreaming' => false,
+    'recording' => false,
+    'transcription' => false,
+    'outbound-call' => false,
+    'sip-outbound-call' => false,
+  ];
+}
 echo json_encode([
   'token' => sign_jitsi_jwt($jwtClaims, $JITSI_APP_SECRET),
   'exp' => $jwtClaims['exp'],

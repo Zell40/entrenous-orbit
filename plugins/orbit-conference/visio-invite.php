@@ -262,6 +262,16 @@ if ($action === 'create' || $action === 'add') {
   if ($starter !== '') {
     $normalized = normalize_accounts(array_merge($normalized, [$starter]));
   }
+  // Private MP rooms Privee-<a>-<b>: at most the two pair accounts.
+  $isPrivateMp = preg_match('/^Privee-/i', $room) === 1;
+  if ($isPrivateMp && count($normalized) > 2) {
+    $normalized = array_slice($normalized, 0, 2);
+  }
+  if ($isPrivateMp && $action === 'add') {
+    http_response_code(400);
+    echo json_encode(['error' => 'mp_room_no_add']);
+    exit;
+  }
 
   $foundIdx = null;
   foreach ($data['sessions'] as $i => $sess) {
