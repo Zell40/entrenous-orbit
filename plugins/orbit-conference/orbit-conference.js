@@ -70,10 +70,35 @@
   function setInvite(buffer, data) {
     if (!buffer) return;
     var key = inviteKey(buffer);
-    if (data) invites.map[key] = data;
-    else delete invites.map[key];
+    if (data) {
+      if (!data.at) data.at = Date.now();
+      invites.map[key] = data;
+    } else delete invites.map[key];
     invites.rev++;
     invites.listeners.forEach(function (l) { l(); });
+  }
+
+  function touchInvite(buffer) {
+    var inv = getInviteFor(buffer);
+    if (!inv) return;
+    inv.at = Date.now();
+    invites.rev++;
+    invites.listeners.forEach(function (l) { l(); });
+  }
+
+  /** True for chathistory / old server-time events — must not (re)open the blue banner. */
+  function isStaleConferenceEvent(tags, orbit) {
+    tags = tags || {};
+    if (tags.batch) return true;
+    var t = tags.time || tags['server-time'];
+    if (!t) return false;
+    var ms = Date.parse(String(t));
+    if (!ms) return false;
+    var maxAge = 120000;
+    try {
+      maxAge = (confCfg(orbit).inviteMaxAgeSec || 120) * 1000;
+    } catch (e) { /* ignore */ }
+    return (Date.now() - ms) > maxAge;
   }
 
   // Self security-group fragments from WHOIS special lines
@@ -83,14 +108,18 @@
   /** Visio still live in channel (until explicit stop) — keeps rejoin banner after leaving the panel. */
   var liveVisio = Object.create(null);
 
-  function markLiveVisio(buffer, nick, room, sid) {
+  function markLiveVisio(buffer, nick, room, sid, meta) {
     if (!buffer) return;
     var key = inviteKey(buffer);
     var prev = liveVisio[key];
+    meta = meta || {};
     liveVisio[key] = {
       nick: String(nick || (prev && prev.nick) || ''),
       room: String(room || (prev && prev.room) || ''),
       sid: String(sid || (prev && prev.sid) || ''),
+      buffer: String(buffer || (prev && prev.buffer) || ''),
+      starter: meta.starter === true ? true : !!(prev && prev.starter),
+      at: Date.now(),
     };
   }
 
@@ -109,7 +138,96 @@
       nick: live.nick || (orbit.state.nick && orbit.state.nick()) || '',
       link: publicLink(orbit, buffer),
       sid: live.sid || '',
+      at: Date.now(),
     });
+  }
+
+  var heartbeatTimer = null;
+
+  function stopVisioHeartbeat() {
+    if (heartbeatTimer) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  function sendVisioHeartbeat(orbit, buffer) {
+    if (!orbit || !buffer) return;
+    var cfg = confCfg(orbit);
+    var key = inviteKey(buffer);
+    var live = liveVisio[key];
+    var room = (conf.active && inviteKey(conf.buffer) === key && conf.room)
+      ? conf.room
+      : ((live && live.room) || meetRoomFor(orbit, buffer));
+    var sid = (live && live.sid) || '';
+    var tagPrefix = '@' + TAG + '=' + (cfg.tagID || '1')
+      + ';' + REPLY_TAG + '=alive'
+      + (room ? ';' + ROOM_TAG + '=' + room : '')
+      + (sid ? ';' + SESSION_TAG + '=' + sid : '')
+      + ' ';
+    try {
+      orbit.irc.send(tagPrefix + 'TAGMSG ' + buffer);
+    } catch (e) { /* ignore */ }
+    markLiveVisio(buffer, orbit.state.nick() || '', room, sid, { starter: true });
+    touchInvite(buffer);
+  }
+
+  function heartbeatBuffer(orbit) {
+    if (conf.active && conf.startedByMe && conf.buffer) return conf.buffer;
+    var me = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+    if (!me) return '';
+    for (var k in liveVisio) {
+      if (!Object.prototype.hasOwnProperty.call(liveVisio, k)) continue;
+      var L = liveVisio[k];
+      if (L && L.starter && L.buffer && String(L.nick || '').toLowerCase() === me) return L.buffer;
+    }
+    return '';
+  }
+
+  function startVisioHeartbeat(orbit) {
+    stopVisioHeartbeat();
+    if (!orbit) return;
+    var sec = confCfg(orbit).heartbeatSec || 45;
+    heartbeatTimer = window.setInterval(function () {
+      var buf = heartbeatBuffer(orbit);
+      if (!buf || !isChannelName(buf)) {
+        stopVisioHeartbeat();
+        return;
+      }
+      sendVisioHeartbeat(orbit, buf);
+    }, sec * 1000);
+  }
+
+  /** Drop blue banners that were never refreshed (missed stop / history ghost). */
+  function expireStaleInvites(orbit) {
+    var ttl = ((orbit && confCfg(orbit).inviteTtlSec) || 180) * 1000;
+    var now = Date.now();
+    var changed = false;
+    Object.keys(invites.map).forEach(function (key) {
+      var inv = invites.map[key];
+      if (!inv) return;
+      var at = Number(inv.at) || 0;
+      if (at && (now - at) > ttl) {
+        delete invites.map[key];
+        delete liveVisio[key];
+        changed = true;
+      }
+    });
+    Object.keys(liveVisio).forEach(function (key) {
+      if (invites.map[key]) return;
+      var live = liveVisio[key];
+      var at = Number(live && live.at) || 0;
+      // Don't expire the room we're currently connected to.
+      if (conf.active && inviteKey(conf.buffer) === key) return;
+      if (at && (now - at) > ttl) {
+        delete liveVisio[key];
+        changed = true;
+      }
+    });
+    if (changed) {
+      invites.rev++;
+      invites.listeners.forEach(function (l) { l(); });
+    }
   }
 
   function setConf(buffer, room, meta) {
@@ -283,6 +401,11 @@
       // Auto-leave if no user/Jitsi interaction (0 = disabled). Warn idleWarnSec before.
       idleTimeoutSec: Math.max(0, Number(c.idleTimeoutSec) || 600),
       idleWarnSec: Math.max(0, Number(c.idleWarnSec) || 60),
+      // Blue banner expires if not refreshed (heartbeat / new announce). Prevents ghost invites.
+      inviteTtlSec: Math.max(60, Number(c.inviteTtlSec) || 180),
+      // Ignore IRC invites/stops older than this (chathistory replay).
+      inviteMaxAgeSec: Math.max(30, Number(c.inviteMaxAgeSec) || 120),
+      heartbeatSec: Math.max(20, Number(c.heartbeatSec) || 45),
       anyoneCanStartIn: Array.isArray(c.anyoneCanStartIn) ? c.anyoneCanStartIn : [],
       channelRules: c.channelRules && typeof c.channelRules === 'object' ? c.channelRules : {},
       // Secure mode never publishes a reusable Jitsi URL on IRC.
@@ -1233,6 +1356,7 @@
     }
     beginEndSession(buffer);
     announceConferenceStopped(orbit, buffer);
+    stopVisioHeartbeat();
     setConf(null);
     window.setTimeout(function () { clearEndingSession(buffer); }, 800);
   }
@@ -1291,9 +1415,15 @@
       }
       var useSid = sid || (live && live.sid) || (asStarter ? newSessionId() : '');
       bindQueryRoom(buffer, room, useSid, asStarter ? (orbit.state.nick() || '') : ((live && live.nick) || ''));
+      if (asStarter) markLiveVisio(buffer, orbit.state.nick() || '', room, useSid, { starter: true });
       setConf(buffer, room, { startedByMe: !!asStarter });
-      if (asStarter) announceConference(orbit, buffer, announceForce ? { force: true } : {});
-      else markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || (live && live.nick) || '', room, useSid);
+      if (asStarter) {
+        announceConference(orbit, buffer, announceForce ? { force: true } : {});
+        startVisioHeartbeat(orbit);
+        sendVisioHeartbeat(orbit, buffer);
+      } else {
+        markLiveVisio(buffer, (getInviteFor(buffer) && getInviteFor(buffer).nick) || (live && live.nick) || '', room, useSid);
+      }
       startIdleWatch(orbit);
       syncAwayClass(orbit);
       bumpIdleActivity();
@@ -1519,6 +1649,7 @@
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     useSyncExternalStore(subscribeStoppedNote, getStoppedNoteSnap, getStoppedNoteSnap);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    expireStaleInvites(orbit);
     var stopped = getStoppedNoteFor(activeBuf);
 
     if (stopped !== null && !openBuf) {
@@ -2100,8 +2231,12 @@
     bindIdleActivityListeners();
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ', idle ' + cfg.idleTimeoutSec + 's)');
-    orbit.on('buffer.active', function () { syncAwayClass(orbit); });
+    orbit.on('buffer.active', function () {
+      syncAwayClass(orbit);
+      expireStaleInvites(orbit);
+    });
     syncAwayClass(orbit);
+    window.setInterval(function () { expireStaleInvites(orbit); }, 15000);
     // Do not preload external_api.js: Jitsi JSON.parse()s the *parent* page
     // query string (nick, channel, age…). Guest URLs then spam
     // "Failed to parse URL parameter value" and can look like a failed IRC connect.
@@ -2136,10 +2271,11 @@
         var tagTags = msg.tags || {};
         var replyVal = String(tagTags[REPLY_TAG] || '').toLowerCase();
         if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)
-            && replyVal !== 'refuse' && replyVal !== 'stop') return;
+            && replyVal !== 'refuse' && replyVal !== 'stop' && replyVal !== 'alive') return;
         var tagTarget = (msg.params && msg.params[0]) || '';
         var tagBuf = isChannelName(tagTarget) ? tagTarget : (msg.nick || tagTarget);
         if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+        if (isStaleConferenceEvent(tagTags, orbit)) return;
         if (conferenceStopMatch('', tagTags) || replyVal === 'stop') {
           handleConferenceStopped(orbit, tagBuf, msg.nick || '');
           return;
@@ -2148,12 +2284,25 @@
           handleConferenceRefused(orbit, tagBuf, msg.nick || '');
           return;
         }
+        // Keep blue banner fresh while the starter's session is still live.
+        if (replyVal === 'alive') {
+          var aliveRoom = String(tagTags[ROOM_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
+          var aliveSid = String(tagTags[SESSION_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
+          if (aliveRoom) channelRooms[inviteKey(tagBuf)] = { name: aliveRoom, serial: 1 };
+          markLiveVisio(tagBuf, msg.nick || '', aliveRoom, aliveSid);
+          if (getInviteFor(tagBuf)) touchInvite(tagBuf);
+          else {
+            delete dismissed[inviteKey(tagBuf)];
+            setStoppedNote(tagBuf, null);
+            setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf), sid: aliveSid });
+          }
+          return;
+        }
         if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)) return;
         var meetId = String(tagTags[ROOM_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
         var sid = String(tagTags[SESSION_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
         if (!meetId && !isChannelName(tagBuf)) meetId = queryMeetRoomId(orbit, tagBuf);
         if (meetId) channelRooms[inviteKey(tagBuf)] = { name: meetId, serial: 1 };
-        // New session id replaces any stale banner / room binding for this MP.
         bindQueryRoom(tagBuf, meetId, sid, msg.nick || '');
         delete dismissed[inviteKey(tagBuf)];
         setStoppedNote(tagBuf, null);
@@ -2171,6 +2320,7 @@
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};
       var text = (msg.params && msg.params[1]) || '';
+      if (isStaleConferenceEvent(tags, orbit)) return;
       if (conferenceRefuseMatch(text, tags)) {
         var refuseTarget = (msg.params && msg.params[0]) || '';
         var refuseBuf = isChannelName(refuseTarget) ? refuseTarget : (msg.nick || refuseTarget);

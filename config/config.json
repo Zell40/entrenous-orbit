@@ -98,6 +98,9 @@
     "maxParticipantsQuery": 2,
     "idleTimeoutSec": 600,
     "idleWarnSec": 60,
+    "inviteTtlSec": 180,
+    "inviteMaxAgeSec": 120,
+    "heartbeatSec": 45,
     "anyoneCanStartIn": ["#Visio.chat"],
     "channelRules": {
       "#Visio.chat": {
@@ -200,7 +203,7 @@
     "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=9",
     "/app/plugins/third/orbit-anope/orbit-anope.js?v=11",
     "/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=71",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=31",
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=32",
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=77",
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=55",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=3",
