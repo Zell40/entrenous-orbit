@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=71"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=73"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -519,6 +519,10 @@
       if (/liste d['']acces|access list|fin de la liste d['']acces/.test(t) && !/permission|denied|refuse/.test(t)) return false;
       return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|\binterdit\b|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
     }
+    function looksLikeAccessDenied(text) {
+      var t = foldText(text);
+      return /acces refuse|access denied|permission denied|pas autoris|not allowed|vous n['']avez pas (acces|le droit)|you do not have/.test(t);
+    }
     function parseAccess(text) {
       var t = foldText(text);
       if (/pas (d[' ]?)?acces|no(t)? (have )?access|don't have access|dont have access|aucun acces/.test(t)
@@ -594,12 +598,22 @@
       });
       return rows;
     }
+    function formatHead(text) {
+      var t = String(text || '').replace(/\s+/g, ' ').trim().toUpperCase();
+      var colon = /:\s*$/.test(t);
+      t = t.replace(/\s*:\s*$/, '');
+      if (!t) return colon ? ':' : '';
+      var i = t.lastIndexOf(' ');
+      var last = i < 0 ? t : t.slice(i + 1);
+      var head = i < 0 ? '' : t.slice(0, i) + ' ';
+      return [head, h('span', { className: 'ocs-nowrap' }, last + (colon ? '\u00A0:' : ''))];
+    }
     function infoCardNodes(text, skipKeyRe, skipHeadRe) {
       return infoRows(text).map(function (row, i) {
         if (skipKeyRe && row.k && skipKeyRe.test(foldText(row.k))) return null;
         if (row.head) {
           if (skipHeadRe && skipHeadRe.test(foldText(row.v))) return null;
-          return h('div', { key: 'h' + i, className: 'ocs-dl__head' }, String(row.v).toUpperCase());
+          return h('div', { key: 'h' + i, className: 'ocs-dl__head' }, formatHead(row.v));
         }
         if (row.k) {
           var val = row.pills && row.pills.length
@@ -1010,11 +1024,12 @@
         var entryRaw = stripIrc(text);
         var entryRows = parseEntryList(entryRaw);
         var entryErr = looksLikeServError(entryRaw) && !entryRows.length;
+        var entryDenied = entryErr && looksLikeAccessDenied(entryRaw);
         patchUi({
-          entryMsgs: entryErr ? ui.entryMsgs : entryRows,
+          entryMsgs: entryErr ? (entryDenied ? [] : ui.entryMsgs) : entryRows,
           loading: false,
-          flash: entryErr ? entryRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
-          flashErr: !!entryErr,
+          flash: entryDenied ? '' : (entryErr ? entryRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash),
+          flashErr: entryDenied ? false : !!entryErr,
         });
         expectKind = '';
         return;
@@ -1050,11 +1065,12 @@
         queryAkick.listOnly = false;
         var akRows = parseAkickList(akRaw);
         var akErr = looksLikeServError(akRaw) && !akRows.length && !/vide|empty/.test(foldText(akRaw));
+        var akDenied = akErr && looksLikeAccessDenied(akRaw);
         patchUi({
-          akickList: akErr ? ui.akickList : akRows,
+          akickList: akErr ? (akDenied ? [] : ui.akickList) : akRows,
           loading: false,
-          flash: akErr ? akRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash,
-          flashErr: !!akErr,
+          flash: akDenied ? '' : (akErr ? akRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash),
+          flashErr: akDenied ? false : !!akErr,
         });
         expectKind = '';
         return;
@@ -1291,7 +1307,9 @@
         'border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
         '.ocs-h{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}',
         '.ocs-info{display:flex;flex-direction:column;gap:.35rem;min-width:0}',
-        '.ocs-dl__head{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);padding:.15rem 0}',
+        '.ocs-dl__head{margin:.2rem 0 0;font-size:.78rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);padding:.15rem 0;',
+        'line-height:1.35;overflow-wrap:normal;word-break:normal}',
+        '.ocs-nowrap{white-space:nowrap}',
         '.ocs-caps{text-transform:uppercase;letter-spacing:.03em;font-weight:800}',
         '.ocs-sep{border:0;border-top:1px solid var(--border);margin:.2rem 0;width:100%}',
         '.ocs-frame{border:1px solid var(--border);border-radius:12px;padding:.55rem .65rem;display:flex;flex-direction:column;gap:.45rem;min-width:0}',
@@ -1869,10 +1887,8 @@
       }, [chan]);
       useEffect(function () {
         if (!open || !isChannel(chan) || !identified()) return undefined;
-        if (s.registered === true && can(ACCESS_RANK.aop)) {
-          queryAccess(chan);
-          queryAkick(chan);
-        }
+        if (s.registered === true && can(ACCESS_RANK.aop)) queryAccess(chan);
+        if (s.registered === true && can(ACCESS_RANK.sop)) queryAkick(chan);
         return undefined;
       }, [open, chan, nick, s.registered, s.access]);
       var me = foldText(orbit.state.nick() || '');
@@ -1948,7 +1964,7 @@
       }
       var modFly = [];
       var canWarn = aop || hopOk;
-      var canAkick = serv && aop;
+      var canAkick = serv && sop;
       if (canWarn) {
         function sendModText(tag, body) {
           var line = nick + ', [' + tag + '] ' + body;
@@ -2294,9 +2310,9 @@
       useEffect(function () {
         if (!s.open || s.registered !== true) return undefined;
         if (s.tab === 'set') queryBotInfo(s.chan || chan);
-        if (s.tab === 'divers') queryEntryMsg(s.chan || chan);
+        if (s.tab === 'divers' && (ACCESS_RANK[s.access] || 0) >= ACCESS_RANK.sop) queryEntryMsg(s.chan || chan);
         return undefined;
-      }, [s.open, s.tab, s.chan, s.registered]);
+      }, [s.open, s.tab, s.chan, s.registered, s.access]);
       useEffect(function () {
         if (!s.open || s.registered !== true || s.tab !== 'topic') return undefined;
         if (parseChanOptions(s.infoText).TOPICHISTORY) queryTopicHistory(s.chan || chan);
@@ -2325,7 +2341,7 @@
       }, [s.open, s.tab, s.infoText]);
       useEffect(function () {
         if (!s.open || s.tab !== 'bans' || s.registered !== true) return undefined;
-        if ((ACCESS_RANK[s.access] || 0) < ACCESS_RANK.aop) return undefined;
+        if ((ACCESS_RANK[s.access] || 0) < ACCESS_RANK.sop) return undefined;
         queryAkick(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
@@ -2682,7 +2698,7 @@
 
         if (tab === 'bans' && showBans) {
           var aopBan = can(ACCESS_RANK.aop);
-          if (aopBan) {
+          if (can(ACCESS_RANK.sop)) {
             var akKids = [
               h('p', { className: 'ocs-h' }, pick('Kicks automatiques (AKICK)', 'Auto-kicks (AKICK)')),
               h('p', { className: 'ocs-sub' }, pick(
@@ -2727,6 +2743,8 @@
               goCs('AKICK ' + ch + ' ADD ' + t + (akickReason.trim() ? ' ' + akickReason.trim() : ''));
             }, 'plus', pick('Ajouter', 'Add'));
             body.push(h('div', { className: 'ocs-block' }, akKids));
+          }
+          if (aopBan) {
             body.push(h('div', { className: 'ocs-block' }, [
               h('p', { className: 'ocs-h' }, pick('Bannir', 'Ban')),
               h(Field, { label: pick('Pseudo / masque', 'Nick / mask') },
@@ -3031,6 +3049,7 @@
           }
           pushBtn(intro, '', function () { queryBotInfo(ch, { notify: true }); }, 'info', pick('Actualiser l’info bot', 'Refresh bot info'));
           body.push(block(intro));
+          if (can(ACCESS_RANK.sop)) {
           var welcome = [
             h('p', { className: 'ocs-h' }, pick('Message d’accueil', 'Welcome message')),
             h('p', { className: 'ocs-sub' }, pick(
@@ -3068,6 +3087,7 @@
               labeled('novoice', pick('Tout retirer', 'Clear all')))
           ));
           body.push(block(welcome));
+          }
           var invite = [
             h(Field, { caps: true, label: pick('Inviter (vide = toi)', 'Invite (empty = you)') },
               h('input', { className: 'ocs-input', value: inviteNick, onChange: function (e) { setInviteNick(e.target.value); } })

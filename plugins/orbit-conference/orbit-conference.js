@@ -238,7 +238,7 @@
     conf.room = buffer ? (room || conf.room || '') : '';
     conf.startedByMe = !!(buffer && meta.startedByMe);
     document.body.classList.toggle('oconf-open', !!buffer);
-    if (!buffer) document.body.classList.remove('oconf-away', 'oconf-idle-warn');
+    if (!buffer) document.body.classList.remove('oconf-away', 'oconf-idle-warn', 'oconf-open');
     if (buffer) {
       document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
       // Keep invite in memory so the blue rejoin banner comes back after leaving the panel.
@@ -320,8 +320,13 @@
   function syncAwayClass(orbit) {
     var active = '';
     try { active = (orbit && orbit.state && orbit.state.active && orbit.state.active()) || ''; } catch (e) { /* ignore */ }
-    var away = !!(conf.active && conf.buffer && inviteKey(active) !== inviteKey(conf.buffer));
+    var has = !!(conf.active && conf.buffer);
+    var onVisioBuf = has && inviteKey(active) === inviteKey(conf.buffer);
+    var away = has && !onVisioBuf;
+    // Layout compression only on the salon that owns the visio — not on other buffers.
+    document.body.classList.toggle('oconf-open', onVisioBuf);
     document.body.classList.toggle('oconf-away', away);
+    if (!has) document.body.classList.remove('oconf-idle-warn');
   }
 
   /** Switch UI back to the buffer that owns the open visio. */
@@ -1767,6 +1772,7 @@
   function JitsiPanel(props) {
     var orbit = props.orbit;
     var buffer = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    var activeBuf = useActiveBuffer(orbit);
     var hostRef = useRef(null);
     var apiRef = useRef(null);
     var panelRef = useRef(null);
@@ -2115,13 +2121,21 @@
       return null;
     }
 
+    var onVisioBuf = inviteKey(activeBuf) === inviteKey(buffer);
     var narrow = isNarrow();
     var style = heightPx
       ? { height: heightPx + 'px', maxHeight: narrow ? '50vh' : '70vh' }
       : { height: narrow ? cfg.viewHeightMobile : cfg.viewHeight };
 
+    // Keep Jitsi mounted off-screen when browsing another salon so the call
+    // continues, but the panel is only visible on the visio's own buffer.
     return h(React.Fragment, null,
-      h('div', { className: 'oconf-panel', style: style, ref: panelRef },
+      h('div', {
+        className: 'oconf-panel' + (onVisioBuf ? '' : ' oconf-panel--detached'),
+        style: style,
+        ref: panelRef,
+        'aria-hidden': onVisioBuf ? undefined : true,
+      },
         h('div', { className: 'oconf-panel__bar' },
           h('strong', { className: 'oconf-panel__title' },
             joined
@@ -2218,6 +2232,7 @@
       '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 10px 28px -18px rgba(185,28,28,.45)}50%{box-shadow:0 10px 28px -12px rgba(185,28,28,.9)}}',
       'body.oconf-away .oconf-panel{outline:2px solid #dc2626;outline-offset:-2px}',
       'body.oconf-idle-warn .oconf-panel{outline:2px solid #d97706;outline-offset:-2px}',
+      '.oconf-panel--detached{position:fixed!important;left:-9999px!important;top:0!important;width:2px!important;height:2px!important;min-height:0!important;max-height:none!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;z-index:-1!important;border:0!important;box-shadow:none!important;outline:none!important;flex:none!important}',
       '.topbar__search.oconf-cam-away{color:#dc2626!important;animation:oconfAwayPulse 1.8s ease-out infinite}',
     ].join('');
     document.head.appendChild(el);
