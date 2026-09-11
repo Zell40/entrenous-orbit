@@ -1622,28 +1622,36 @@
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     if (!openBuf) return null;
     if (inviteKey(activeBuf) === inviteKey(openBuf)) return null;
-    return h('div', {
-      className: 'oconf-away-banner',
-      role: 'status',
-      'aria-live': 'polite',
-    },
-      h('span', { className: 'oconf-away-banner__ico', 'aria-hidden': true }, '📹'),
-      h('span', { className: 'oconf-away-banner__txt' },
-        orbit.i18n.pick({
-          fr: 'Visio toujours active sur ' + openBuf + ' — micro/caméra peuvent être actifs. Vous êtes peut-être filmé.',
-          en: 'Video call still active on ' + openBuf + ' — mic/camera may be on. You may still be filmed.',
-        })
-      ),
-      h('button', {
-        type: 'button',
-        className: 'oconf-away-banner__btn',
-        onClick: function () { focusVisioBuffer(orbit, openBuf); },
-      }, orbit.i18n.pick({ fr: 'Revenir', en: 'Return' })),
-      h('button', {
-        type: 'button',
-        className: 'oconf-away-banner__btn oconf-away-banner__btn--leave',
-        onClick: function () { closeVisioPanel(orbit, openBuf); },
-      }, orbit.i18n.pick({ fr: 'Quitter la visio', en: 'Leave call' }))
+    // Fixed floating chip — must NOT take flex space in main (breaks Petit Bac / game HUDs).
+    return h('div', { className: 'oconf-away-slot', 'aria-hidden': true },
+      h('div', {
+        className: 'oconf-away-chip',
+        role: 'status',
+        'aria-live': 'polite',
+        'aria-hidden': false,
+      },
+        h('span', { className: 'oconf-away-chip__dot', 'aria-hidden': true }),
+        h('span', { className: 'oconf-away-chip__txt' },
+          orbit.i18n.pick({
+            fr: 'Visio en cours sur ' + openBuf,
+            en: 'Video call on ' + openBuf,
+          })
+        ),
+        h('button', {
+          type: 'button',
+          className: 'oconf-away-chip__btn',
+          onClick: function () { focusVisioBuffer(orbit, openBuf); },
+        }, orbit.i18n.pick({ fr: 'Revenir', en: 'Return' })),
+        h('button', {
+          type: 'button',
+          className: 'oconf-away-chip__btn oconf-away-chip__btn--leave',
+          title: orbit.i18n.pick({
+            fr: 'Quitter la visio (micro/caméra)',
+            en: 'Leave the video call',
+          }),
+          onClick: function () { closeVisioPanel(orbit, openBuf); },
+        }, orbit.i18n.pick({ fr: 'Quitter', en: 'Leave' }))
+      )
     );
   }
 
@@ -2222,18 +2230,20 @@
       '.oconf-join{display:inline-flex;margin-left:.45rem;vertical-align:middle}',
       '.oconf-join__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
       '.topbar__search.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
-      '.oconf-away-banner{flex:none;display:flex;align-items:center;gap:.65rem;padding:.55rem .85rem;border-bottom:2px solid #dc2626;background:color-mix(in srgb,#b91c1c 22%,var(--bg,#111));box-shadow:0 10px 28px -18px rgba(185,28,28,.65);animation:oconfAwayPulse 1.8s ease-out infinite;z-index:25}',
-      '.oconf-away-banner__ico{flex:none;font-size:1.05rem}',
-      '.oconf-away-banner__txt{flex:1;min-width:0;font-size:.84rem;font-weight:800;color:var(--ink-strong,var(--ink));line-height:1.3}',
-      '.oconf-away-banner__btn{flex:none;border:1px solid color-mix(in srgb,#dc2626 50%,white);cursor:pointer;font:inherit;font-size:.78rem;font-weight:800;padding:.36rem .75rem;border-radius:999px;background:linear-gradient(180deg,#ef4444,#b91c1c);color:#fff;white-space:nowrap}',
-      '.oconf-away-banner__btn:hover{filter:brightness(1.06)}',
-      '.oconf-away-banner__btn--leave{background:linear-gradient(180deg,#6b7280,#4b5563);border-color:#9ca3af}',
-      '@media (max-width:640px){.oconf-away-banner{flex-wrap:wrap}.oconf-away-banner__txt{min-width:100%}.oconf-away-banner__btn{flex:1 1 auto}}',
-      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 10px 28px -18px rgba(185,28,28,.45)}50%{box-shadow:0 10px 28px -12px rgba(185,28,28,.9)}}',
-      'body.oconf-away .oconf-panel{outline:2px solid #dc2626;outline-offset:-2px}',
+      '.oconf-away-banner{display:none}',
+      '.oconf-away-slot{flex:none;width:0;height:0;overflow:visible;margin:0;padding:0;border:0;pointer-events:none}',
+      '.oconf-away-chip{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:90;pointer-events:auto;display:flex;align-items:center;gap:.45rem;max-width:min(420px,calc(100vw - 20px));padding:.35rem .4rem .35rem .55rem;border-radius:999px;border:1px solid color-mix(in srgb,#b91c1c 45%,transparent);background:color-mix(in srgb,#7f1d1d 88%,#111);color:#fff;box-shadow:0 10px 28px -12px rgba(0,0,0,.55);font:inherit}',
+      '.oconf-away-chip__dot{flex:none;width:8px;height:8px;border-radius:50%;background:#f87171;box-shadow:0 0 0 0 rgba(248,113,113,.7);animation:oconfAwayPulse 1.6s ease-out infinite}',
+      '.oconf-away-chip__txt{flex:1;min-width:0;font-size:.78rem;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.oconf-away-chip__btn{flex:none;border:0;cursor:pointer;font:inherit;font-size:.72rem;font-weight:800;padding:.28rem .55rem;border-radius:999px;background:#ef4444;color:#fff}',
+      '.oconf-away-chip__btn:hover{filter:brightness(1.06)}',
+      '.oconf-away-chip__btn--leave{background:rgba(255,255,255,.14)}',
+      '@media (max-width:880px){.oconf-away-chip{top:calc(52px + env(safe-area-inset-top,0px));max-width:calc(100vw - 12px);gap:.35rem;padding:.32rem .35rem .32rem .5rem}.oconf-away-chip__txt{font-size:.74rem}.oconf-away-chip__btn{padding:.26rem .48rem;font-size:.7rem}}',
+      '@media (max-width:640px){.oconf-away-chip{top:calc(48px + env(safe-area-inset-top,0px))}}',
+      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.55)}70%{box-shadow:0 0 0 8px rgba(248,113,113,0)}}',
       'body.oconf-idle-warn .oconf-panel{outline:2px solid #d97706;outline-offset:-2px}',
       '.oconf-panel--detached{position:fixed!important;left:-9999px!important;top:0!important;width:2px!important;height:2px!important;min-height:0!important;max-height:none!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;z-index:-1!important;border:0!important;box-shadow:none!important;outline:none!important;flex:none!important}',
-      '.topbar__search.oconf-cam-away{color:#dc2626!important;animation:oconfAwayPulse 1.8s ease-out infinite}',
+      '.topbar__search.oconf-cam-away{color:#dc2626!important;animation:oconfAwayPulse 1.6s ease-out infinite}',
     ].join('');
     document.head.appendChild(el);
   }
