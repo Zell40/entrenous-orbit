@@ -16,6 +16,7 @@
 
   var TAG = '+entrenous.fr/conference';
   var ROOM_TAG = '+entrenous.fr/conference-room';
+  var REPLY_TAG = '+entrenous.fr/conference-reply';
   var EVT_SHOW = 'plugin-conference.show';
   var EVT_HIDE = 'plugin-conference.hide';
   var HEIGHT_KEY = 'panelHeightPx';
@@ -148,6 +149,8 @@
       joinText: c.joinText || '-{{ nick }}- vous invite à rejoindre la conférence. Cliquez sur le lien pour y acceder : {{ link }}',
       secureInviteText: c.secureInviteText
         || '-{{ nick }}- a lancé une visio. Rejoignez-la depuis votre profil EntreNous (Mon identité) — aucun lien public.',
+      secureQueryInviteText: c.secureQueryInviteText
+        || '-{{ nick }}- vous invite en visio. Acceptez ou refusez depuis le bandeau.',
       joinButtonText: c.joinButtonText || 'Rejoindre',
       requireAccount: c.requireAccount !== false,
       requireChannelOp: c.requireChannelOp !== false,
@@ -393,6 +396,59 @@
 
   function conferenceStopMatch(text) {
     return /-[^-]+-\s+a arrêté la conférence\./i.test(String(text || ''));
+  }
+
+  function conferenceRefuseMatch(text, tags) {
+    if (tags && String(tags[REPLY_TAG] || '').toLowerCase() === 'refuse') return true;
+    return /-[^-]+-\s+a refus[eé] la visio\.?/i.test(String(text || ''));
+  }
+
+  /** Peer refused our query visio — close our panel and clear the live session. */
+  function handleConferenceRefused(orbit, buffer, fromNick) {
+    if (!buffer) return;
+    var key = inviteKey(buffer);
+    var room = (liveVisio[key] && liveVisio[key].room)
+      || (conf.active && conf.buffer && inviteKey(conf.buffer) === key ? conf.room : '')
+      || '';
+    clearLiveVisio(buffer);
+    setInvite(buffer, null);
+    delete dismissed[key];
+    try {
+      orbit.notify('Visio', orbit.i18n.pick({
+        fr: (fromNick || 'Votre contact') + ' a refusé la visio.',
+        en: (fromNick || 'Your contact') + ' declined the video call.',
+      }));
+    } catch (e) { /* ignore */ }
+    if (room) {
+      try { revokeSecureInvites(orbit, buffer, room); } catch (e2) { /* ignore */ }
+    }
+    if (conf.active && conf.buffer && inviteKey(conf.buffer) === key) {
+      setConf(null);
+    }
+  }
+
+  /** Decline a query visio invite and tell the caller. */
+  function refuseConference(orbit, buffer) {
+    if (!buffer) return;
+    var nick = orbit.state.nick() || 'user';
+    var cfg = confCfg(orbit);
+    var text = '* -' + nick + '- a refusé la visio.';
+    var tags = {};
+    tags[TAG] = cfg.tagID || '1';
+    tags[REPLY_TAG] = 'refuse';
+    try {
+      if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, text, tags);
+      else if (orbit.irc.msg) orbit.irc.msg(buffer, text);
+      else orbit.irc.send('PRIVMSG ' + buffer + ' :' + text);
+    } catch (e) {
+      try { orbit.irc.msg(buffer, text); } catch (e2) { /* ignore */ }
+    }
+    try {
+      orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + REPLY_TAG + '=refuse TAGMSG ' + buffer);
+    } catch (e3) { /* ignore */ }
+    clearLiveVisio(buffer);
+    setInvite(buffer, null);
+    dismissed[inviteKey(buffer)] = true;
   }
 
   function delayMs(ms) {
@@ -738,8 +794,12 @@
       try {
         orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
       } catch (e) { /* ignore */ }
-      // Informative PRIVMSG — no Jitsi URL (safe for private/secret channels).
-      var secureTpl = cfg.secureInviteText || '';
+      // Informative PRIVMSG — no Jitsi URL. In queries this PRIVMSG also opens the
+      // peer's MP buffer (must not be swallowed by hideInviteForOrbit).
+      var isQuery = !isChannelName(buffer);
+      var secureTpl = isQuery
+        ? (cfg.secureQueryInviteText || cfg.secureInviteText || '')
+        : (cfg.secureInviteText || '');
       var secureText = '* ' + secureTpl.replace(/\{\{\s*nick\s*\}\}/g, nick);
       secureText = secureText.replace(/\s+/g, ' ').trim();
       if (secureText && secureText !== '*') {
@@ -756,11 +816,22 @@
       return;
     }
 
-    // No public Jitsi URL: TAGMSG only for Orbit clients.
+    // No public Jitsi URL: TAGMSG for Orbit + a short PRIVMSG in queries so the
+    // peer gets a real MP buffer / notification even with no prior conversation.
     if (!cfg.publicLinkInInvite) {
       try {
         orbit.irc.send('@' + TAG + '=' + (cfg.tagID || '1') + ';' + ROOM_TAG + '=' + room + ' TAGMSG ' + buffer);
       } catch (e) { /* ignore */ }
+      if (!isChannelName(buffer)) {
+        var qText = '* -' + nick + '- vous a envoyé une demande de visio.';
+        var tagsQ = {};
+        tagsQ[TAG] = cfg.tagID || '1';
+        try {
+          if (orbit.irc.msgTagged) orbit.irc.msgTagged(buffer, qText, tagsQ);
+          else if (orbit.irc.msg) orbit.irc.msg(buffer, qText);
+          else orbit.irc.send('PRIVMSG ' + buffer + ' :' + qText);
+        } catch (eQ) { /* ignore */ }
+      }
       return;
     }
     var link = publicLink(orbit, buffer);
@@ -1049,15 +1120,31 @@
     if (/^rejoindre$/i.test(joinLabel)) joinLabel = 'Rejoindre la visio';
     var me = (orbit.state.nick && orbit.state.nick()) || '';
     var selfLive = me && inv.nick && String(inv.nick).toLowerCase() === String(me).toLowerCase();
+    var isQuery = !isChannelName(activeBuf);
+    var acceptLabel = selfLive
+      ? orbit.i18n.pick({ fr: 'Reconnecter', en: 'Rejoin' })
+      : (isQuery
+        ? orbit.i18n.pick({ fr: 'Accepter', en: 'Accept' })
+        : joinLabel);
     return h('div', { className: 'oconf-invite' },
       h('span', { className: 'oconf-invite__txt' },
         selfLive
-          ? orbit.i18n.pick({ fr: 'Visio en cours — vous pouvez vous y reconnecter.', en: 'Video call in progress — you can rejoin.' })
-          : ((inv.nick || 'Quelqu\u2019un') + ' ' + orbit.i18n.pick({ fr: 'a lanc\u00e9 une visio.', en: 'started a video call.' })
-            + (!joinGate.ok ? (' ' + orbit.i18n.pick({
-              fr: needsRegister ? 'Inscrivez-vous pour rejoindre la visio. ' : 'Acc\u00e8s impossible : ',
-              en: needsRegister ? 'Register to join the video call. ' : 'Cannot join: ',
-            }) + (needsRegister ? '' : joinGate.reason)) : ''))
+          ? orbit.i18n.pick({
+            fr: 'Visio en cours — reconnectez-vous via ce bandeau ou l’icône caméra.',
+            en: 'Video call in progress — rejoin via this banner or the camera icon.',
+          })
+          : (isQuery
+            ? ((inv.nick || 'Quelqu\u2019un') + ' ' + orbit.i18n.pick({
+              fr: 'vous invite en visio.',
+              en: 'invites you to a video call.',
+            }) + (!joinGate.ok ? (' ' + (needsRegister
+              ? orbit.i18n.pick({ fr: 'Inscrivez-vous pour accepter.', en: 'Register to accept.' })
+              : joinGate.reason)) : ''))
+            : ((inv.nick || 'Quelqu\u2019un') + ' ' + orbit.i18n.pick({ fr: 'a lanc\u00e9 une visio.', en: 'started a video call.' })
+              + (!joinGate.ok ? (' ' + orbit.i18n.pick({
+                fr: needsRegister ? 'Inscrivez-vous pour rejoindre la visio. ' : 'Acc\u00e8s impossible : ',
+                en: needsRegister ? 'Register to join the video call. ' : 'Cannot join: ',
+              }) + (needsRegister ? '' : joinGate.reason)) : '')))
       ),
       (needsRegister
         ? h('a', {
@@ -1072,12 +1159,24 @@
           disabled: !joinGate.ok,
           title: !joinGate.ok ? joinGate.reason : undefined,
           onClick: function () { openConference(orbit, activeBuf, { joinOnly: true }); },
-        }, '\uD83D\uDCF9 ' + (!joinGate.ok ? orbit.i18n.pick({ fr: 'Acc\u00e8s refus\u00e9', en: 'Access denied' }) : joinLabel))),
+        }, '\uD83D\uDCF9 ' + (!joinGate.ok
+          ? orbit.i18n.pick({ fr: 'Acc\u00e8s refus\u00e9', en: 'Access denied' })
+          : acceptLabel))),
+      (!selfLive && isQuery && joinGate.ok
+        ? h('button', {
+          type: 'button',
+          className: 'oconf-invite__btn oconf-invite__btn--refuse',
+          onClick: function () { refuseConference(orbit, activeBuf); },
+        }, orbit.i18n.pick({ fr: 'Refuser', en: 'Decline' }))
+        : null),
       h('button', {
         type: 'button',
         className: 'oconf-invite__dismiss',
         'aria-label': orbit.i18n.pick({ fr: 'Ignorer', en: 'Dismiss' }),
-        title: orbit.i18n.pick({ fr: 'Ne pas rejoindre', en: 'Dismiss' }),
+        title: orbit.i18n.pick({
+          fr: selfLive ? 'Masquer le bandeau (la visio reste active)' : 'Ignorer pour le moment',
+          en: selfLive ? 'Hide banner (call stays active)' : 'Dismiss for now',
+        }),
         onClick: function () {
           dismissed[inviteKey(activeBuf)] = true;
           setInvite(activeBuf, null);
@@ -1472,6 +1571,8 @@
       '.oconf-invite__txt{flex:1;min-width:0;font-size:.86rem;font-weight:800;color:#fff;color:var(--ink-strong,var(--ink));text-shadow:0 1px 0 rgba(255,255,255,.08)}',
       '.oconf-invite__btn{border:1px solid #93c5fd;border:1px solid color-mix(in srgb,var(--accent,#2563eb) 62%,white);cursor:pointer;font:inherit;font-size:.8rem;font-weight:800;padding:.38rem .82rem;border-radius:999px;background:#2563eb;background:linear-gradient(180deg,color-mix(in srgb,var(--accent,#2563eb) 92%,white),color-mix(in srgb,var(--accent,#2563eb) 74%,black 8%));color:#fff;box-shadow:0 0 0 0 rgba(37,99,235,.58),0 6px 18px -10px rgba(37,99,235,.75);animation:oconfInvitePulse 1.6s ease-out infinite;white-space:nowrap}',
       '.oconf-invite__btn:hover{filter:brightness(1.05);transform:translateY(-1px)}',
+      '.oconf-invite__btn--refuse{background:linear-gradient(180deg,#6b7280,#4b5563);border-color:#9ca3af;animation:none;box-shadow:none}',
+      '.oconf-invite__btn--refuse:hover{filter:brightness(1.08)}',
       '.oconf-invite__btn.is-disabled,.nmenu__item.is-disabled{opacity:.62;cursor:not-allowed;filter:none;transform:none}',
       '.oconf-invite__btn:focus-visible{outline:2px solid color-mix(in srgb,var(--accent,#2563eb) 75%,white);outline-offset:2px}',
       '@media (max-width:640px){.oconf-invite{flex-wrap:wrap;align-items:flex-start}.oconf-invite__txt{min-width:100%;margin-bottom:.15rem}.oconf-invite__btn{flex:1 1 auto;min-width:0;white-space:normal;text-align:center}.oconf-invite__dismiss{margin-left:auto}}',
@@ -1522,20 +1623,41 @@
       }
       if (String(cmd).toUpperCase() === 'TAGMSG') {
         var tagTags = msg.tags || {};
-        if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)) return;
+        if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)
+            && String(tagTags[REPLY_TAG] || '').toLowerCase() !== 'refuse') return;
         var tagTarget = (msg.params && msg.params[0]) || '';
         var tagBuf = isChannelName(tagTarget) ? tagTarget : (msg.nick || tagTarget);
         if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+        if (conferenceRefuseMatch('', tagTags) || String(tagTags[REPLY_TAG] || '').toLowerCase() === 'refuse') {
+          handleConferenceRefused(orbit, tagBuf, msg.nick || '');
+          return;
+        }
+        if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)) return;
         var meetId = String(tagTags[ROOM_TAG] || '').replace(/[^A-Za-z0-9._-]/g, '');
         if (meetId) channelRooms[inviteKey(tagBuf)] = { name: meetId, serial: 1 };
         markLiveVisio(tagBuf, msg.nick || '', meetId);
         delete dismissed[inviteKey(tagBuf)];
         setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf) });
+        if (!isChannelName(tagBuf)) {
+          try {
+            orbit.notify('Visio', orbit.i18n.pick({
+              fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
+              en: (msg.nick || 'Someone') + ' sent you a video call request.',
+            }));
+          } catch (eN) { /* ignore */ }
+        }
         return;
       }
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
       var tags = msg.tags || {};
       var text = (msg.params && msg.params[1]) || '';
+      if (conferenceRefuseMatch(text, tags)) {
+        var refuseTarget = (msg.params && msg.params[0]) || '';
+        var refuseBuf = isChannelName(refuseTarget) ? refuseTarget : (msg.nick || refuseTarget);
+        if (msg.nick && orbit.state.nick() && msg.nick.toLowerCase() === orbit.state.nick().toLowerCase()) return;
+        handleConferenceRefused(orbit, refuseBuf, msg.nick || '');
+        return;
+      }
       if (conferenceStopMatch(text)) {
         var targetStop = (msg.params && msg.params[0]) || '';
         var stopBuf = isChannelName(targetStop) ? targetStop : (msg.nick || targetStop);
@@ -1567,6 +1689,14 @@
       markLiveVisio(buf, msg.nick || '', (channelRooms[inviteKey(buf)] && channelRooms[inviteKey(buf)].name) || '');
       delete dismissed[inviteKey(buf)];
       setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf) });
+      if (!isChannelName(buf)) {
+        try {
+          orbit.notify('Visio', orbit.i18n.pick({
+            fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
+            en: (msg.nick || 'Someone') + ' sent you a video call request.',
+          }));
+        } catch (eN2) { /* ignore */ }
+      }
     });
 
     orbit.on('raw', function (msg) {
@@ -1611,7 +1741,13 @@
 
     if (cfg.hideInviteForOrbit) {
       orbit.addMessageFilter(function (m) {
-        return conferenceStopMatch(m.text || '') || !!conferenceInviteMatch(orbit, m.text || '', m.tags || {});
+        // Never swallow query traffic: filtering a first-contact visio PRIVMSG
+        // would prevent Orbit from opening the MP buffer (no banner, no notif).
+        var target = String(m.target || '');
+        if (target && !/^[#&+!]/.test(target)) return false;
+        return conferenceStopMatch(m.text || '')
+          || conferenceRefuseMatch(m.text || '', m.tags || {})
+          || !!conferenceInviteMatch(orbit, m.text || '', m.tags || {});
       });
     }
 
