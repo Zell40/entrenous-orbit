@@ -21,17 +21,16 @@ Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panne
 | Accès | Où | Actions |
 | --- | --- | --- |
 | Identifié, salon libre | Panneau | Enregistrer le salon |
-| VOP+ | Liste (Accès Anope) | Accès Voice (VOP) |
-| HOP+ | Liste (Accès Anope) | Accès HalfOp (HOP), si le réseau a `%` |
-| AOP+ | Liste (Accès Anope / Modération) | Accès VOP/HOP, Kick, Ban, AKICK |
-| SOP+ | Liste (Accès Anope) | Accès AOP/SOP, Admin (SOP) |
-| Fondateur | Liste (Accès Anope) | Accès QOP (propriétaire) |
+| AOP+ | Liste → Modération | Avertissements, langage |
+| SOP+ | Liste → Gérer les accès | Accès inférieurs seulement (VOP, HOP, AOP) |
+| SOP+ | Liste → Modération | AKICK |
+| Fondateur | Liste → Gérer les accès | VOP, HOP, AOP, SOP, QOP |
 | AOP+ | Panneau → Topic | Topic, lock, keep |
 | AOP+ | Panneau → Modes / Divers | MODE SET, LOCK ADD/DEL, MODE CLEAR, invite, status, messages d’accueil, SAY / ACT / INFO BotServ, YTSTATS |
 | HOP+ | Panneau → Bans | UNBAN |
 | AOP+ | Panneau → Bans | AKICK, BAN, MODE CLEAR bans |
 | SOP+ | Panneau → Bans | Type de Ban (BANTYPE) |
-| SOP+ | Panneau → Accès / SET | Liste ACCESS complète (`LIST * ALL`), ajout XOP (QOP fondateur), SET |
+| SOP+ | Panneau → Accès / SET | Liste ACCESS, ajout XOP inférieur au sien (QOP fondateur), SET |
 | SOP+ | Panneau → Set → Autres | Commandes fantaisies (FANTASY) |
 | SOP+ | Panneau → Set → Modération | Kick automatique, BADWORDS |
 | Fondateur | Panneau → Divers | Suppression du salon (popup Orbit + code ChanServ) |
@@ -45,7 +44,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=74"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=75"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

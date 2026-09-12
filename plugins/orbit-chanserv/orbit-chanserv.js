@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=74"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=75"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -188,6 +188,42 @@
         }
       });
       return best;
+    }
+    function accessRankOf(level) {
+      var lv = String(level || '');
+      var named = ACCESS_RANK[lv.toLowerCase()];
+      if (named) return named;
+      if (/founder/i.test(lv)) return ACCESS_RANK.founder;
+      if (/^\d+$/.test(lv)) {
+        var n = parseInt(lv, 10);
+        if (n >= 100) return ACCESS_RANK.founder;
+        if (n >= 10) return ACCESS_RANK.sop;
+        if (n >= 5) return ACCESS_RANK.aop;
+        if (n >= 4) return ACCESS_RANK.hop;
+        if (n > 0) return ACCESS_RANK.vop;
+      }
+      return 0;
+    }
+    function canManageXop(lv) {
+      var mine = rank();
+      if (mine < ACCESS_RANK.sop) return false;
+      var target = accessRankOf(lv);
+      if (!target) return false;
+      if (mine >= ACCESS_RANK.founder) return true;
+      return mine > target;
+    }
+    function canManageAccessRow(row) {
+      var mine = rank();
+      if (mine < ACCESS_RANK.sop) return false;
+      if (mine >= ACCESS_RANK.founder) return true;
+      var sys = String((row && row.system) || '').toUpperCase();
+      if (sys === 'FLAGS' || isFlagToken(row && row.level)) return false;
+      var rlv = String((row && row.level) || '');
+      if (/^\d+$/.test(rlv)) return parseInt(rlv, 10) < mine;
+      return canManageXop(rlv === 'FOUNDER' ? 'QOP' : rlv);
+    }
+    function xopLevelsICanManage() {
+      return ['VOP', 'HOP', 'AOP', 'SOP', 'QOP'].filter(function (lv) { return canManageXop(lv); });
     }
     function amChannelOp(chan) {
       try {
@@ -1887,7 +1923,7 @@
       }, [chan]);
       useEffect(function () {
         if (!open || !isChannel(chan) || !identified()) return undefined;
-        if (s.registered === true && can(ACCESS_RANK.aop)) queryAccess(chan);
+        if (s.registered === true && can(ACCESS_RANK.sop)) queryAccess(chan);
         if (s.registered === true && can(ACCESS_RANK.sop)) queryAkick(chan);
         return undefined;
       }, [open, chan, nick, s.registered, s.access]);
@@ -1912,29 +1948,29 @@
       var founder = serv ? can(ACCESS_RANK.founder) : ircOp;
       var fly = [];
       var pfx = memberPrefixChars(ch, nick);
-      if (serv && can(ACCESS_RANK.aop)) {
+      if (serv && can(ACCESS_RANK.sop)) {
         var haveXop = xopForNick(nick);
         var accFly = [];
-        function accBtn(lv, add, need, label) {
-          if (!can(need)) return;
+        function accBtn(lv, add, label) {
+          if (!canManageXop(lv)) return;
           if (add) {
-            if (haveXop === lv) return;
+            if (haveXop) return;
           } else if (haveXop !== lv) return;
           accFly.push(menuBtn(lv + (add ? 'a' : 'd'), false, function () {
             go(lv + ' ' + ch + ' ' + (add ? 'ADD ' : 'DEL ') + nick);
           }, add ? 'assign' : 'unassign',
             (add ? pick('Créer Accès ', 'Create Access ') : pick('Supprimer Accès ', 'Delete Access ')) + label));
         }
-        accBtn('VOP', true, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
-        accBtn('VOP', false, ACCESS_RANK.aop, pick('Voice (VOP)', 'Voice (VOP)'));
-        accBtn('HOP', true, ACCESS_RANK.aop, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
-        accBtn('HOP', false, ACCESS_RANK.aop, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
-        accBtn('AOP', true, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
-        accBtn('AOP', false, ACCESS_RANK.sop, pick('Opérateur (AOP)', 'Operator (AOP)'));
-        accBtn('SOP', true, ACCESS_RANK.sop, pick('Admin (SOP)', 'Admin (SOP)'));
-        accBtn('SOP', false, ACCESS_RANK.sop, pick('Admin (SOP)', 'Admin (SOP)'));
-        accBtn('QOP', true, ACCESS_RANK.founder, pick('Fondateur (QOP)', 'Founder (QOP)'));
-        accBtn('QOP', false, ACCESS_RANK.founder, pick('Fondateur (QOP)', 'Founder (QOP)'));
+        accBtn('VOP', true, pick('Voice (VOP)', 'Voice (VOP)'));
+        accBtn('VOP', false, pick('Voice (VOP)', 'Voice (VOP)'));
+        accBtn('HOP', true, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
+        accBtn('HOP', false, pick('HalfOp (HOP)', 'HalfOp (HOP)'));
+        accBtn('AOP', true, pick('Opérateur (AOP)', 'Operator (AOP)'));
+        accBtn('AOP', false, pick('Opérateur (AOP)', 'Operator (AOP)'));
+        accBtn('SOP', true, pick('Admin (SOP)', 'Admin (SOP)'));
+        accBtn('SOP', false, pick('Admin (SOP)', 'Admin (SOP)'));
+        accBtn('QOP', true, pick('Fondateur (QOP)', 'Founder (QOP)'));
+        accBtn('QOP', false, pick('Fondateur (QOP)', 'Founder (QOP)'));
         if (accFly.length) {
           fly.push(h('div', {
             key: 'acc',
@@ -2831,8 +2867,8 @@
             ACCESS: pick('ACCESS (niveaux)', 'ACCESS (levels)'),
             FLAGS: 'FLAGS',
           };
-          var accAddLvls = ['VOP', 'HOP', 'AOP', 'SOP'];
-          if (can(ACCESS_RANK.founder)) accAddLvls.push('QOP');
+          var accAddLvls = xopLevelsICanManage();
+          var accPick = accAddLvls.indexOf(accLvl) >= 0 ? accLvl : (accAddLvls[0] || 'VOP');
           var accList = [
             h('p', { className: 'ocs-h' }, pick('Liste des accès', 'Access list')),
           ];
@@ -2846,10 +2882,11 @@
               accList.push(h('p', { className: 'ocs-sub' }, pick('Aucun accès.', 'No access entries yet.')));
             } else {
               accList.push(h('div', { className: 'ocs-acclip' }, rows.map(function (row) {
+                var canDrop = canManageAccessRow(row);
                 return h('div', { key: (row.n || '') + row.nick + row.level, className: 'ocs-acc__row' },
                   h('span', { className: 'ocs-acc__nick' }, row.nick),
                   h('span', { className: 'ocs-pill ocs-acc__type', title: String(row.system || '') }, accessTypeLabel(row)),
-                  h('button', {
+                  canDrop ? h('button', {
                     type: 'button', className: 'ocs-btn',
                     onClick: function () {
                       var sys = String(row.system || '').toUpperCase();
@@ -2862,7 +2899,7 @@
                         goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
                       }
                     },
-                  }, pick('Retirer', 'Remove'))
+                  }, pick('Retirer', 'Remove')) : null
                 );
               })));
             }
@@ -2872,9 +2909,10 @@
               labeled('list', pick('Actualiser la liste', 'Refresh list')))
           ));
           body.push(h('div', { className: 'ocs-block' }, accList));
+          if (accAddLvls.length) {
           body.push(h('div', { className: 'ocs-block' }, [
             h('p', { className: 'ocs-h' }, pick('Ajouter un accès', 'Add access')),
-            h('select', { className: 'ocs-select', value: accLvl, onChange: function (e) { setAccLvl(e.target.value); } },
+            h('select', { className: 'ocs-select', value: accPick, onChange: function (e) { setAccLvl(e.target.value); } },
               accAddLvls.map(function (lv) { return h('option', { key: lv, value: lv }, accLabels[lv] || lv); })
             ),
             h(Field, { label: pick('Compte / pseudo', 'Account / nick') },
@@ -2882,13 +2920,14 @@
             ),
             h('div', { className: 'ocs-row' },
               h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-                if (accNick.trim()) goCs(accLvl + ' ' + ch + ' ADD ' + accNick.trim());
+                if (accNick.trim()) goCs(accPick + ' ' + ch + ' ADD ' + accNick.trim());
               } }, labeled('assign', pick('Ajouter', 'Add'))),
               h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
-                if (accNick.trim()) goCs(accLvl + ' ' + ch + ' DEL ' + accNick.trim());
+                if (accNick.trim()) goCs(accPick + ' ' + ch + ' DEL ' + accNick.trim());
               } }, labeled('unassign', pick('Retirer', 'Remove')))
             ),
           ]));
+          }
         }
 
         if (tab === 'set' && showSet) {
