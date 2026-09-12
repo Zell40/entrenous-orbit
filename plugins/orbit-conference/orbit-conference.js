@@ -280,6 +280,16 @@
   function setConf(buffer, room, meta) {
     meta = meta || {};
     if (!buffer) {
+      Object.keys(jitsiByKey).forEach(function (k) {
+        var api = jitsiByKey[k];
+        hangingUpKey[k] = true;
+        if (api) {
+          try { api.executeCommand('hangup'); } catch (eH) { /* ignore */ }
+          try { api.dispose(); } catch (eD) { /* ignore */ }
+        }
+        delete jitsiByKey[k];
+        window.setTimeout(function () { delete hangingUpKey[k]; }, 2500);
+      });
       sessions.byKey = Object.create(null);
       sessions.order = [];
       syncConfFromSessions();
@@ -309,6 +319,32 @@
     sessions.order = sessions.order.filter(function (k) { return k !== key; });
     syncConfFromSessions();
     return had;
+  }
+
+  /** Live Jitsi ExternalAPI handles — hang up before unmount so no ghost stays in the room. */
+  var jitsiByKey = Object.create(null);
+  var hangingUpKey = Object.create(null);
+
+  function registerJitsiApi(buffer, api) {
+    if (!buffer || !api) return;
+    jitsiByKey[inviteKey(buffer)] = api;
+  }
+  function unregisterJitsiApi(buffer, api) {
+    if (!buffer) return;
+    var key = inviteKey(buffer);
+    if (!api || jitsiByKey[key] === api) delete jitsiByKey[key];
+  }
+  function forceHangupJitsi(buffer) {
+    if (!buffer) return;
+    var key = inviteKey(buffer);
+    var api = jitsiByKey[key];
+    hangingUpKey[key] = true;
+    if (api) {
+      try { api.executeCommand('hangup'); } catch (eH) { /* ignore */ }
+      try { api.dispose(); } catch (eD) { /* ignore */ }
+      delete jitsiByKey[key];
+    }
+    window.setTimeout(function () { delete hangingUpKey[key]; }, 2500);
   }
   var idleWatch = { timer: null, last: 0, warned: false, orbit: null, moveGate: 0 };
 
@@ -1430,6 +1466,7 @@
     var sess = getSession(buffer);
     // endConference / remote stop already cleared the session — do not resurrect the banner.
     if (isEndingSession(buffer) || (!liveVisio[key] && !getInviteFor(buffer) && getStoppedNoteFor(buffer) !== null)) {
+      forceHangupJitsi(buffer);
       removeConf(buffer);
       return;
     }
@@ -1443,6 +1480,7 @@
         (liveL && liveL.sid) || ''
       );
     }
+    forceHangupJitsi(buffer);
     removeConf(buffer);
     restoreRejoinInvite(orbit, buffer);
     if (starterSessionBuffers().length) startVisioHeartbeat(orbit);
@@ -1458,6 +1496,7 @@
     }
     beginEndSession(buffer);
     announceConferenceStopped(orbit, buffer);
+    forceHangupJitsi(buffer);
     removeConf(buffer);
     if (starterSessionBuffers().length) startVisioHeartbeat(orbit);
     else stopVisioHeartbeat();
@@ -2048,6 +2087,7 @@
             },
           });
           apiRef.current = api;
+          registerJitsiApi(buffer, api);
           bumpIdleActivity();
           var myParticipantId = '';
           var didJoin = false;
@@ -2179,6 +2219,7 @@
             window.setTimeout(takeoverSameAccount, 300);
             window.setTimeout(takeoverSameAccount, 1200);
             window.setTimeout(takeoverSameAccount, 2500);
+            window.setTimeout(takeoverSameAccount, 5000);
           }
           api.addListener('videoConferenceJoined', onJoined);
           // Title-only fallback if Meet never emits the join event.
@@ -2187,11 +2228,15 @@
           }, 12000));
           api.addListener('readyToClose', function () {
             if (cancelled) return;
+            if (hangingUpKey[inviteKey(buffer)]) {
+              removeConf(buffer);
+              return;
+            }
             closeVisioPanel(orbit, buffer);
           });
           api.addListener('videoConferenceLeft', function () {
             if (cancelled) return;
-            if (isEndingSession(buffer)) {
+            if (hangingUpKey[inviteKey(buffer)] || isEndingSession(buffer)) {
               removeConf(buffer);
               return;
             }
@@ -2278,6 +2323,7 @@
         cancelled = true;
         timers.forEach(window.clearTimeout);
         if (apiRef.current) {
+          unregisterJitsiApi(buffer, apiRef.current);
           try { apiRef.current.executeCommand('hangup'); } catch (eHang) { /* ignore */ }
           try { apiRef.current.dispose(); } catch (eDisp) { /* ignore */ }
           apiRef.current = null;
@@ -2525,15 +2571,15 @@
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '');
       var cmdU = cmd.toUpperCase();
-      // Self PART/KICK from the visio salon → hang up local Jitsi (others keep the call).
-      if ((cmdU === 'PART' || cmdU === 'KICK') && conf.active && conf.buffer) {
+      // Self PART/KICK from any salon that has a local visio → hang up that Jitsi session.
+      if (cmdU === 'PART' || cmdU === 'KICK') {
         var meNick = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
         var who = cmdU === 'KICK'
           ? String((msg.params && msg.params[1]) || '').toLowerCase()
           : String(msg.nick || '').toLowerCase();
         var ch = String((msg.params && msg.params[0]) || '');
-        if (meNick && who === meNick && inviteKey(ch) === inviteKey(conf.buffer)) {
-          leaveConference(orbit, conf.buffer);
+        if (meNick && who === meNick && ch && getSession(ch)) {
+          leaveConference(orbit, ch);
         }
       }
       // RPL_WHOISSPECIAL — security groups often appear here
