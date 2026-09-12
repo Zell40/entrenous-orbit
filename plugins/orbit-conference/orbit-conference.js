@@ -1340,6 +1340,30 @@
   }
 
   /** Leave the Jitsi panel without ending the channel visio (blue rejoin banner stays). */
+  /** True if Orbit still has a buffer for this visio target (channel or query). */
+  function visioBufferStillOpen(orbit, buffer) {
+    if (!buffer) return false;
+    var key = inviteKey(buffer);
+    try {
+      var st = orbit.state.get && orbit.state.get();
+      var bufs = st && st.buffers;
+      if (!bufs) return false;
+      if (bufs[buffer]) return true;
+      for (var k in bufs) {
+        if (!Object.prototype.hasOwnProperty.call(bufs, k)) continue;
+        if (inviteKey(k) === key) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  /** Leave Jitsi when the user left/closed the salon/MP that owns the visio. */
+  function dropVisioIfLeftBuffer(orbit) {
+    if (!conf.active || !conf.buffer) return;
+    if (visioBufferStillOpen(orbit, conf.buffer)) return;
+    leaveConference(orbit, conf.buffer);
+  }
+
   function leaveConference(orbit, buffer) {
     buffer = buffer || conf.buffer;
     if (!buffer) {
@@ -1528,9 +1552,9 @@
     return name;
   }
 
-  /** Pin the away-visio alert to the top-right of the main chat pane (topbar band). */
+  /** Pin the away-visio alert just under the topbar (never over X / ⋮). */
   function useMainCorner() {
-    var st = useState({ top: 10, right: 12 });
+    var st = useState({ top: 56, right: 12 });
     var pos = st[0];
     var setPos = st[1];
     useEffect(function () {
@@ -1543,12 +1567,11 @@
         try {
           if (topbar) th = Math.max(40, topbar.getBoundingClientRect().height || 48);
         } catch (e) { /* ignore */ }
-        // Sit in the topbar vertical band (not below it) so game HUDs / topic
-        // rows don't swallow the icon visually. Portal + high z-index paint above.
-        var btn = 40;
+        // Below the topbar chrome so leave (X) and mobile ⋮ stay clickable.
+        // Portal + high z-index keep it above topic / game HUDs.
         setPos({
-          top: Math.round(r.top + Math.max(4, (th - btn) / 2)),
-          right: Math.round(Math.max(8, window.innerWidth - r.right + 10)),
+          top: Math.round(r.top + th + 8),
+          right: Math.round(Math.max(8, window.innerWidth - r.right + 12)),
         });
       }
       sync();
@@ -2431,9 +2454,13 @@
     orbit.on('buffer.active', function () {
       syncAwayClass(orbit);
       expireStaleInvites(orbit);
+      dropVisioIfLeftBuffer(orbit);
     });
     syncAwayClass(orbit);
-    window.setInterval(function () { expireStaleInvites(orbit); }, 15000);
+    window.setInterval(function () {
+      expireStaleInvites(orbit);
+      dropVisioIfLeftBuffer(orbit);
+    }, 15000);
     // Do not preload external_api.js: Jitsi JSON.parse()s the *parent* page
     // query string (nick, channel, age…). Guest URLs then spam
     // "Failed to parse URL parameter value" and can look like a failed IRC connect.
@@ -2457,6 +2484,18 @@
 
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '');
+      var cmdU = cmd.toUpperCase();
+      // Self PART/KICK from the visio salon → hang up local Jitsi (others keep the call).
+      if ((cmdU === 'PART' || cmdU === 'KICK') && conf.active && conf.buffer) {
+        var meNick = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+        var who = cmdU === 'KICK'
+          ? String((msg.params && msg.params[1]) || '').toLowerCase()
+          : String(msg.nick || '').toLowerCase();
+        var ch = String((msg.params && msg.params[0]) || '');
+        if (meNick && who === meNick && inviteKey(ch) === inviteKey(conf.buffer)) {
+          leaveConference(orbit, conf.buffer);
+        }
+      }
       // RPL_WHOISSPECIAL — security groups often appear here
       if (cmd === '320' && msg.params && msg.params[1] === orbit.state.nick()) {
         myGroupsText = (myGroupsText + ' ' + (msg.params[2] || '')).trim();
