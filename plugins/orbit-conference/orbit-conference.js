@@ -1406,10 +1406,14 @@
       orbit.notify('Visio', gate.reason || 'Accès refusé.');
       return;
     }
-    if (conf.active && conf.buffer !== buffer) {
-      var msg = orbit.i18n.pick({ fr: 'Fermer la conférence en cours ?', en: 'Close the current conference?' });
+    if (conf.active && inviteKey(conf.buffer) !== inviteKey(buffer)) {
+      var msg = orbit.i18n.pick({
+        fr: 'Une visio est déjà ouverte ailleurs. La quitter pour en ouvrir une ici ? (elle restera rejoignable via le bandeau si elle n’est pas arrêtée pour tous)',
+        en: 'A video call is already open elsewhere. Leave it to open one here? (Others can still rejoin unless it was ended for everyone)',
+      });
       if (!window.confirm(msg)) return;
-      closeVisioPanel(orbit, conf.buffer);
+      // Leave only — do not end-for-all just because the user starts another buffer's visio.
+      leaveConference(orbit, conf.buffer);
     }
 
     function go(room, sid, asStarter, announceForce) {
@@ -1507,8 +1511,8 @@
     var iAmStarter = onHere && !!conf.startedByMe;
     var tip = onAway
       ? orbit.i18n.pick({
-        fr: 'Visio toujours active sur ' + openBuf + ' — micro/caméra peuvent être actifs.',
-        en: 'Video call still active on ' + openBuf + ' — mic/camera may be on.',
+        fr: 'Visio active sur ' + openBuf + ' — micro/caméra peuvent être actifs. Cliquez pour lancer ou rejoindre une visio ici (pastille = y revenir).',
+        en: 'Video call active on ' + openBuf + ' — mic/camera may be on. Click to start or join a call here (chip = return).',
       })
       : (iAmStarter
         ? orbit.i18n.pick({ fr: 'Arrêter la visio pour tous', en: 'End video for everyone' })
@@ -1523,8 +1527,16 @@
         'aria-pressed': onHere || onAway,
         onClick: function () {
           if (onHere) closeVisioPanel(orbit, activeBuf);
-          else if (onAway) focusVisioBuffer(orbit, openBuf);
-          else {
+          else if (onAway) {
+            // Don't lock the camera to the other buffer — allow a 2nd visio here;
+            // return to the active one via the floating chip.
+            if (!bufferAllowed(orbit, activeBuf)) {
+              focusVisioBuffer(orbit, openBuf);
+              return;
+            }
+            var liveHere = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
+            openConference(orbit, activeBuf, { joinOnly: liveHere });
+          } else {
             var live = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
             openConference(orbit, activeBuf, { joinOnly: live });
           }
@@ -1554,7 +1566,7 @@
         ? orbit.i18n.pick({ fr: 'Arrêter la visio pour tous', en: 'End video for everyone' })
         : orbit.i18n.pick({ fr: 'Quitter la visio', en: 'Leave video' }))
       : (onAway
-        ? orbit.i18n.pick({ fr: 'Revenir à la visio', en: 'Return to video call' })
+        ? orbit.i18n.pick({ fr: 'Visio ici (autre en cours)', en: 'Video here (another active)' })
         : (hasInvite
           ? (needsRegister
             ? orbit.i18n.pick({ fr: 'S’enregistrer pour la visio', en: 'Register to join video' })
@@ -1576,7 +1588,14 @@
           }
           closeVisioPanel(orbit, activeBuf);
         }
-        else if (onAway) focusVisioBuffer(orbit, openBuf);
+        else if (onAway) {
+          if (!bufferAllowed(orbit, activeBuf)) {
+            focusVisioBuffer(orbit, openBuf);
+            return;
+          }
+          var liveAway = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
+          openConference(orbit, activeBuf, { joinOnly: liveAway });
+        }
         else if (hasInvite && !joinGate.ok && needsRegister) window.open(registerUrl, '_blank', 'noopener');
         else {
           var liveM = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
@@ -2242,8 +2261,8 @@
       '.oconf-join__btn{border:0;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .65rem;border-radius:999px;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent-d,var(--accent,#1d4ed8))}',
       '.topbar__search.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
       '.oconf-cam-wrap{position:relative;display:inline-flex;align-items:center;vertical-align:middle}',
-      '.oconf-cam-tip{position:absolute;top:calc(100% + 8px);right:0;z-index:95;min-width:200px;max-width:min(320px,70vw);padding:.55rem .7rem;border-radius:12px;background:#1c1917;color:#fff;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);opacity:0;visibility:hidden;pointer-events:none;white-space:normal}',
-      '.oconf-cam-tip::before{content:"";position:absolute;right:12px;bottom:100%;border:6px solid transparent;border-bottom-color:#1c1917}',
+      '.oconf-cam-tip{position:absolute;top:calc(100% + 8px);right:0;z-index:95;min-width:200px;max-width:min(320px,70vw);padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;white-space:normal}',
+      '.oconf-cam-tip::before{content:"";position:absolute;right:12px;bottom:100%;border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
       '.oconf-cam-wrap:hover .oconf-cam-tip,.oconf-cam-wrap:focus-within .oconf-cam-tip{opacity:1;visibility:visible}',
       '@media (max-width:880px){.oconf-cam-tip{right:auto;left:50%;transform:translateX(-50%);min-width:180px}.oconf-cam-tip::before{right:auto;left:50%;transform:translateX(-50%)}}',
       '.oconf-away-banner{display:none}',
@@ -2251,8 +2270,8 @@
       '.oconf-away-chip{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:90;pointer-events:auto;display:flex;align-items:center;gap:.45rem;max-width:min(420px,calc(100vw - 20px));padding:.35rem .4rem .35rem .55rem;border-radius:999px;border:1px solid color-mix(in srgb,#b91c1c 45%,transparent);background:color-mix(in srgb,#7f1d1d 88%,#111);color:#fff;box-shadow:0 10px 28px -12px rgba(0,0,0,.55);font:inherit}',
       '.oconf-away-chip__dot{flex:none;width:8px;height:8px;border-radius:50%;background:#f87171;box-shadow:0 0 0 0 rgba(248,113,113,.7);animation:oconfAwayPulse 1.6s ease-out infinite}',
       '.oconf-away-chip__txt{flex:1;min-width:0;font-size:.78rem;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-      '.oconf-away-chip__tip{position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%) translateY(4px);width:max(260px,100%);max-width:min(440px,calc(100vw - 24px));padding:.55rem .7rem;border-radius:12px;background:#1c1917;color:#fff;font-size:.8rem;font-weight:650;line-height:1.35;text-align:center;box-shadow:0 12px 28px -10px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .15s ease,transform .15s ease,visibility .15s;z-index:91}',
-      '.oconf-away-chip__tip::before{content:"";position:absolute;left:50%;bottom:100%;transform:translateX(-50%);border:6px solid transparent;border-bottom-color:#1c1917}',
+      '.oconf-away-chip__tip{position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%) translateY(4px);width:max(260px,100%);max-width:min(440px,calc(100vw - 24px));padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:center;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .15s ease,transform .15s ease,visibility .15s;z-index:91}',
+      '.oconf-away-chip__tip::before{content:"";position:absolute;left:50%;bottom:100%;transform:translateX(-50%);border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
       '.oconf-away-chip:hover .oconf-away-chip__tip,.oconf-away-chip:focus-within .oconf-away-chip__tip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}',
       '.oconf-away-chip__btn{flex:none;border:0;cursor:pointer;font:inherit;font-size:.72rem;font-weight:800;padding:.28rem .55rem;border-radius:999px;background:#ef4444;color:#fff}',
       '.oconf-away-chip__btn:hover{filter:brightness(1.06)}',
