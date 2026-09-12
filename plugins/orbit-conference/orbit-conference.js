@@ -8,6 +8,7 @@
   if (typeof Orbit === 'undefined' || !Orbit.plugin) return;
 
   var React = Orbit.React;
+  var ReactDOM = Orbit.ReactDOM;
   var h = React.createElement;
   var useState = React.useState;
   var useEffect = React.useEffect;
@@ -1527,9 +1528,9 @@
     return name;
   }
 
-  /** Pin the away-visio alert to the top-right of the main chat pane. */
+  /** Pin the away-visio alert to the top-right of the main chat pane (topbar band). */
   function useMainCorner() {
-    var st = useState({ top: 56, right: 12 });
+    var st = useState({ top: 10, right: 12 });
     var pos = st[0];
     var setPos = st[1];
     useEffect(function () {
@@ -1542,21 +1543,26 @@
         try {
           if (topbar) th = Math.max(40, topbar.getBoundingClientRect().height || 48);
         } catch (e) { /* ignore */ }
+        // Sit in the topbar vertical band (not below it) so game HUDs / topic
+        // rows don't swallow the icon visually. Portal + high z-index paint above.
+        var btn = 40;
         setPos({
-          top: Math.round(r.top + th + 6),
+          top: Math.round(r.top + Math.max(4, (th - btn) / 2)),
           right: Math.round(Math.max(8, window.innerWidth - r.right + 10)),
         });
       }
       sync();
       window.addEventListener('resize', sync);
+      window.addEventListener('scroll', sync, true);
       var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
       var main = document.getElementById('orbit-main') || document.querySelector('main.main');
       var app = document.querySelector('.app');
       try { if (ro && main) ro.observe(main); } catch (e2) { /* ignore */ }
       try { if (ro && app) ro.observe(app); } catch (e3) { /* ignore */ }
-      var id = window.setInterval(sync, 700);
+      var id = window.setInterval(sync, 500);
       return function () {
         window.removeEventListener('resize', sync);
+        window.removeEventListener('scroll', sync, true);
         try { if (ro) ro.disconnect(); } catch (e4) { /* ignore */ }
         window.clearInterval(id);
       };
@@ -1707,8 +1713,7 @@
     var activeBuf = useActiveBuffer(orbit);
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
     var pos = useMainCorner();
-    if (!openBuf) return null;
-    if (inviteKey(activeBuf) === inviteKey(openBuf)) return null;
+    var show = !!(openBuf && inviteKey(activeBuf) !== inviteKey(openBuf));
     var label = awayBufferLabel(openBuf);
     var tip = orbit.i18n.pick({
       fr: isChannelName(openBuf)
@@ -1718,24 +1723,26 @@
         ? ('Video call still active on ' + label + ' — click to open it')
         : ('Video call still active with ' + label + ' — click to open it'),
     });
-    // Zero flex footprint — fixed to the main pane's top-right, above chat/games.
-    return h('div', { className: 'oconf-away-slot', 'aria-hidden': true },
-      h('button', {
-        type: 'button',
-        className: 'oconf-away-alert',
-        style: { top: pos.top + 'px', right: pos.right + 'px' },
-        'aria-hidden': false,
-        'aria-label': tip,
-        title: tip,
-        onClick: function () { focusVisioBuffer(orbit, openBuf); },
-      },
-        h(CameraIcon),
-        h('span', { className: 'oconf-away-alert__tip', role: 'tooltip' },
-          h('span', { className: 'oconf-away-alert__warn', 'aria-hidden': true }, h(WarningTriIcon)),
-          h('span', null, tip)
-        )
+    // Portal to <body>: main column has overflow:hidden + stacking contexts
+    // (topic / game HUD) that clip or cover position:fixed descendants.
+    var node = !show ? null : h('button', {
+      type: 'button',
+      className: 'oconf-away-alert',
+      style: { top: pos.top + 'px', right: pos.right + 'px' },
+      'aria-label': tip,
+      title: tip,
+      onClick: function () { focusVisioBuffer(orbit, openBuf); },
+    },
+      h(CameraIcon),
+      h('span', { className: 'oconf-away-alert__tip', role: 'tooltip' },
+        h('span', { className: 'oconf-away-alert__warn', 'aria-hidden': true }, h(WarningTriIcon)),
+        h('span', null, tip)
       )
     );
+    if (ReactDOM && ReactDOM.createPortal) {
+      return ReactDOM.createPortal(node, document.body);
+    }
+    return node;
   }
 
   function InviteBanner(props) {
@@ -2397,16 +2404,16 @@
       '.oconf-cam-wrap:hover .oconf-cam-tip,.oconf-cam-wrap:focus-within .oconf-cam-tip{opacity:1;visibility:visible}',
       '@media (max-width:880px){.oconf-cam-tip{right:auto;left:50%;transform:translateX(-50%);min-width:180px}.oconf-cam-tip::before{right:auto;left:50%;transform:translateX(-50%)}}',
       '.oconf-away-banner{display:none}',
-      '.oconf-away-slot{flex:none;width:0;height:0;overflow:visible;margin:0;padding:0;border:0;pointer-events:none}',
-      '.oconf-away-alert{position:fixed;z-index:240;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:0;border-radius:12px;cursor:pointer;color:#fff;background:color-mix(in srgb,#b91c1c 92%,#111);box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -12px rgba(0,0,0,.55);animation:oconfAwayPulse 1.6s ease-out infinite}',
-      '.oconf-away-alert:hover,.oconf-away-alert:focus-visible{filter:brightness(1.06);outline:2px solid #fecaca;outline-offset:2px}',
-      '.oconf-away-alert__tip{position:absolute;top:calc(100% + 10px);right:0;z-index:241;display:flex;align-items:flex-start;gap:.45rem;min-width:220px;max-width:min(340px,calc(100vw - 24px));padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease,visibility .15s}',
+      '.oconf-away-slot{display:none}',
+      '.oconf-away-alert{position:fixed;z-index:320;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:0;border-radius:12px;cursor:pointer;color:#fff;background:#b91c1c;box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -10px rgba(0,0,0,.6);animation:oconfAwayPulse 1.6s ease-out infinite}',
+      '.oconf-away-alert:hover,.oconf-away-alert:focus-visible{filter:brightness(1.08);outline:2px solid #fecaca;outline-offset:2px}',
+      '.oconf-away-alert__tip{position:absolute;top:calc(100% + 10px);right:0;z-index:321;display:flex;align-items:flex-start;gap:.45rem;min-width:220px;max-width:min(340px,calc(100vw - 24px));padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease,visibility .15s}',
       '.oconf-away-alert__tip::before{content:"";position:absolute;right:14px;bottom:100%;border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
       '.oconf-away-alert:hover .oconf-away-alert__tip,.oconf-away-alert:focus-visible .oconf-away-alert__tip{opacity:1;visibility:visible;transform:translateY(0)}',
       '.oconf-away-alert__warn{flex:none;display:inline-flex;color:#d97706;margin-top:.08rem}',
       '@media (max-width:880px){.oconf-away-alert{width:38px;height:38px;border-radius:11px}.oconf-away-alert__tip{font-size:.76rem;min-width:200px}}',
       '@media (hover:none){.oconf-away-alert:active .oconf-away-alert__tip{opacity:1;visibility:visible;transform:translateY(0)}}',
-      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -12px rgba(0,0,0,.55)}70%{box-shadow:0 0 0 10px rgba(220,38,38,0),0 10px 24px -12px rgba(0,0,0,.55)}}',
+      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -10px rgba(0,0,0,.6)}70%{box-shadow:0 0 0 10px rgba(220,38,38,0),0 10px 24px -10px rgba(0,0,0,.6)}}',
       'body.oconf-idle-warn .oconf-panel{outline:2px solid #d97706;outline-offset:-2px}',
       '.oconf-panel--detached{position:fixed!important;left:-9999px!important;top:0!important;width:2px!important;height:2px!important;min-height:0!important;max-height:none!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;z-index:-1!important;border:0!important;box-shadow:none!important;outline:none!important;flex:none!important}',
     ].join('');
