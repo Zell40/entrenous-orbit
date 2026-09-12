@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=73"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=74"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1285,7 +1285,7 @@
         'border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);font:inherit}',
         '.ocs-textarea{min-height:7.2rem;height:auto;resize:vertical;line-height:1.45;white-space:pre-wrap;overflow:auto;',
         'overflow-wrap:anywhere;word-break:break-word;font:inherit;font-family:inherit}',
-        '.ocs-input:focus,.ocs-select:focus{outline:2px solid var(--accent);outline-offset:-2px}',
+        '.ocs-input:focus,.ocs-select:focus,.ocs-textarea:focus{outline:2px solid var(--accent);outline-offset:-2px}',
         '.ocs-ac{margin-top:.15rem;max-height:11.5rem;overflow:auto;border:1px solid var(--border);border-radius:10px;',
         'background:var(--bg);box-shadow:0 8px 22px rgba(0,0,0,.12)}',
         '.ocs-ac__item{display:flex;align-items:center;justify-content:space-between;gap:.45rem;width:100%;',
@@ -3014,16 +3014,27 @@
           body.push(h('div', { className: 'ocs-block' }, [
             h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
             h('div', { className: 'ocs-frame' },
-              h('select', { className: 'ocs-select ocs-setinfo', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
+              h('select', { className: 'ocs-select', value: infoKind, onChange: function (e) { setSetInfoKind(e.target.value); } },
                 infoKinds.map(function (it) { return h('option', { key: it.id, value: it.id }, it.label); })
               ),
               infoKind === 'DESC'
                 ? h(AutoTextarea, {
-                  className: 'ocs-th__edit',
+                  className: 'ocs-input ocs-textarea',
+                  rows: 4,
                   value: setText,
+                  placeholder: pick('Écrire la description du salon…', 'Write the channel description…'),
                   onChange: function (e) { setSetText(e.target.value); },
                 })
-                : h('input', { className: 'ocs-input ocs-setinfo', value: setText, onChange: function (e) { setSetText(e.target.value); } }),
+                : h('input', {
+                  className: 'ocs-input',
+                  value: setText,
+                  placeholder: infoKind === 'URL'
+                    ? 'https://…'
+                    : infoKind === 'EMAIL'
+                      ? pick('adresse@email…', 'email@address…')
+                      : pick('Pseudo du successeur…', 'Successor nick…'),
+                  onChange: function (e) { setSetText(e.target.value); },
+                }),
               h('button', {
                 type: 'button',
                 className: 'ocs-btn ocs-btn--primary',
@@ -3032,7 +3043,7 @@
                   if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
                   if (v) csSet(infoKind, v);
                 },
-              }, labeled('plus', pick('Ajouter', 'Add')))
+              }, labeled('check', pick('Enregistrer', 'Save')))
             ),
           ]));
         }
