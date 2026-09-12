@@ -598,6 +598,18 @@
     return String(orbit.state.nick() || 'user');
   }
 
+  /** Stable Jitsi label = NickServ account (fallback nick). Prevents anonymous nick clones. */
+  function jitsiDisplayName(orbit) {
+    var acct = '';
+    try { acct = String(myAccountName(orbit) || '').trim(); } catch (e) { /* ignore */ }
+    if (acct) return acct;
+    return String((orbit.state.nick && orbit.state.nick()) || 'user').trim();
+  }
+
+  function normalizeJitsiIdent(s) {
+    return String(s || '').trim().toLowerCase();
+  }
+
   function peerAccountForQuery(orbit, buffer) {
     var meAcct = myAccountName(orbit).toLowerCase();
     var meNick = String(orbit.state.nick() || '').toLowerCase();
@@ -1852,7 +1864,8 @@
       var room = (conf.active && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room)
         ? conf.room
         : meetRoomFor(orbit, buffer);
-      var nick = orbit.state.nick() || 'user';
+      var displayIdent = jitsiDisplayName(orbit);
+      var myIdentKey = normalizeJitsiIdent(displayIdent);
       var maxP = isQuery ? 2 : maxParticipantsFor(live, buffer);
       var timers = [];
 
@@ -1882,6 +1895,8 @@
             disableInviteFunctions: true,
             enableWelcomePage: false,
             enableClosePage: false,
+            disableProfile: true,
+            readOnlyName: true,
           };
           var toolbar = [
             'microphone', 'camera', 'fullscreen', 'hangup',
@@ -1892,8 +1907,8 @@
             cfgOver.maxParticipants = 2;
             cfgOver.p2p = { enabled: true };
             cfgOver.toolbarButtons = toolbar;
-            cfgOver.remoteVideoMenu = { disableKick: true, disableGrantModerator: true };
-            cfgOver.disableProfile = true;
+            // Kick kept available via API to drop duplicate account clones.
+            cfgOver.remoteVideoMenu = { disableGrantModerator: true };
           } else {
             toolbar.push('stats', 'shortcuts');
           }
@@ -1903,7 +1918,7 @@
             width: '100%',
             height: '100%',
             jwt: jwt || undefined,
-            userInfo: { displayName: nick },
+            userInfo: { displayName: displayIdent },
             configOverwrite: cfgOver,
             interfaceConfigOverwrite: {
               SHOW_JITSI_WATERMARK: false,
@@ -1915,9 +1930,62 @@
           });
           apiRef.current = api;
           bumpIdleActivity();
-          // Register immediately — videoConferenceJoined can fire before `onload`.
-          try { api.executeCommand('displayName', nick); } catch (e) { /* ignore */ }
+          var myParticipantId = '';
+          try { api.executeCommand('displayName', displayIdent); } catch (e) { /* ignore */ }
           try { api.executeCommand('subject', roomNameFor(orbit, buffer)); } catch (e2) { /* ignore */ }
+
+          function collectNameDupes() {
+            var out = [];
+            try {
+              (api.getParticipantsInfo() || []).forEach(function (p) {
+                if (!p) return;
+                var id = String(p.participantId || p.id || '');
+                if (myParticipantId && id && id === myParticipantId) return;
+                var dn = normalizeJitsiIdent(p.displayName || '');
+                var ctx = '';
+                try { ctx = normalizeJitsiIdent((p.userContext && p.userContext.id) || ''); } catch (eC) { /* ignore */ }
+                if ((dn && dn === myIdentKey) || (ctx && ctx === myIdentKey)) out.push(p);
+              });
+            } catch (eI) { /* ignore */ }
+            return out;
+          }
+
+          function enforceUniqueIdentity(opts) {
+            if (cancelled || !apiRef.current) return;
+            var leaveIfStuck = !!(opts && opts.leaveIfStuck);
+            var dupes = collectNameDupes();
+            if (!dupes.length) return;
+            var attempted = 0;
+            dupes.forEach(function (p) {
+              var id = String(p.participantId || p.id || '');
+              if (!id) return;
+              try { api.executeCommand('kickParticipant', id); attempted++; } catch (eK) { /* ignore */ }
+            });
+            if (attempted > 0 && !leaveIfStuck) {
+              try {
+                orbit.notify('Visio', orbit.i18n.pick({
+                  fr: 'Doublon « ' + displayIdent + ' » déconnecté (un seul compte par salle).',
+                  en: 'Duplicate “' + displayIdent + '” disconnected (one account per room).',
+                }));
+              } catch (eN) { /* ignore */ }
+            }
+            if (!leaveIfStuck) return;
+            // Verify after Prosody processes the kick; hang up if the name is still taken.
+            window.setTimeout(function () {
+              if (cancelled || !apiRef.current) return;
+              if (!collectNameDupes().length) return;
+              setErr(orbit.i18n.pick({
+                fr: 'Ce compte (« ' + displayIdent + ' ») est déjà dans la visio.',
+                en: 'This account (“' + displayIdent + '”) is already in the video call.',
+              }));
+              orbit.notify('Visio', orbit.i18n.pick({
+                fr: 'Connexion refusée : ce compte est déjà présent dans la salle.',
+                en: 'Join refused: this account is already in the room.',
+              }));
+              try { api.executeCommand('hangup'); } catch (eH) { /* ignore */ }
+            }, 900);
+          }
+
           function onJitsiActivity() { bumpIdleActivity(); }
           ['audioMuteStatusChanged', 'videoMuteStatusChanged', 'participantJoined',
             'participantLeft', 'raiseHandUpdated', 'tileViewChanged', 'filmstripDisplayChanged',
@@ -1953,11 +2021,15 @@
             }
           });
           if (isQuery) {
-            api.addListener('participantJoined', function () {
+            api.addListener('participantJoined', function (ev) {
               if (cancelled || !apiRef.current) return;
+              bumpIdleActivity();
+              var joinedName = normalizeJitsiIdent((ev && ev.displayName) || '');
+              if (!joinedName || joinedName === myIdentKey) {
+                window.setTimeout(enforceUniqueIdentity, 200);
+              }
               var n = 0;
               try { n = apiRef.current.getNumberOfParticipants(); } catch (eN) { n = 0; }
-              // Includes local participant — >2 means a 3rd person joined.
               if (n > 2) {
                 setErr(orbit.i18n.pick({
                   fr: 'Visio MP limitée à 2 personnes. Utilisez une visio salon pour plus.',
@@ -1970,15 +2042,33 @@
                 try { apiRef.current.executeCommand('hangup'); } catch (eH) { /* ignore */ }
               }
             });
+          } else {
+            api.addListener('participantJoined', function (ev) {
+              if (cancelled || !apiRef.current) return;
+              bumpIdleActivity();
+              var joinedName = normalizeJitsiIdent((ev && ev.displayName) || '');
+              if (!joinedName || joinedName === myIdentKey) {
+                window.setTimeout(enforceUniqueIdentity, 200);
+              }
+            });
           }
+          api.addListener('displayNameChange', function () {
+            if (cancelled) return;
+            try { api.executeCommand('displayName', displayIdent); } catch (eDn) { /* ignore */ }
+            window.setTimeout(enforceUniqueIdentity, 100);
+          });
           var didJoin = false;
-          function onJoined() {
+          function onJoined(ev) {
             if (cancelled || didJoin) return;
             didJoin = true;
+            myParticipantId = String((ev && ev.id) || '');
             setJoined(true);
             setErr('');
             bumpIdleActivity();
             startIdleWatch(orbit);
+            try { api.executeCommand('displayName', displayIdent); } catch (e3) { /* ignore */ }
+            window.setTimeout(function () { enforceUniqueIdentity({ leaveIfStuck: true }); }, 400);
+            window.setTimeout(function () { enforceUniqueIdentity({ leaveIfStuck: true }); }, 1500);
           }
           api.addListener('videoConferenceJoined', onJoined);
           // Title-only fallback if Meet never emits the join event.

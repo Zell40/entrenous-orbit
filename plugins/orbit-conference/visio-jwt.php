@@ -168,7 +168,8 @@ if ($account === '') {
   echo json_encode(['error' => 'account_required']);
   exit;
 }
-$nick = trim((string)($claims['sub'] ?? $account));
+// Display identity = NickServ account (not volatile IRC nick) to avoid duplicate names in-room.
+$nick = $account;
 $startCmodes = is_array($START_CMODES) ? $START_CMODES : ['q', 'a', 'o'];
 $isMod = is_jitsi_moderator($claims, $startCmodes);
 $now = time();
@@ -185,7 +186,7 @@ $jwtClaims = [
   'context' => [
     'user' => [
       'id' => $account,
-      'name' => $nick,
+      'name' => $account,
       'avatar' => '',
       'moderator' => $isMod,
       'affiliation' => $isMod ? 'owner' : 'member',
