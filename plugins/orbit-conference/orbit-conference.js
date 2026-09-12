@@ -25,10 +25,63 @@
   var NARROW = '(max-width: 880px)';
 
   var conf = { active: false, buffer: '', room: '', startedByMe: false, listeners: new Set() };
+  /** Concurrent local Jitsi sessions (different salons/MP) — no hard cap. */
+  var sessions = {
+    byKey: Object.create(null),
+    order: [],
+    rev: 0,
+    listeners: new Set(),
+  };
   /** Buffers currently being ended for everyone — blocks leaveConference from restoring the banner. */
   var endingSession = Object.create(null);
   function subscribeConf(cb) { conf.listeners.add(cb); return function () { conf.listeners.delete(cb); }; }
   function getConfSnap() { return conf.active ? conf.buffer : ''; }
+  function subscribeSessions(cb) { sessions.listeners.add(cb); return function () { sessions.listeners.delete(cb); }; }
+  function getSessionsRev() { return sessions.rev; }
+  function getSession(buffer) {
+    if (!buffer) return null;
+    return sessions.byKey[inviteKey(buffer)] || null;
+  }
+  function listSessions() {
+    var out = [];
+    for (var i = 0; i < sessions.order.length; i++) {
+      var s = sessions.byKey[sessions.order[i]];
+      if (s) out.push(s);
+    }
+    return out;
+  }
+  function otherSessions(activeBuf) {
+    var ak = inviteKey(activeBuf);
+    return listSessions().filter(function (s) { return inviteKey(s.buffer) !== ak; });
+  }
+  function syncConfFromSessions() {
+    sessions.rev++;
+    var n = sessions.order.length;
+    var prevBuf = conf.buffer;
+    if (!n) {
+      conf.active = false;
+      conf.buffer = '';
+      conf.room = '';
+      conf.startedByMe = false;
+      document.body.classList.remove('oconf-away', 'oconf-idle-warn', 'oconf-open');
+      document.documentElement.style.removeProperty('--oconf-h');
+      announced = Object.create(null);
+      if (prevBuf) {
+        try { invalidateExtJwt(isChannelName(prevBuf) ? prevBuf : '*'); } catch (eInv) { /* ignore */ }
+      }
+      stopIdleWatch();
+    } else {
+      var key = sessions.order[n - 1];
+      var s = sessions.byKey[key];
+      conf.active = true;
+      conf.buffer = s.buffer;
+      conf.room = s.room;
+      conf.startedByMe = !!s.startedByMe;
+      document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
+    }
+    sessions.listeners.forEach(function (l) { l(); });
+    conf.listeners.forEach(function (l) { l(); });
+  }
   var lastViewHeight = '46%';
   /** Buffers already announced on IRC for the current conference session. */
   var announced = Object.create(null);
@@ -155,10 +208,10 @@
     if (!orbit || !buffer) return;
     var cfg = confCfg(orbit);
     var key = inviteKey(buffer);
+    var sess = getSession(buffer);
     var live = liveVisio[key];
-    var room = (conf.active && inviteKey(conf.buffer) === key && conf.room)
-      ? conf.room
-      : ((live && live.room) || meetRoomFor(orbit, buffer));
+    var room = (sess && sess.room)
+      || ((live && live.room) || meetRoomFor(orbit, buffer));
     var sid = (live && live.sid) || '';
     var tagPrefix = '@' + TAG + '=' + (cfg.tagID || '1')
       + ';' + REPLY_TAG + '=alive'
@@ -172,16 +225,10 @@
     touchInvite(buffer);
   }
 
-  function heartbeatBuffer(orbit) {
-    if (conf.active && conf.startedByMe && conf.buffer) return conf.buffer;
-    var me = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
-    if (!me) return '';
-    for (var k in liveVisio) {
-      if (!Object.prototype.hasOwnProperty.call(liveVisio, k)) continue;
-      var L = liveVisio[k];
-      if (L && L.starter && L.buffer && String(L.nick || '').toLowerCase() === me) return L.buffer;
-    }
-    return '';
+  function starterSessionBuffers() {
+    return listSessions().filter(function (s) {
+      return s && s.startedByMe && s.buffer && isChannelName(s.buffer);
+    }).map(function (s) { return s.buffer; });
   }
 
   function startVisioHeartbeat(orbit) {
@@ -189,12 +236,12 @@
     if (!orbit) return;
     var sec = confCfg(orbit).heartbeatSec || 45;
     heartbeatTimer = window.setInterval(function () {
-      var buf = heartbeatBuffer(orbit);
-      if (!buf || !isChannelName(buf)) {
+      var bufs = starterSessionBuffers();
+      if (!bufs.length) {
         stopVisioHeartbeat();
         return;
       }
-      sendVisioHeartbeat(orbit, buf);
+      bufs.forEach(function (buf) { sendVisioHeartbeat(orbit, buf); });
     }, sec * 1000);
   }
 
@@ -232,27 +279,36 @@
 
   function setConf(buffer, room, meta) {
     meta = meta || {};
-    var prevBuf = conf.buffer;
-    conf.active = !!buffer;
-    conf.buffer = buffer || '';
-    conf.room = buffer ? (room || conf.room || '') : '';
-    conf.startedByMe = !!(buffer && meta.startedByMe);
-    document.body.classList.toggle('oconf-open', !!buffer);
-    if (!buffer) document.body.classList.remove('oconf-away', 'oconf-idle-warn', 'oconf-open');
-    if (buffer) {
-      document.documentElement.style.setProperty('--oconf-h', lastViewHeight);
-      // Keep invite in memory so the blue rejoin banner comes back after leaving the panel.
-    } else {
-      document.documentElement.style.removeProperty('--oconf-h');
-      announced = Object.create(null);
-      conf.startedByMe = false;
-      // Closing the panel: next open must not reuse a near-expiry EXTJWT.
-      if (prevBuf) {
-        try { invalidateExtJwt(isChannelName(prevBuf) ? prevBuf : '*'); } catch (eInv) { /* ignore */ }
-      }
+    if (!buffer) {
+      sessions.byKey = Object.create(null);
+      sessions.order = [];
+      syncConfFromSessions();
+      return;
     }
-    conf.listeners.forEach(function (l) { l(); });
-    if (!buffer) stopIdleWatch();
+    var key = inviteKey(buffer);
+    var prev = sessions.byKey[key];
+    sessions.byKey[key] = {
+      buffer: buffer,
+      room: String(room || (prev && prev.room) || ''),
+      startedByMe: !!(meta.startedByMe),
+    };
+    sessions.order = sessions.order.filter(function (k) { return k !== key; }).concat([key]);
+    syncConfFromSessions();
+  }
+
+  /** Remove one local Jitsi session (others keep running). */
+  function removeConf(buffer) {
+    if (!buffer) {
+      setConf(null);
+      return null;
+    }
+    var key = inviteKey(buffer);
+    var had = sessions.byKey[key] || null;
+    if (!had) return null;
+    delete sessions.byKey[key];
+    sessions.order = sessions.order.filter(function (k) { return k !== key; });
+    syncConfFromSessions();
+    return had;
   }
   var idleWatch = { timer: null, last: 0, warned: false, orbit: null, moveGate: 0 };
 
@@ -320,10 +376,9 @@
   function syncAwayClass(orbit) {
     var active = '';
     try { active = (orbit && orbit.state && orbit.state.active && orbit.state.active()) || ''; } catch (e) { /* ignore */ }
-    var has = !!(conf.active && conf.buffer);
-    var onVisioBuf = has && inviteKey(active) === inviteKey(conf.buffer);
+    var has = listSessions().length > 0;
+    var onVisioBuf = has && !!getSession(active);
     var away = has && !onVisioBuf;
-    // Layout compression only on the salon that owns the visio — not on other buffers.
     document.body.classList.toggle('oconf-open', onVisioBuf);
     document.body.classList.toggle('oconf-away', away);
     if (!has) document.body.classList.remove('oconf-idle-warn');
@@ -770,14 +825,14 @@
     delete dismissed[key];
     delete announced[key];
     setStoppedNote(buffer, fromNick || '');
-    if (conf.active && inviteKey(conf.buffer) === key) {
+    if (getSession(buffer)) {
       try {
         orbit.notify('Visio', orbit.i18n.pick({
           fr: 'La conférence a été arrêtée.',
           en: 'The conference was stopped.',
         }));
       } catch (e) { /* ignore */ }
-      setConf(null);
+      removeConf(buffer);
     }
     window.setTimeout(function () { clearEndingSession(buffer); }, 800);
   }
@@ -801,8 +856,8 @@
     if (room) {
       try { revokeSecureInvites(orbit, buffer, room); } catch (e2) { /* ignore */ }
     }
-    if (conf.active && conf.buffer && inviteKey(conf.buffer) === key) {
-      setConf(null);
+    if (getSession(buffer)) {
+      removeConf(buffer);
     }
   }
 
@@ -1356,11 +1411,13 @@
     return false;
   }
 
-  /** Leave Jitsi when the user left/closed the salon/MP that owns the visio. */
+  /** Leave Jitsi when the user left/closed a salon/MP that owns a visio. */
   function dropVisioIfLeftBuffer(orbit) {
-    if (!conf.active || !conf.buffer) return;
-    if (visioBufferStillOpen(orbit, conf.buffer)) return;
-    leaveConference(orbit, conf.buffer);
+    listSessions().forEach(function (s) {
+      if (!s || !s.buffer) return;
+      if (visioBufferStillOpen(orbit, s.buffer)) return;
+      leaveConference(orbit, s.buffer);
+    });
   }
 
   function leaveConference(orbit, buffer) {
@@ -1370,22 +1427,26 @@
       return;
     }
     var key = inviteKey(buffer);
+    var sess = getSession(buffer);
     // endConference / remote stop already cleared the session — do not resurrect the banner.
     if (isEndingSession(buffer) || (!liveVisio[key] && !getInviteFor(buffer) && getStoppedNoteFor(buffer) !== null)) {
-      setConf(null);
+      removeConf(buffer);
       return;
     }
     var liveL = liveVisio[key];
-    if (conf.room) {
+    var room = (sess && sess.room) || '';
+    if (room) {
       markLiveVisio(
         buffer,
         (liveL && liveL.nick) || orbit.state.nick() || '',
-        conf.room,
+        room,
         (liveL && liveL.sid) || ''
       );
     }
-    setConf(null);
+    removeConf(buffer);
     restoreRejoinInvite(orbit, buffer);
+    if (starterSessionBuffers().length) startVisioHeartbeat(orbit);
+    else stopVisioHeartbeat();
   }
 
   /** Starter/op ends the visio for everyone. */
@@ -1397,14 +1458,15 @@
     }
     beginEndSession(buffer);
     announceConferenceStopped(orbit, buffer);
-    stopVisioHeartbeat();
-    setConf(null);
+    removeConf(buffer);
+    if (starterSessionBuffers().length) startVisioHeartbeat(orbit);
+    else stopVisioHeartbeat();
     window.setTimeout(function () { clearEndingSession(buffer); }, 800);
   }
 
   /**
    * Close the local Jitsi UI:
-   * - starter (opérateur qui a lancé) → stop for everyone
+   * - starter (opérateur qui a lancé) → stop for everyone (incl. tel rouge Hangup)
    * - participant → leave only (blue rejoin banner stays)
    */
   function closeVisioPanel(orbit, buffer) {
@@ -1413,17 +1475,29 @@
       setConf(null);
       return;
     }
-    if (conf.active && conf.startedByMe && inviteKey(conf.buffer) === inviteKey(buffer)) {
+    if (isEndingSession(buffer)) {
+      removeConf(buffer);
+      return;
+    }
+    var sess = getSession(buffer);
+    var key = inviteKey(buffer);
+    var live = liveVisio[key];
+    var me = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+    var iAmStarter = !!(sess && sess.startedByMe)
+      || !!(live && live.starter && String(live.nick || '').toLowerCase() === me);
+    if (iAmStarter) {
       endConference(orbit, buffer);
       return;
     }
+    // Already torn down (double hangup/readyToClose) — do not resurrect the banner.
+    if (!sess) return;
     leaveConference(orbit, buffer);
   }
 
   function openConference(orbit, buffer, opts) {
     opts = opts || {};
     if (!bufferAllowed(orbit, buffer)) return;
-    if (conf.active && conf.buffer === buffer) {
+    if (getSession(buffer)) {
       // Closing an open panel = starter ends for all; participant leaves (rejoin banner).
       closeVisioPanel(orbit, buffer);
       orbit.emit(EVT_HIDE);
@@ -1441,15 +1515,6 @@
     if (!gate.ok) {
       orbit.notify('Visio', gate.reason || 'Accès refusé.');
       return;
-    }
-    if (conf.active && inviteKey(conf.buffer) !== inviteKey(buffer)) {
-      var msg = orbit.i18n.pick({
-        fr: 'Une visio est déjà ouverte ailleurs. La quitter pour en ouvrir une ici ? (elle restera rejoignable via le bandeau si elle n’est pas arrêtée pour tous)',
-        en: 'A video call is already open elsewhere. Leave it to open one here? (Others can still rejoin unless it was ended for everyone)',
-      });
-      if (!window.confirm(msg)) return;
-      // Leave only — do not end-for-all just because the user starts another buffer's visio.
-      leaveConference(orbit, conf.buffer);
     }
 
     function go(room, sid, asStarter, announceForce) {
@@ -1479,7 +1544,11 @@
       var joinRoom = (live && live.room) || (channelRooms[key] && channelRooms[key].name) || '';
       if (!joinRoom && !isChannelName(buffer)) joinRoom = queryMeetRoomId(orbit, buffer);
       if (!joinRoom) joinRoom = meetRoomFor(orbit, buffer);
+      var meJoin = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+      var asOrigStarter = !!(live && live.starter && String(live.nick || '').toLowerCase() === meJoin);
       go(joinRoom, (live && live.sid) || (getInviteFor(buffer) && getInviteFor(buffer).sid) || '', false, false);
+      // Keep starter rights on reconnect so Hangup (tel rouge) ends for everyone.
+      if (asOrigStarter) setConf(buffer, joinRoom, { startedByMe: true });
       return;
     }
 
@@ -1554,17 +1623,17 @@
   function HeaderButton(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    var sessHere = getSession(activeBuf);
+    var others = otherSessions(activeBuf);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
-    if (!bufferAllowed(orbit, activeBuf) && !openBuf) return null;
-    // Hide if cannot start and there is no invite to join (unless a visio is open elsewhere).
-    if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
-    if (!openBuf && !canJoin(orbit, activeBuf).ok) return null;
-    var onHere = !!(openBuf && inviteKey(openBuf) === inviteKey(activeBuf));
-    var onAway = !!(openBuf && !onHere);
-    var iAmStarter = onHere && !!conf.startedByMe;
-    // Menu camera stays a local open/close/join control — away return is the floating alert.
+    var anyOpen = listSessions().length > 0;
+    if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+    if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
+    if (!sessHere && !canJoin(orbit, activeBuf).ok && !others.length) return null;
+    var onHere = !!sessHere;
+    var iAmStarter = onHere && !!sessHere.startedByMe;
     var tip = iAmStarter
       ? orbit.i18n.pick({ fr: 'Arrêter la visio pour tous', en: 'End video for everyone' })
       : (hasInvite
@@ -1578,16 +1647,13 @@
         'aria-pressed': onHere,
         onClick: function () {
           if (onHere) closeVisioPanel(orbit, activeBuf);
-          else if (onAway) {
+          else {
             if (!bufferAllowed(orbit, activeBuf)) {
-              focusVisioBuffer(orbit, openBuf);
+              if (others[0]) focusVisioBuffer(orbit, others[0].buffer);
               return;
             }
             var liveHere = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
             openConference(orbit, activeBuf, { joinOnly: liveHere });
-          } else {
-            var live = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
-            openConference(orbit, activeBuf, { joinOnly: live });
           }
         },
       }, h(CameraIcon)),
@@ -1598,20 +1664,23 @@
   function MoreMenuItem(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    var sessHere = getSession(activeBuf);
+    var others = otherSessions(activeBuf);
+    var anyOpen = listSessions().length > 0;
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var cfg = confCfg(orbit);
-    if (!bufferAllowed(orbit, activeBuf) && !openBuf) return null;
-    if (!openBuf && !canStart(orbit, activeBuf).ok && !hasInvite) return null;
+    if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+    if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
     var joinGate = canJoin(orbit, activeBuf);
-    if (!openBuf && !joinGate.ok && !hasInvite) return null;
+    if (!sessHere && !joinGate.ok && !hasInvite && !others.length) return null;
     var needsRegister = !!(requireAccountFor(cfg, activeBuf) && !orbit.state.account());
     var registerUrl = (orbit.config().branding && orbit.config().branding.registerUrl) || 'https://www.reseau-entrenous.fr/register/';
-    var onHere = !!(openBuf && inviteKey(openBuf) === inviteKey(activeBuf));
-    var onAway = !!(openBuf && !onHere);
+    var onHere = !!sessHere;
+    var onAway = others.length > 0 && !onHere;
     var label = onHere
-      ? (conf.startedByMe
+      ? (sessHere.startedByMe
         ? orbit.i18n.pick({ fr: 'Arrêter la visio pour tous', en: 'End video for everyone' })
         : orbit.i18n.pick({ fr: 'Quitter la visio', en: 'Leave video' }))
       : (onAway
@@ -1629,7 +1698,7 @@
       title: !onHere && !onAway && hasInvite && !joinGate.ok ? joinGate.reason : undefined,
       onClick: function () {
         if (onHere) {
-          if (conf.startedByMe) {
+          if (sessHere.startedByMe) {
             if (!window.confirm(orbit.i18n.pick({
               fr: 'Arrêter la visio pour tout le salon ?',
               en: 'End the video call for everyone in the channel?',
@@ -1639,7 +1708,7 @@
         }
         else if (onAway) {
           if (!bufferAllowed(orbit, activeBuf)) {
-            focusVisioBuffer(orbit, openBuf);
+            focusVisioBuffer(orbit, others[0].buffer);
             return;
           }
           var liveAway = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
@@ -1660,15 +1729,15 @@
   function MoreMenuEndItem(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     var live = !!liveVisio[inviteKey(activeBuf)];
-    var on = openBuf === activeBuf;
+    var sess = getSession(activeBuf);
+    var on = !!sess;
     if (!bufferAllowed(orbit, activeBuf)) return null;
     if (!live && !on) return null;
     if (!canStart(orbit, activeBuf).ok) return null;
-    // Only the current starter (or an op who can start) may end for everyone while live.
-    if (on && !conf.startedByMe && !canStart(orbit, activeBuf).ok) return null;
+    if (on && !sess.startedByMe && !canStart(orbit, activeBuf).ok) return null;
     return h('button', {
       type: 'button',
       className: 'nmenu__item',
@@ -1689,28 +1758,31 @@
     );
   }
 
-  /** True only while local Jitsi is open and the user is on another buffer. */
+  /** True only while a local Jitsi session is open on another buffer. */
   function isAwayFromOpenVisio(activeBuf) {
-    if (!conf.active || !conf.buffer) return false;
-    if (!activeBuf) return true;
-    return inviteKey(activeBuf) !== inviteKey(conf.buffer);
+    return otherSessions(activeBuf).length > 0;
   }
 
   function AwayVisioBanner(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
-    // Re-subscribe so the alert mounts/unmounts with conf open/close.
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
-    // Alert only — never a permanent topbar icon.
-    if (!isAwayFromOpenVisio(activeBuf) || !openBuf) return null;
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
+    var others = otherSessions(activeBuf);
+    if (!others.length) return null;
+    var target = others[others.length - 1];
+    var openBuf = target.buffer;
     var label = awayBufferLabel(openBuf);
     var tip = orbit.i18n.pick({
-      fr: isChannelName(openBuf)
-        ? ('Visio toujours en cours sur le salon ' + label + ' — cliquez pour y accéder')
-        : ('Visio toujours en cours avec ' + label + ' — cliquez pour y accéder'),
-      en: isChannelName(openBuf)
-        ? ('Video call still active on ' + label + ' — click to open it')
-        : ('Video call still active with ' + label + ' — click to open it'),
+      fr: others.length > 1
+        ? ('Visio toujours en cours ailleurs (dont ' + label + ') — cliquez pour y accéder')
+        : (isChannelName(openBuf)
+          ? ('Visio toujours en cours sur le salon ' + label + ' — cliquez pour y accéder')
+          : ('Visio toujours en cours avec ' + label + ' — cliquez pour y accéder')),
+      en: others.length > 1
+        ? ('Video call still active elsewhere (incl. ' + label + ') — click to open it')
+        : (isChannelName(openBuf)
+          ? ('Video call still active on ' + label + ' — click to open it')
+          : ('Video call still active with ' + label + ' — click to open it')),
     });
     return h('span', { className: 'oconf-away-wrap' },
       h('button', {
@@ -1733,11 +1805,12 @@
     var activeBuf = bufFromProp || useActiveBuffer(orbit);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
     useSyncExternalStore(subscribeStoppedNote, getStoppedNoteSnap, getStoppedNoteSnap);
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     expireStaleInvites(orbit);
     var stopped = getStoppedNoteFor(activeBuf);
+    var sessHere = getSession(activeBuf);
 
-    if (stopped !== null && !openBuf) {
+    if (stopped !== null && !sessHere) {
       return h('div', { className: 'oconf-invite oconf-invite--stopped' },
         h('span', { className: 'oconf-invite__txt' },
           (stopped ? stopped + ' ' : '') + orbit.i18n.pick({ fr: 'a arr\u00eat\u00e9 la visio.', en: 'ended the video call.' })
@@ -1753,10 +1826,10 @@
 
     var inv = getInviteFor(activeBuf);
     var live = liveVisio[inviteKey(activeBuf)];
-    if (!inv && live && !openBuf) {
+    if (!inv && live && !sessHere) {
       inv = { nick: live.nick || '', link: publicLink(orbit, activeBuf) };
     }
-    if (!inv || openBuf) return null;
+    if (!inv || sessHere) return null;
     if (dismissed[inviteKey(activeBuf)]) return null;
     var joinGate = canJoin(orbit, activeBuf);
     var cfg = confCfg(orbit);
@@ -1836,9 +1909,9 @@
     var m = props.m;
     var cfg = confCfg(orbit);
     if (cfg.hideInviteForOrbit) return null;
-    var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     var buf = m.buffer || orbit.state.active();
-    if (openBuf) return null;
+    if (getSession(buf)) return null;
     if (!bufferAllowed(orbit, buf)) return null;
     return h('span', { className: 'oconf-join' },
       h('button', {
@@ -1849,9 +1922,26 @@
     );
   }
 
+  /** One mounted Jitsi panel per local session (max 2). */
+  function JitsiPanels(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
+    var list = listSessions();
+    if (!list.length) return null;
+    return h(React.Fragment, null, list.map(function (s) {
+      return h(JitsiPanel, {
+        key: 'oconf-' + inviteKey(s.buffer),
+        orbit: orbit,
+        buffer: s.buffer,
+        room: s.room,
+      });
+    }));
+  }
+
   function JitsiPanel(props) {
     var orbit = props.orbit;
-    var buffer = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
+    var buffer = props.buffer;
+    var roomFixed = props.room || '';
     var activeBuf = useActiveBuffer(orbit);
     var hostRef = useRef(null);
     var apiRef = useRef(null);
@@ -1891,9 +1981,8 @@
       var live = confCfg(orbit);
       var domain = live.server.replace(/^https?:\/\//, '').replace(/\/$/, '');
       var isQuery = !isChannelName(buffer);
-      var room = (conf.active && inviteKey(conf.buffer) === inviteKey(buffer) && conf.room)
-        ? conf.room
-        : meetRoomFor(orbit, buffer);
+      var sess = getSession(buffer);
+      var room = String(roomFixed || (sess && sess.room) || meetRoomFor(orbit, buffer)).replace(/[^A-Za-z0-9._-]/g, '');
       var displayIdent = jitsiDisplayName(orbit);
       var myIdentKey = normalizeJitsiIdent(displayIdent);
       var maxP = isQuery ? 2 : maxParticipantsFor(live, buffer);
@@ -1961,6 +2050,7 @@
           apiRef.current = api;
           bumpIdleActivity();
           var myParticipantId = '';
+          var didJoin = false;
           try { api.executeCommand('displayName', displayIdent); } catch (e) { /* ignore */ }
           try { api.executeCommand('subject', roomNameFor(orbit, buffer)); } catch (e2) { /* ignore */ }
 
@@ -1980,40 +2070,36 @@
             return out;
           }
 
-          function enforceUniqueIdentity(opts) {
+          /** Newcomer takes over: kick older clones of the same account. Never hang up self. */
+          function takeoverSameAccount() {
             if (cancelled || !apiRef.current) return;
-            var leaveIfStuck = !!(opts && opts.leaveIfStuck);
             var dupes = collectNameDupes();
             if (!dupes.length) return;
-            var attempted = 0;
             dupes.forEach(function (p) {
               var id = String(p.participantId || p.id || '');
               if (!id) return;
-              try { api.executeCommand('kickParticipant', id); attempted++; } catch (eK) { /* ignore */ }
+              try { api.executeCommand('kickParticipant', id); } catch (eK) { /* ignore */ }
             });
-            if (attempted > 0 && !leaveIfStuck) {
-              try {
-                orbit.notify('Visio', orbit.i18n.pick({
-                  fr: 'Doublon « ' + displayIdent + ' » déconnecté (un seul compte par salle).',
-                  en: 'Duplicate “' + displayIdent + '” disconnected (one account per room).',
-                }));
-              } catch (eN) { /* ignore */ }
-            }
-            if (!leaveIfStuck) return;
-            // Verify after Prosody processes the kick; hang up if the name is still taken.
-            window.setTimeout(function () {
-              if (cancelled || !apiRef.current) return;
-              if (!collectNameDupes().length) return;
-              setErr(orbit.i18n.pick({
-                fr: 'Ce compte (« ' + displayIdent + ' ») est déjà dans la visio.',
-                en: 'This account (“' + displayIdent + '”) is already in the video call.',
-              }));
+            try {
               orbit.notify('Visio', orbit.i18n.pick({
-                fr: 'Connexion refusée : ce compte est déjà présent dans la salle.',
-                en: 'Join refused: this account is already in the room.',
+                fr: 'Ancienne session « ' + displayIdent + ' » déconnectée (un seul compte par salle).',
+                en: 'Previous “' + displayIdent + '” session disconnected (one account per room).',
               }));
-              try { api.executeCommand('hangup'); } catch (eH) { /* ignore */ }
-            }, 900);
+            } catch (eN) { /* ignore */ }
+          }
+
+          /** Existing session: same account joined again → yield (hang up locally). */
+          function yieldToSameAccountRejoin(ev) {
+            if (cancelled || !didJoin || !apiRef.current) return;
+            var joinedName = normalizeJitsiIdent((ev && ev.displayName) || '');
+            if (!joinedName || joinedName !== myIdentKey) return;
+            try {
+              orbit.notify('Visio', orbit.i18n.pick({
+                fr: 'Ce compte s’est reconnecté ailleurs — cette session est fermée.',
+                en: 'This account reconnected elsewhere — this session is closed.',
+              }));
+            } catch (eY) { /* ignore */ }
+            try { api.executeCommand('hangup'); } catch (eH) { /* ignore */ }
           }
 
           function onJitsiActivity() { bumpIdleActivity(); }
@@ -2054,10 +2140,7 @@
             api.addListener('participantJoined', function (ev) {
               if (cancelled || !apiRef.current) return;
               bumpIdleActivity();
-              var joinedName = normalizeJitsiIdent((ev && ev.displayName) || '');
-              if (!joinedName || joinedName === myIdentKey) {
-                window.setTimeout(enforceUniqueIdentity, 200);
-              }
+              yieldToSameAccountRejoin(ev);
               var n = 0;
               try { n = apiRef.current.getNumberOfParticipants(); } catch (eN) { n = 0; }
               if (n > 2) {
@@ -2076,18 +2159,13 @@
             api.addListener('participantJoined', function (ev) {
               if (cancelled || !apiRef.current) return;
               bumpIdleActivity();
-              var joinedName = normalizeJitsiIdent((ev && ev.displayName) || '');
-              if (!joinedName || joinedName === myIdentKey) {
-                window.setTimeout(enforceUniqueIdentity, 200);
-              }
+              yieldToSameAccountRejoin(ev);
             });
           }
           api.addListener('displayNameChange', function () {
             if (cancelled) return;
             try { api.executeCommand('displayName', displayIdent); } catch (eDn) { /* ignore */ }
-            window.setTimeout(enforceUniqueIdentity, 100);
           });
-          var didJoin = false;
           function onJoined(ev) {
             if (cancelled || didJoin) return;
             didJoin = true;
@@ -2097,8 +2175,10 @@
             bumpIdleActivity();
             startIdleWatch(orbit);
             try { api.executeCommand('displayName', displayIdent); } catch (e3) { /* ignore */ }
-            window.setTimeout(function () { enforceUniqueIdentity({ leaveIfStuck: true }); }, 400);
-            window.setTimeout(function () { enforceUniqueIdentity({ leaveIfStuck: true }); }, 1500);
+            // New session owns the identity: kick older clones (do not self-hangup).
+            window.setTimeout(takeoverSameAccount, 300);
+            window.setTimeout(takeoverSameAccount, 1200);
+            window.setTimeout(takeoverSameAccount, 2500);
           }
           api.addListener('videoConferenceJoined', onJoined);
           // Title-only fallback if Meet never emits the join event.
@@ -2112,7 +2192,7 @@
           api.addListener('videoConferenceLeft', function () {
             if (cancelled) return;
             if (isEndingSession(buffer)) {
-              setConf(null);
+              removeConf(buffer);
               return;
             }
             // Hangup / leave Meet: starter ends for everyone; others keep the blue banner.
@@ -2203,7 +2283,7 @@
           apiRef.current = null;
         }
       };
-    }, [buffer]);
+    }, [buffer, roomFixed]);
 
     function isNarrow() {
       return !!(window.matchMedia && window.matchMedia(NARROW).matches);
@@ -2623,7 +2703,7 @@
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuEndItem, { orbit: orbit }); });
     orbit.addUi('topbar_end', function () { return h(AwayVisioBanner, { orbit: orbit }); });
-    orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
+    orbit.addUi('overlay', function () { return h(JitsiPanels, { orbit: orbit }); });
     // Standalone invite/stopped banner rendered for all layouts via overlay slot.
     orbit.addUi('overlay', function () { return h(InviteBanner, { orbit: orbit }); });
     orbit.addMessageDecorator(function (m) {
