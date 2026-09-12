@@ -8,7 +8,6 @@
   if (typeof Orbit === 'undefined' || !Orbit.plugin) return;
 
   var React = Orbit.React;
-  var ReactDOM = Orbit.ReactDOM;
   var h = React.createElement;
   var useState = React.useState;
   var useEffect = React.useEffect;
@@ -1552,47 +1551,6 @@
     return name;
   }
 
-  /** Pin the away-visio alert just under the topbar (never over X / ⋮). */
-  function useMainCorner() {
-    var st = useState({ top: 56, right: 12 });
-    var pos = st[0];
-    var setPos = st[1];
-    useEffect(function () {
-      function sync() {
-        var main = document.getElementById('orbit-main') || document.querySelector('main.main');
-        if (!main) return;
-        var r = main.getBoundingClientRect();
-        var topbar = main.querySelector('.topbar');
-        var th = 48;
-        try {
-          if (topbar) th = Math.max(40, topbar.getBoundingClientRect().height || 48);
-        } catch (e) { /* ignore */ }
-        // Below the topbar chrome so leave (X) and mobile ⋮ stay clickable.
-        // Portal + high z-index keep it above topic / game HUDs.
-        setPos({
-          top: Math.round(r.top + th + 8),
-          right: Math.round(Math.max(8, window.innerWidth - r.right + 12)),
-        });
-      }
-      sync();
-      window.addEventListener('resize', sync);
-      window.addEventListener('scroll', sync, true);
-      var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
-      var main = document.getElementById('orbit-main') || document.querySelector('main.main');
-      var app = document.querySelector('.app');
-      try { if (ro && main) ro.observe(main); } catch (e2) { /* ignore */ }
-      try { if (ro && app) ro.observe(app); } catch (e3) { /* ignore */ }
-      var id = window.setInterval(sync, 500);
-      return function () {
-        window.removeEventListener('resize', sync);
-        window.removeEventListener('scroll', sync, true);
-        try { if (ro) ro.disconnect(); } catch (e4) { /* ignore */ }
-        window.clearInterval(id);
-      };
-    }, []);
-    return pos;
-  }
-
   function HeaderButton(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
@@ -1731,12 +1689,20 @@
     );
   }
 
+  /** True only while local Jitsi is open and the user is on another buffer. */
+  function isAwayFromOpenVisio(activeBuf) {
+    if (!conf.active || !conf.buffer) return false;
+    if (!activeBuf) return true;
+    return inviteKey(activeBuf) !== inviteKey(conf.buffer);
+  }
+
   function AwayVisioBanner(props) {
     var orbit = props.orbit;
     var activeBuf = useActiveBuffer(orbit);
+    // Re-subscribe so the alert mounts/unmounts with conf open/close.
     var openBuf = useSyncExternalStore(subscribeConf, getConfSnap, getConfSnap);
-    var pos = useMainCorner();
-    var show = !!(openBuf && inviteKey(activeBuf) !== inviteKey(openBuf));
+    // Alert only — never a permanent topbar icon.
+    if (!isAwayFromOpenVisio(activeBuf) || !openBuf) return null;
     var label = awayBufferLabel(openBuf);
     var tip = orbit.i18n.pick({
       fr: isChannelName(openBuf)
@@ -1746,26 +1712,19 @@
         ? ('Video call still active on ' + label + ' — click to open it')
         : ('Video call still active with ' + label + ' — click to open it'),
     });
-    // Portal to <body>: main column has overflow:hidden + stacking contexts
-    // (topic / game HUD) that clip or cover position:fixed descendants.
-    var node = !show ? null : h('button', {
-      type: 'button',
-      className: 'oconf-away-alert',
-      style: { top: pos.top + 'px', right: pos.right + 'px' },
-      'aria-label': tip,
-      title: tip,
-      onClick: function () { focusVisioBuffer(orbit, openBuf); },
-    },
-      h(CameraIcon),
+    return h('span', { className: 'oconf-away-wrap' },
+      h('button', {
+        type: 'button',
+        className: 'oconf-away-alert',
+        'aria-label': tip,
+        title: tip,
+        onClick: function () { focusVisioBuffer(orbit, openBuf); },
+      }, h(CameraIcon)),
       h('span', { className: 'oconf-away-alert__tip', role: 'tooltip' },
         h('span', { className: 'oconf-away-alert__warn', 'aria-hidden': true }, h(WarningTriIcon)),
         h('span', null, tip)
       )
     );
-    if (ReactDOM && ReactDOM.createPortal) {
-      return ReactDOM.createPortal(node, document.body);
-    }
-    return node;
   }
 
   function InviteBanner(props) {
@@ -2428,15 +2387,16 @@
       '@media (max-width:880px){.oconf-cam-tip{right:auto;left:50%;transform:translateX(-50%);min-width:180px}.oconf-cam-tip::before{right:auto;left:50%;transform:translateX(-50%)}}',
       '.oconf-away-banner{display:none}',
       '.oconf-away-slot{display:none}',
-      '.oconf-away-alert{position:fixed;z-index:320;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:0;border-radius:12px;cursor:pointer;color:#fff;background:#b91c1c;box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -10px rgba(0,0,0,.6);animation:oconfAwayPulse 1.6s ease-out infinite}',
+      '.oconf-away-wrap{position:relative;display:inline-flex;align-items:center;vertical-align:middle;flex:none}',
+      '.oconf-away-alert{position:relative;z-index:1;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;color:#fff;background:#b91c1c;box-shadow:0 0 0 0 rgba(220,38,38,.55);animation:oconfAwayPulse 1.6s ease-out infinite}',
       '.oconf-away-alert:hover,.oconf-away-alert:focus-visible{filter:brightness(1.08);outline:2px solid #fecaca;outline-offset:2px}',
-      '.oconf-away-alert__tip{position:absolute;top:calc(100% + 10px);right:0;z-index:321;display:flex;align-items:flex-start;gap:.45rem;min-width:220px;max-width:min(340px,calc(100vw - 24px));padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease,visibility .15s}',
-      '.oconf-away-alert__tip::before{content:"";position:absolute;right:14px;bottom:100%;border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
-      '.oconf-away-alert:hover .oconf-away-alert__tip,.oconf-away-alert:focus-visible .oconf-away-alert__tip{opacity:1;visibility:visible;transform:translateY(0)}',
+      '.oconf-away-alert__tip{position:absolute;top:calc(100% + 8px);right:0;z-index:95;display:flex;align-items:flex-start;gap:.45rem;min-width:220px;max-width:min(340px,70vw);padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease,visibility .15s}',
+      '.oconf-away-alert__tip::before{content:"";position:absolute;right:12px;bottom:100%;border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
+      '.oconf-away-wrap:hover .oconf-away-alert__tip,.oconf-away-wrap:focus-within .oconf-away-alert__tip{opacity:1;visibility:visible;transform:translateY(0)}',
       '.oconf-away-alert__warn{flex:none;display:inline-flex;color:#d97706;margin-top:.08rem}',
-      '@media (max-width:880px){.oconf-away-alert{width:38px;height:38px;border-radius:11px}.oconf-away-alert__tip{font-size:.76rem;min-width:200px}}',
-      '@media (hover:none){.oconf-away-alert:active .oconf-away-alert__tip{opacity:1;visibility:visible;transform:translateY(0)}}',
-      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55),0 10px 24px -10px rgba(0,0,0,.6)}70%{box-shadow:0 0 0 10px rgba(220,38,38,0),0 10px 24px -10px rgba(0,0,0,.6)}}',
+      '@media (max-width:880px){.oconf-away-alert__tip{font-size:.76rem;min-width:200px;right:auto;left:50%;transform:translateX(-50%) translateY(4px)}.oconf-away-wrap:hover .oconf-away-alert__tip,.oconf-away-wrap:focus-within .oconf-away-alert__tip{transform:translateX(-50%) translateY(0)}.oconf-away-alert__tip::before{right:auto;left:50%;transform:translateX(-50%)}}',
+      '@media (hover:none){.oconf-away-wrap:active .oconf-away-alert__tip{opacity:1;visibility:visible}}',
+      '@keyframes oconfAwayPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55)}70%{box-shadow:0 0 0 8px rgba(220,38,38,0)}}',
       'body.oconf-idle-warn .oconf-panel{outline:2px solid #d97706;outline-offset:-2px}',
       '.oconf-panel--detached{position:fixed!important;left:-9999px!important;top:0!important;width:2px!important;height:2px!important;min-height:0!important;max-height:none!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;z-index:-1!important;border:0!important;box-shadow:none!important;outline:none!important;flex:none!important}',
     ].join('');
@@ -2662,7 +2622,7 @@
     orbit.addUi('topbar_item', function () { return h(HeaderButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuEndItem, { orbit: orbit }); });
-    orbit.addUi('overlay', function () { return h(AwayVisioBanner, { orbit: orbit }); });
+    orbit.addUi('topbar_end', function () { return h(AwayVisioBanner, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(JitsiPanel, { orbit: orbit }); });
     // Standalone invite/stopped banner rendered for all layouts via overlay slot.
     orbit.addUi('overlay', function () { return h(InviteBanner, { orbit: orbit }); });
