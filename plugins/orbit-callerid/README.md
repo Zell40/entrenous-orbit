@@ -22,7 +22,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 
 ## Affichage
 
-1. **Paramètres → Modes & confidentialité** : interrupteur « Filtrer les messages privés (+g) » (verrouillé sous contrôle parental).
+1. **Paramètres → Modes & confidentialité** : interrupteur « Filtrer les messages privés (+g) » (verrouillé sous contrôle parental). Les autres modes du paquet (`+ixIgcRw`) s’affichent **actifs et non désactivables**. `+x` (hôte masqué) n’est jamais désactivable.
 2. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
 3. **Liste blanche** : fermée par défaut ; l’onglet n’apparaît dans la colonne **que** lorsque la vue est ouverte via l’**icône bouclier** (⋮ sur mobile).
 4. **Haut du tchat** : bannière bleue + **popup** sur **718** (filtre MP).
@@ -40,7 +40,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "autoMode": true
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=16"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=19"
   ]
 }
 ```

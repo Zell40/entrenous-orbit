@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=18"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=19"]
  */
 (function () {
   'use strict';
@@ -146,9 +146,14 @@
     gate.rev++;
     gate.listeners.forEach(function (l) { l(); });
   }
+  var lastOrbit = null;
   function setParental(on) {
     parentalActive = !!on;
     bumpGate();
+    try {
+      var st = lastOrbit && lastOrbit.state && lastOrbit.state.get();
+      if (st && typeof st.setParentalControls === 'function') st.setParentalControls(!!on);
+    } catch (e) { /* ignore */ }
   }
   function setCallerid(on) {
     calleridActive = !!on;
@@ -1407,6 +1412,7 @@
   }
 
   Orbit.plugin('orbit-callerid', function (orbit, log) {
+    lastOrbit = orbit;
     injectStyles();
     // Never leave the full-pane view open from a previous session / HMR.
     try { document.body.classList.remove('ocid-view-open'); } catch (e) { /* ignore */ }
