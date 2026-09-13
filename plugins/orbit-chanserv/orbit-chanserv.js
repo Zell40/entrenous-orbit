@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=76"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=77"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -2548,10 +2548,15 @@
         tabBtn('set', 'lock', pick('Set', 'Set'), showSet);
         tabBtn('divers', 'more', pick('Divers', 'Other'), showDivers);
         chrome.push(h('div', { className: 'ocs-tabs', role: 'tablist' }, tabs));
-        body.push(h('div', { className: 'ocs-row' },
-          h('span', { className: 'ocs-badge' }, (s.access || 'none').toUpperCase()),
-          s.bot ? h('span', { className: 'ocs-badge' }, pick('Bot', 'Bot') + ' ' + s.bot) : null
-        ));
+        var accLvl = String(s.access || 'none').toLowerCase();
+        var showAcc = (ACCESS_RANK[accLvl] || 0) >= ACCESS_RANK.vop;
+        var accRow = [];
+        if (showAcc) {
+          accRow.push(h('span', { className: 'ocs-sub' }, pick('Votre Accès :', 'Your access:')));
+          accRow.push(h('span', { className: 'ocs-badge' }, accLvl.toUpperCase()));
+        }
+        if (s.bot) accRow.push(h('span', { className: 'ocs-badge' }, pick('Bot', 'Bot') + ' ' + s.bot));
+        if (accRow.length) body.push(h('div', { className: 'ocs-row' }, accRow));
 
         if (tab === 'info') {
           if (s.infoText) {
