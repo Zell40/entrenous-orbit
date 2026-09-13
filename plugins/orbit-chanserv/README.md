@@ -44,7 +44,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=75"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=76"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

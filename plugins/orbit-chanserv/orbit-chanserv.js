@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=75"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=76"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1660,6 +1660,10 @@
             ['G', pick('Filtre de mots', 'Badword filter'), pick('Les mots filtrés par le serveur sont censurés.', 'Server-filtered words are censored.')],
             ['Q', pick('Pas d’expulsion', 'No kicks'), pick('Les kicks par les opérateurs du salon sont interdits.', 'Channel operator kicks are forbidden.')],
             ['U', pick('Op-modéré', 'Op-moderated'), pick('Les messages des membres sans voix/op sont masqués pour les autres membres sans privilège.', 'Messages from unprivileged users are hidden from other unprivileged users.')],
+            ['V', pick('Anti-highlight de masse', 'Block mass highlight'), pick(
+              'Déconnecte ceux qui mentionnent trop de personnes d’un coup (spam de highlights).',
+              'Kills clients that mass-highlight many nicks in one message.'
+            )],
           ],
         },
         {
@@ -1669,7 +1673,6 @@
             ['r', pick('Salon enregistré', 'Registered channel'), pick('Marqueur de salon enregistré (souvent posé par les services).', 'Registered-channel flag (usually set by services).')],
             ['P', pick('Permanent', 'Permanent'), pick('Le salon n’est pas détruit même vide.', 'The channel is not destroyed when empty.')],
             ['K', pick('Pas de knock', 'No knock'), pick('La commande KNOCK (toquer) est interdite.', 'The KNOCK command is disabled.')],
-            ['V', pick('Pas d’invitation', 'No invite'), pick('Les invitations par les membres sont interdites.', 'INVITE by channel members is forbidden.')],
             ['D', pick('Entrée différée', 'Delay join'), pick('Les arrivées ne s’affichent qu’au premier message.', 'Joins are hidden until the user speaks.')],
             ['d', pick('Membres masqués', 'Hidden members'), pick('Les membres inactifs peuvent être masqués (delay join).', 'Idle members may be hidden (delay join).')],
             ['H', pick('Masquer les arrivées', 'Hide joins'), pick('Les messages d’arrivée/départ sont masqués.', 'Join and part messages are hidden.')],
