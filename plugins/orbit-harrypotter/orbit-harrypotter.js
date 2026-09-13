@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var HP_VER = 4;
+  var HP_VER = 5;
   var HP = '+hp';
   var EV = '+ev';
   var HOUSES = {
@@ -29,6 +29,8 @@
   var syncAt = Object.create(null);
   var lastFxKey = '';
   var fxTimer = 0;
+  var hatUntil = 0;
+  var hatTimer = 0;
 
   function subscribe(fn) {
     store.listeners.push(fn);
@@ -209,6 +211,12 @@
           sortNick: tagVal(tags, '+nick'),
           sortHouse: tagVal(tags, '+house')
         });
+        playHatFx(channel, {
+          step: Number(tagVal(tags, '+step')) || 0,
+          text: tagVal(tags, '+text'),
+          nick: tagVal(tags, '+nick'),
+          house: tagVal(tags, '+house')
+        });
         break;
       case 'house_join':
         patchChannel(channel, {
@@ -216,6 +224,12 @@
           lastEvent: ev,
           toast: (tagVal(tags, '+nick') || '') + ' → ' + (tagVal(tags, '+house') || ''),
           sortHouse: tagVal(tags, '+house')
+        });
+        playHatFx(channel, {
+          step: 4,
+          text: tagVal(tags, '+house') ? 'Le Choixpeau a décidé… ' + tagVal(tags, '+house') + ' !' : '',
+          nick: tagVal(tags, '+nick'),
+          house: tagVal(tags, '+house')
         });
         playHpFx(channel, 'transform', {
           nick: tagVal(tags, '+nick'),
@@ -370,6 +384,21 @@
     return el;
   }
 
+  function hatSvg() {
+    return '<svg class="ohp-fx-hat" viewBox="0 0 200 220" aria-hidden="true">' +
+      '<defs><linearGradient id="ohpHat" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#6b4226"/><stop offset=".55" stop-color="#3d2414"/>' +
+      '<stop offset="1" stop-color="#24150c"/></linearGradient></defs>' +
+      '<ellipse cx="100" cy="188" rx="92" ry="18" fill="#1a1008"/>' +
+      '<ellipse cx="100" cy="178" rx="88" ry="16" fill="#2c1a0e"/>' +
+      '<path d="M100 10 C118 48 148 108 146 168 L54 168 C58 108 82 48 100 10Z" fill="url(#ohpHat)"/>' +
+      '<path d="M86 52 C96 70 112 68 118 50" fill="none" stroke="#24150c" stroke-width="3"/>' +
+      '<path d="M72 96 C90 112 118 108 130 90" fill="none" stroke="#2a180e" stroke-width="2.5"/>' +
+      '<ellipse class="ohp-hat-mouth" cx="100" cy="142" rx="16" ry="4" fill="#120a06"/>' +
+      '<path d="M78 128 Q100 136 122 128" fill="none" stroke="#1a1008" stroke-width="2"/>' +
+      '</svg>';
+  }
+
   function wandSvg() {
     return '<svg class="ohp-fx-wand" viewBox="0 0 280 48" aria-hidden="true">' +
       '<defs><linearGradient id="ohpWandGold" x1="0" x2="1"><stop offset="0" stop-color="#7a4a12"/><stop offset="1" stop-color="#e8c547"/></linearGradient>' +
@@ -414,13 +443,76 @@
     return involvedNicks.some(function (n) { return String(n || '').toLowerCase() === me; });
   }
 
+  function playHatFx(channel, data) {
+    data = data || {};
+    var nick = data.nick || '';
+    var house = data.house || '';
+    var text = data.text || 'Hmm… voyons voir…';
+    if (!shouldShowFx(channel, [nick])) return;
+
+    var layer = fxLayer();
+    var scene = layer.querySelector('.ohp-fx-hatwrap');
+    var color = houseColor(house);
+    if (!scene) {
+      layer.innerHTML =
+        '<div class="ohp-fx__vignette"></div>' +
+        '<div class="ohp-fx__scene ohp-fx-hatwrap">' +
+        sparklesHtml() + hatSvg() +
+        '<p class="ohp-fx-sub ohp-fx-who">' + escHtml(nick) + '</p>' +
+        '<p class="ohp-fx-phrase"></p>' +
+        '<p class="ohp-fx-title ohp-fx-housecall" hidden></p>' +
+        '</div>';
+      layer.hidden = false;
+    }
+    var phrase = layer.querySelector('.ohp-fx-phrase');
+    var call = layer.querySelector('.ohp-fx-housecall');
+    var hat = layer.querySelector('.ohp-fx-hat');
+    var who = layer.querySelector('.ohp-fx-who');
+    if (who && nick) who.textContent = nick;
+    if (phrase) phrase.textContent = text;
+    if (house && call) {
+      call.hidden = false;
+      call.textContent = house;
+      call.style.color = color;
+      call.style.textShadow = '0 0 24px ' + color;
+      layer.classList.add('ohp-fx--sorted');
+      if (hat) hat.classList.add('ohp-fx-hat--speak');
+      var vig = layer.querySelector('.ohp-fx__vignette');
+      if (vig) vig.style.background = 'radial-gradient(ellipse at center,rgba(18,10,4,.12),' + color + '55)';
+    }
+    hatUntil = Date.now() + (house ? 3800 : 2400);
+    if (hatTimer) clearTimeout(hatTimer);
+    hatTimer = setTimeout(function hideHat() {
+      if (Date.now() < hatUntil - 30) {
+        hatTimer = setTimeout(hideHat, hatUntil - Date.now());
+        return;
+      }
+      if (!layer.querySelector('.ohp-fx-hatwrap')) return;
+      layer.hidden = true;
+      layer.innerHTML = '';
+      layer.classList.remove('ohp-fx--sorted');
+      hatTimer = 0;
+    }, house ? 3900 : 2500);
+  }
+
   function playHpFx(channel, kind, data) {
     data = data || {};
     var nick = data.nick || '';
     var next = data.next || '';
     var key = kind + '|' + nick + '|' + next + '|' + (data.house || '');
-    if (kind === 'transform' && lastFxKey === key) return;
+    if (kind === 'transform' && lastFxKey === key && data._afterHat) {
+      /* ok, queued after hat */
+    } else if (kind === 'transform' && lastFxKey === key) {
+      return;
+    }
     if (kind === 'transform') lastFxKey = key;
+    if (kind === 'transform' && !data._afterHat && Date.now() < hatUntil) {
+      var wait = Math.max(200, hatUntil - Date.now() + 250);
+      setTimeout(function () {
+        playHpFx(channel, kind, Object.assign({}, data, { _afterHat: true }));
+      }, wait);
+      return;
+    }
     if (!shouldShowFx(channel, [nick, next, data.title, data.sub])) return;
 
     var layer = fxLayer();
@@ -458,7 +550,7 @@
       layer.hidden = true;
       layer.innerHTML = '';
       fxTimer = 0;
-    }, reduced ? 1400 : (kind === 'transform' || kind === 'spell' ? 3200 : 2200));
+    }, reduced ? 1400 : (kind === 'transform' || kind === 'spell' || kind === 'hat' ? 3200 : 2200));
   }
 
   function injectStyles() {
@@ -494,6 +586,13 @@
       '.ohp-fx__vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(18,10,4,.15),rgba(8,4,2,.72));animation:ohpFade .45s ease}',
       '.ohp-fx__scene{position:relative;z-index:1;text-align:center;color:#f8e7c0;max-width:min(92vw,36rem);padding:1.2rem}',
       '.ohp-fx-wand{width:min(72vw,22rem);height:auto;display:block;margin:0 auto .85rem;transform-origin:12% 50%;animation:ohpWand 1.15s cubic-bezier(.2,1.4,.3,1) both}',
+      '.ohp-fx-hat{width:min(46vw,13.5rem);height:auto;display:block;margin:0 auto .35rem;transform-origin:50% 85%;animation:ohpHatIn .7s cubic-bezier(.2,1.3,.3,1) both}',
+      '.ohp-fx-hat--speak,.ohp-fx--sorted .ohp-fx-hat{animation:ohpHatIn .7s cubic-bezier(.2,1.3,.3,1) both,ohpHatThink 1.1s ease-in-out infinite}',
+      '.ohp-hat-mouth{transform-box:fill-box;transform-origin:center;animation:ohpMouth 1.2s ease-in-out infinite}',
+      '.ohp-fx--sorted .ohp-hat-mouth{animation:ohpMouthSpeak .35s ease-in-out infinite}',
+      '.ohp-fx-phrase{min-height:2.6em;margin:.2rem 0 0;font-size:clamp(1.05rem,3.2vw,1.45rem);line-height:1.35;font-style:italic}',
+      '.ohp-fx-housecall{margin-top:.45rem;letter-spacing:.08em;text-transform:uppercase;animation:ohpNew .7s both}',
+      '.ohp-fx-who{opacity:.75;margin:0}',
       '.ohp-fx-sparkles{position:absolute;inset:-10% -6%;pointer-events:none}',
       '.ohp-fx-sparkles i{position:absolute;width:7px;height:7px;border-radius:50%;background:#ffe9a3;box-shadow:0 0 10px 3px rgba(255,220,120,.85);animation:ohpSpark 1.4s ease-out forwards}',
       '.ohp-fx-nicks{display:flex;align-items:center;justify-content:center;gap:.7rem;flex-wrap:wrap;font-size:clamp(1.35rem,4vw,2.1rem);font-weight:800;letter-spacing:.02em}',
@@ -506,11 +605,15 @@
       '.ohp-fx-ico{font-size:3.2rem;line-height:1;display:block;margin-bottom:.4rem;animation:ohpPop .55s both}',
       '@keyframes ohpFade{from{opacity:0}to{opacity:1}}',
       '@keyframes ohpWand{0%{transform:translate(42%,38%) rotate(-55deg) scale(.4);opacity:0}45%{opacity:1;transform:translate(8%,-6%) rotate(-12deg) scale(1)}70%{transform:translate(0,0) rotate(8deg) scale(1.05)}100%{transform:translate(0,0) rotate(0) scale(1)}}',
+      '@keyframes ohpHatIn{0%{opacity:0;transform:translateY(-42%) rotate(-8deg) scale(.7)}100%{opacity:1;transform:translateY(0) rotate(0) scale(1)}}',
+      '@keyframes ohpHatThink{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(4deg)}}',
+      '@keyframes ohpMouth{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.85)}}',
+      '@keyframes ohpMouthSpeak{0%,100%{transform:scaleY(1.1)}50%{transform:scaleY(2.5)}}',
       '@keyframes ohpOld{0%{opacity:1;transform:scale(1)}70%{opacity:.25;filter:blur(4px);transform:scale(.92) rotate(-2deg)}100%{opacity:0;transform:scale(.8)}}',
       '@keyframes ohpNew{0%{opacity:0;transform:scale(.6) rotate(6deg);filter:blur(8px)}100%{opacity:1;transform:scale(1);filter:blur(0)}}',
       '@keyframes ohpPop{0%{opacity:0;transform:scale(.4)}70%{transform:scale(1.12)}100%{opacity:1;transform:scale(1)}}',
       '@keyframes ohpSpark{0%{opacity:0;transform:translate(0,0) scale(.3)}25%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.1)}}',
-      '@media (prefers-reduced-motion:reduce){.ohp-fx__vignette,.ohp-fx-wand,.ohp-fx-old,.ohp-fx-new,.ohp-fx-ico,.ohp-fx-sparkles i{animation:none!important;opacity:1;transform:none;filter:none}}'
+      '@media (prefers-reduced-motion:reduce){.ohp-fx__vignette,.ohp-fx-wand,.ohp-fx-hat,.ohp-fx-old,.ohp-fx-new,.ohp-fx-ico,.ohp-fx-sparkles i,.ohp-hat-mouth{animation:none!important;opacity:1;transform:none;filter:none}}'
     ].join('');
   }
 
