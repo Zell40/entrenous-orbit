@@ -5,9 +5,13 @@
 (function () {
   'use strict';
 
-  var HP_VER = 5;
+  var HP_VER = 6;
   var HP = '+hp';
   var EV = '+ev';
+  var VIEW_FULL = 'full';
+  var VIEW_SPLIT = 'split';
+  var VIEW_CHAT = 'chat';
+  var STORAGE_VIEW = 'ohpViewMode';
   var HOUSES = {
     G: { name: 'Gryffondor', color: '#c11b1b', bg: '#740001' },
     S: { name: 'Serpentard', color: '#2ecc71', bg: '#1a472a' },
@@ -31,6 +35,9 @@
   var fxTimer = 0;
   var hatUntil = 0;
   var hatTimer = 0;
+  var viewMode = VIEW_FULL;
+  var chatUnread = 0;
+  var chatBadgeArmed = false;
 
   function subscribe(fn) {
     store.listeners.push(fn);
@@ -97,6 +104,283 @@
       if (orbit.state.viaBouncer) return !!orbit.state.viaBouncer();
       return !!(orbit.state.get() || {}).viaBouncer;
     } catch (e) { return false; }
+  }
+
+  function myNick(orbit) {
+    return String((orbit && orbit.state && orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+  }
+
+  function isServiceNick(nick) {
+    var n = String(nick || '').toLowerCase().replace(/^[@+%~&]/, '');
+    if (!n) return false;
+    var bots = (pluginOrbit && cfg(pluginOrbit).botNicks) || [];
+    if (bots.indexOf(n) >= 0) return true;
+    if (n.length > 4 && n.slice(-4) === 'serv') return true;
+    return n === 'botserv' || n === 'chanserv' || n === 'nickserv' || n === 'global';
+  }
+
+  function iconSvg(name) {
+    if (name === 'chat') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
+    }
+    if (name === 'game') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>';
+    }
+    if (name === 'split') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg>';
+    }
+    if (name === 'full') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+    }
+    return '';
+  }
+
+  function normalizeViewMode(mode) {
+    var m = String(mode || '').toLowerCase();
+    if (m === VIEW_FULL || m === VIEW_SPLIT || m === VIEW_CHAT) return m;
+    return VIEW_FULL;
+  }
+
+  function getViewMode(orbit) {
+    try {
+      if (orbit) {
+        var stored = orbit.storage.get(STORAGE_VIEW, '');
+        if (stored) return normalizeViewMode(stored);
+        if (cfg(orbit).defaultCollapsed) return VIEW_CHAT;
+      }
+    } catch (e) { /* ignore */ }
+    return normalizeViewMode(viewMode);
+  }
+
+  function isNarrowScreen() {
+    return window.matchMedia('(max-width:880px)').matches;
+  }
+
+  function chromeBottom() {
+    var vv = window.visualViewport;
+    var vh = (vv && vv.height) || window.innerHeight || 0;
+    var extra = 0;
+    function consider(el) {
+      if (!el || (el.closest && el.closest('#ohp-dom-panel'))) return;
+      var st = window.getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return;
+      var r = el.getBoundingClientRect();
+      if (r.height >= 36 && r.height <= 88 && r.width > vh * 0.4 && r.top > vh * 0.62 && r.bottom >= vh - 12) {
+        extra = Math.max(extra, Math.ceil(vh - r.top));
+      }
+    }
+    var nodes = document.querySelectorAll(
+      'nav, footer, [role="navigation"], [role="tablist"], [class*="tabbar"], [class*="tab-bar"], [class*="bottombar"], [class*="bottom-bar"], [class*="dock"]'
+    );
+    for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
+    var roots = [document.body];
+    var app = document.getElementById('app') || document.querySelector('.app, #orbit, .orbit');
+    if (app) roots.push(app);
+    roots.forEach(function (rootEl) {
+      if (!rootEl || !rootEl.children) return;
+      for (var j = 0; j < rootEl.children.length; j++) {
+        var child = rootEl.children[j];
+        var pos = window.getComputedStyle(child).position;
+        if (pos === 'fixed' || pos === 'sticky') consider(child);
+      }
+    });
+    return Math.min(extra, 88);
+  }
+
+  function clearPanelBox(root, main) {
+    if (root) {
+      ['height', 'max-height', 'width', 'top', 'left', 'right', 'bottom', 'position', 'z-index', 'margin'].forEach(function (p) {
+        root.style.removeProperty(p);
+      });
+    }
+    if (main) {
+      ['height', 'max-height', 'width', 'max-width', 'margin', 'padding', 'padding-left', 'padding-right'].forEach(function (p) {
+        main.style.removeProperty(p);
+      });
+    }
+  }
+
+  function fitPanelToViewport() {
+    var root = document.getElementById('ohp-dom-panel');
+    var main = document.querySelector('.main');
+    if (!root) return;
+    var full = document.body.classList.contains('ohp-full');
+    var split = document.body.classList.contains('ohp-split');
+    if (!full && !split) {
+      clearPanelBox(root, main);
+      return;
+    }
+    var topbar = null;
+    if (main) {
+      for (var ti = 0; ti < main.children.length; ti++) {
+        if (main.children[ti].classList && main.children[ti].classList.contains('topbar')) {
+          topbar = main.children[ti];
+          break;
+        }
+      }
+    }
+    if (!topbar) topbar = document.querySelector('.topbar');
+    var vv = window.visualViewport;
+    var vh = Math.round((vv && vv.height) || window.innerHeight || 0);
+    var top = 0;
+    if (topbar) top = Math.round(topbar.getBoundingClientRect().bottom);
+    else top = Math.round(root.getBoundingClientRect().top);
+    if (vv) top -= Math.round(vv.offsetTop || 0);
+    top = Math.max(0, top);
+    var bottom = chromeBottom();
+    var h = Math.floor(vh - top - bottom);
+    if (split && !full && window.matchMedia('(max-width:999px)').matches) {
+      h = Math.min(h, Math.floor(vh * 0.58));
+    }
+    if (full && isNarrowScreen()) {
+      if (vv) top = Math.round(topbar ? topbar.getBoundingClientRect().bottom : top);
+      top = Math.max(0, top);
+      var kb = 0;
+      if (vv) {
+        var hidden = Math.round((window.innerHeight || 0) - vv.height - (vv.offsetTop || 0));
+        if (hidden > 140) kb = hidden;
+      }
+      if (main) {
+        main.style.setProperty('padding', '0', 'important');
+        main.style.setProperty('margin', '0', 'important');
+        main.style.setProperty('width', '100%', 'important');
+        main.style.setProperty('max-width', 'none', 'important');
+        main.style.setProperty('height', '100dvh', 'important');
+        main.style.setProperty('max-height', '100dvh', 'important');
+      }
+      root.style.setProperty('position', 'fixed', 'important');
+      root.style.setProperty('left', '0', 'important');
+      root.style.setProperty('right', '0', 'important');
+      root.style.setProperty('top', top + 'px', 'important');
+      root.style.setProperty('bottom', kb + 'px', 'important');
+      root.style.setProperty('height', 'auto', 'important');
+      root.style.setProperty('max-height', 'none', 'important');
+      root.style.setProperty('width', '100%', 'important');
+      root.style.setProperty('margin', '0', 'important');
+      root.style.setProperty('z-index', '40', 'important');
+      return;
+    }
+    root.style.removeProperty('position');
+    root.style.removeProperty('left');
+    root.style.removeProperty('right');
+    root.style.removeProperty('top');
+    root.style.removeProperty('bottom');
+    root.style.removeProperty('z-index');
+    if (full && main) {
+      main.style.setProperty('height', vh + 'px', 'important');
+      main.style.setProperty('max-height', vh + 'px', 'important');
+    }
+    if (h > 80) {
+      root.style.setProperty('height', h + 'px', 'important');
+      root.style.setProperty('max-height', h + 'px', 'important');
+      root.style.setProperty('width', '100%', 'important');
+    }
+  }
+
+  function clearShellLayout() {
+    document.body.classList.remove('ohp-full', 'ohp-split');
+    document.documentElement.classList.remove('ohp-full', 'ohp-split');
+    var root = document.getElementById('ohp-dom-panel');
+    var main = document.querySelector('.main');
+    if (root) {
+      root.style.display = 'none';
+      root.classList.remove('ohp-panel--full', 'ohp-panel--split', 'ohp-panel--chat');
+    }
+    clearPanelBox(root, main);
+  }
+
+  function applyViewMode(orbit, mode) {
+    mode = normalizeViewMode(mode);
+    viewMode = mode;
+    var on = !!(orbit && isHpChannel(orbit, orbit.state.active()) && !isBouncerSession(orbit));
+    if (!on) {
+      clearShellLayout();
+      return;
+    }
+    var root = document.getElementById('ohp-dom-panel');
+    document.body.classList.toggle('ohp-full', mode === VIEW_FULL);
+    document.body.classList.toggle('ohp-split', mode === VIEW_SPLIT);
+    document.documentElement.classList.toggle('ohp-full', mode === VIEW_FULL);
+    document.documentElement.classList.toggle('ohp-split', mode === VIEW_SPLIT);
+    if (!root) return;
+    root.hidden = false;
+    root.classList.remove('ohp-panel--full', 'ohp-panel--split', 'ohp-panel--chat');
+    if (mode === VIEW_CHAT || mode === VIEW_SPLIT) {
+      if (chatUnread) chatUnread = 0;
+    }
+    if (mode === VIEW_CHAT) {
+      root.classList.add('ohp-panel--chat');
+      root.style.display = '';
+      fitPanelToViewport();
+      requestAnimationFrame(fitPanelToViewport);
+      return;
+    }
+    root.style.display = '';
+    root.classList.add(mode === VIEW_SPLIT ? 'ohp-panel--split' : 'ohp-panel--full');
+    fitPanelToViewport();
+    requestAnimationFrame(fitPanelToViewport);
+  }
+
+  function setViewMode(orbit, mode) {
+    mode = normalizeViewMode(mode);
+    viewMode = mode;
+    try { if (orbit) orbit.storage.set(STORAGE_VIEW, mode); } catch (e) { /* ignore */ }
+    applyViewMode(orbit, mode);
+    emit();
+  }
+
+  function viewBtns(mode) {
+    var layoutAct = mode === VIEW_SPLIT ? 'view-full' : 'view-split';
+    var layoutIcon = mode === VIEW_SPLIT ? 'full' : 'split';
+    var layoutTitle = mode === VIEW_SPLIT ? 'Jeu en plein écran' : 'Jeu + tchat';
+    var paneAct = mode === VIEW_CHAT ? 'view-full' : 'view-chat';
+    var paneIcon = mode === VIEW_CHAT ? 'game' : 'chat';
+    var paneTitle = mode === VIEW_CHAT ? 'Afficher le jeu' : 'Afficher le tchat';
+    return '<div class="ohp-head__actions">' +
+      '<button type="button" class="ohp-head__btn' + (mode === VIEW_SPLIT ? ' ohp-head__btn--on' : '') +
+        '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
+      '<button type="button" class="ohp-head__btn' + (mode === VIEW_CHAT ? ' ohp-head__btn--on' : '') +
+        '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) +
+        (mode !== VIEW_CHAT && chatUnread ? '<span class="ohp-head__unread">' +
+          (chatUnread > 99 ? '99+' : String(chatUnread)) + '</span>' : '') +
+        '</button>' +
+      '</div>';
+  }
+
+  function noteIncomingChat(orbit, msg) {
+    if (!chatBadgeArmed) return;
+    if (getViewMode(orbit) !== VIEW_FULL) return;
+    var target = (msg.params && msg.params[0]) || (msg.args && msg.args[0]) || '';
+    if (!isChannelName(target) || !isHpChannel(orbit, target)) return;
+    var nick = String(msg.nick || '').toLowerCase();
+    if (!nick || nick === myNick(orbit) || isServiceNick(nick)) return;
+    var text = String((msg.params && msg.params[1]) || (msg.args && msg.args[1]) || '');
+    if (text.charAt(0) === '\x01' && text.indexOf('ACTION ') !== 0) return;
+    chatUnread = Math.min(99, chatUnread + 1);
+    var btn = document.querySelector('#ohp-dom-panel [data-act="view-chat"]');
+    if (!btn) return;
+    var badge = btn.querySelector('.ohp-head__unread');
+    var label = chatUnread > 99 ? '99+' : String(chatUnread);
+    if (badge) {
+      badge.textContent = label;
+      return;
+    }
+    badge = document.createElement('span');
+    badge.className = 'ohp-head__unread';
+    badge.textContent = label;
+    btn.appendChild(badge);
+  }
+
+  function phaseBadge(game) {
+    var p = game && game.phase;
+    if (p === 'sorting') return 'Répartition';
+    if (p === 'waiting') return 'Inscription';
+    if (p === 'question') return 'Question';
+    if (p === 'spell') return 'Sortilège';
+    if (p === 'duel') return 'Duel';
+    if (p === 'playing') return 'Cours';
+    if (p === 'ended') return 'Terminé';
+    return 'Poudlard';
   }
 
   function defaultState() {
@@ -561,17 +845,36 @@
       document.head.appendChild(el);
     }
     el.textContent = [
-      '.ohp-panel{flex:0 0 auto;border-bottom:1px solid color-mix(in srgb,#c9a227 35%,var(--border,#333));background:linear-gradient(180deg,#1a1208,#120c06 55%,var(--bg,#111));color:#f4e4c1;font-size:13px}',
+      '.ohp-panel{position:relative;flex:0 0 auto;width:100%;z-index:20;border-bottom:1px solid color-mix(in srgb,#c9a227 35%,var(--border,#333));background:linear-gradient(180deg,#1a1208,#120c06 55%,#0d0905);color:#f4e4c1;font-size:13px;font-family:var(--font,system-ui,sans-serif);display:flex;flex-direction:column;min-height:0;overflow:hidden;box-sizing:border-box}',
       '.ohp-panel[hidden]{display:none!important}',
-      '.ohp-bar{display:flex;align-items:center;gap:.6rem;padding:.45rem .75rem;min-height:2.4rem}',
-      '.ohp-title{font-weight:700;letter-spacing:.04em;color:#e8c547;white-space:nowrap}',
+      '.ohp-panel--full{flex:1 1 auto;min-height:0;max-height:100%;border-bottom:0}',
+      '.ohp-panel--split{flex:1 1 auto;min-height:0;max-height:100%}',
+      '.ohp-panel--chat{flex:0 0 auto;min-height:0;height:auto!important;max-height:none!important}',
+      '.ohp-panel--chat .ohp-houses,.ohp-panel--chat .ohp-stage{display:none!important}',
+      'html.ohp-full,html.ohp-full body,body.ohp-full{overflow:hidden;width:100%;max-width:100%;margin:0;padding:0;height:100%;min-height:100svh;min-height:100dvh}',
+      'body.ohp-full .main{display:flex!important;flex-direction:column;overflow:hidden;min-height:0;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100svh!important;height:100dvh!important;max-height:100svh!important;max-height:100dvh!important}',
+      'html.ohp-full .chan-hero,html.ohp-full .messages,html.ohp-full .composer,html.ohp-full .main__room-bg,html.ohp-full .empty,body.ohp-full .chan-hero,body.ohp-full .messages,body.ohp-full .composer,body.ohp-full .main__room-bg,body.ohp-full .empty,body.ohp-full .composer textarea,body.ohp-full form.composer{display:none!important;height:0!important;min-height:0!important;max-height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;margin:0!important;padding:0!important;border:0!important;flex:none!important;resize:none!important}',
+      'body.ohp-full #ohp-dom-panel{flex:1 1 0;min-height:0;width:100%;max-width:none;margin:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box}',
+      '@media(max-width:880px){body.ohp-full .app,body.ohp-full #app,body.ohp-full .shell,body.ohp-full .layout{width:100%!important;max-width:none!important;margin:0!important;padding:0!important;height:100%!important;min-height:100svh!important}body.ohp-full .topbar{z-index:60!important;position:relative}body.ohp-full .sidebar,body.ohp-full .rail,body.ohp-full aside.sidebar{z-index:90!important}body.ohp-full .nav-backdrop{z-index:80!important}body.ohp-full #ohp-dom-panel{border-radius:0!important;width:100%!important;max-width:none!important;margin:0!important;left:0!important;right:0!important;bottom:0!important;height:auto!important;max-height:none!important}body.ohp-full .ohp-stage{width:100%!important;box-sizing:border-box}}',
+      '@media(min-width:1000px){body.ohp-split .main{display:grid!important;grid-template-columns:minmax(28rem,1.25fr) minmax(14rem,.7fr);grid-template-rows:auto auto 1fr auto;align-items:stretch;overflow:hidden}body.ohp-split .topbar{grid-column:1/-1;grid-row:1}body.ohp-split .main__room-bg{grid-column:2;grid-row:2/4;height:auto!important}body.ohp-split #ohp-dom-panel{grid-column:1;grid-row:2/-1;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid rgba(201,162,39,.28)}body.ohp-split .chan-hero{grid-column:2;grid-row:2}body.ohp-split .messages{grid-column:2;grid-row:3;min-height:0}body.ohp-split .composer{grid-column:2;grid-row:4}body.ohp-split .main>:not(.topbar):not(#ohp-dom-panel):not(.main__room-bg):not(.chan-hero):not(.messages):not(.composer){grid-column:2}}',
+      '@media(max-width:999px){body.ohp-split .main{display:flex;flex-direction:column;overflow:hidden}body.ohp-split #ohp-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.ohp-split .messages{flex:1 1 auto;min-height:8rem}}',
+      '.ohp-head{position:relative;display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#5c3a12,#3d2208 55%,#2a1606);color:#f8e7c0;flex:0 0 auto;overflow:visible;z-index:30}',
+      '.ohp-head__title{font-weight:800;font-size:.88rem;letter-spacing:.04em;color:#e8c547;white-space:nowrap}',
+      '.ohp-head__badge{font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(232,197,71,.18);color:#f4e4c1}',
+      '.ohp-head__actions{margin-left:auto;display:flex;gap:.28rem}',
+      '.ohp-head__btn{position:relative;border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:34px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
+      '.ohp-head__unread{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1.15rem;text-align:center;box-shadow:0 0 0 2px #3d2208}',
+      '.ohp-head__btn:hover{background:rgba(255,255,255,.28)}',
+      '.ohp-head__btn--on{background:rgba(232,197,71,.38)}',
+      '.ohp-head__btn svg{width:18px;height:18px;display:block}',
       '.ohp-toast{flex:1;min-width:0;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.ohp-clock{font-variant-numeric:tabular-nums;background:#2a1c0a;border:1px solid #c9a227;border-radius:999px;padding:.15rem .55rem;color:#f1c40f}',
-      '.ohp-houses{display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem;padding:0 .75rem .45rem}',
+      '.ohp-clock{font-variant-numeric:tabular-nums;background:#2a1c0a;border:1px solid #c9a227;border-radius:999px;padding:.15rem .55rem;color:#f1c40f;flex:0 0 auto}',
+      '.ohp-houses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.35rem;padding:.5rem .75rem .35rem;flex:0 0 auto}',
       '.ohp-house{border-radius:8px;padding:.25rem .4rem;text-align:center;font-size:11px;border:1px solid transparent}',
       '.ohp-house b{display:block;font-size:14px}',
-      '.ohp-stage{padding:.15rem .75rem .7rem}',
-      '.ohp-card{border:1px solid color-mix(in srgb,#c9a227 40%,transparent);border-radius:12px;padding:.7rem .8rem;background:color-mix(in srgb,#2a1c0a 70%,transparent)}',
+      '.ohp-stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:.55rem;padding:.15rem .75rem .9rem;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}',
+      '.ohp-card{border:1px solid color-mix(in srgb,#c9a227 40%,transparent);border-radius:12px;padding:.85rem .95rem;background:color-mix(in srgb,#2a1c0a 70%,transparent);flex:1 1 auto}',
+      'body.ohp-full .ohp-q{font-size:clamp(1.05rem,2.4vw,1.45rem)}',
       '.ohp-q{font-size:15px;line-height:1.35;margin:0 0 .5rem}',
       '.ohp-row{display:flex;gap:.4rem;flex-wrap:wrap}',
       '.ohp-row input{flex:1;min-width:8rem;border-radius:8px;border:1px solid #c9a227;background:#0e0a05;color:#f4e4c1;padding:.4rem .55rem}',
@@ -580,6 +883,7 @@
       '.ohp-hat{font-size:1.4rem;margin-bottom:.35rem}',
       '.ohp-rank{margin:.4rem 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:.35rem .7rem}',
       '.ohp-idle{display:flex;align-items:center;justify-content:space-between;gap:.6rem}',
+      'body.ohp-full .ohp-idle{flex-direction:column;align-items:flex-start;justify-content:center;min-height:min(42vh,22rem);gap:1rem}',
       '.ohp-spells{display:flex;gap:.4rem;flex-wrap:wrap}',
       '.ohp-fx{position:fixed;inset:0;z-index:80;pointer-events:none;display:flex;align-items:center;justify-content:center}',
       '.ohp-fx[hidden]{display:none!important}',
@@ -635,14 +939,17 @@
     var buffer = orbit.state.active();
     var on = isHpChannel(orbit, buffer);
     var c = cfg(orbit);
+    var mode = getViewMode(orbit);
     if (!on) {
       root.hidden = true;
       root.innerHTML = '';
+      clearShellLayout();
       return;
     }
     var game = getChannelState(buffer);
     if (game.phase === 'idle' && !c.showWhenIdle) {
       root.hidden = true;
+      clearShellLayout();
       return;
     }
     root.hidden = false;
@@ -690,9 +997,11 @@
     }).join('');
 
     root.innerHTML =
-      '<div class="ohp-bar"><span class="ohp-title">⚡ Poudlard</span>' +
+      '<div class="ohp-head"><span class="ohp-head__title">⚡ Poudlard</span>' +
+      '<span class="ohp-head__badge">' + escHtml(phaseBadge(game)) + '</span>' +
       '<span class="ohp-toast">' + escHtml(game.toast || '') + '</span>' +
       (left ? '<span class="ohp-clock">' + left + 's</span>' : '') +
+      viewBtns(mode) +
       '</div>' +
       '<div class="ohp-houses">' + houseBlock(game.houses) + '</div>' +
       '<div class="ohp-stage">' + stage +
@@ -703,6 +1012,9 @@
       var btn = ev.target.closest('[data-act]');
       if (!btn) return;
       var act = btn.getAttribute('data-act');
+      if (act === 'view-full') { setViewMode(orbit, VIEW_FULL); return; }
+      if (act === 'view-split') { setViewMode(orbit, VIEW_SPLIT); return; }
+      if (act === 'view-chat') { setViewMode(orbit, VIEW_CHAT); return; }
       if (act === 'jouer') send(orbit, buffer, '!jouer');
       if (act === 'rejoindre') send(orbit, buffer, '!rejoindre');
       if (act === 'lancer') send(orbit, buffer, '!lancer ' + (game.inc || ''));
@@ -727,6 +1039,7 @@
         restore.focus();
       }
     }
+    applyViewMode(orbit, mode);
   }
 
   function mountDomPanel(orbit) {
@@ -737,6 +1050,7 @@
         root.hidden = true;
         root.innerHTML = '';
       }
+      clearShellLayout();
       return;
     }
     if (!root) {
@@ -757,8 +1071,10 @@
 
   Orbit.plugin('orbit-harrypotter', function (orbit, log) {
     pluginOrbit = orbit;
+    viewMode = getViewMode(orbit);
     injectStyles();
     console.info('[orbit-harrypotter] loaded v' + HP_VER);
+    setTimeout(function () { chatBadgeArmed = true; }, 800);
     if (orbit.requireVisualDisplay) {
       orbit.requireVisualDisplay({
         label: 'Harry Potter',
@@ -771,9 +1087,19 @@
     }
 
     subscribe(function () { syncDom(); });
+    window.addEventListener('resize', fitPanelToViewport);
+    window.addEventListener('orientationchange', fitPanelToViewport);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', fitPanelToViewport);
+      window.visualViewport.addEventListener('scroll', fitPanelToViewport);
+    }
 
     orbit.on('raw', function (msg) {
       var cmd = String(msg.command || '').toUpperCase();
+      if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
+        noteIncomingChat(orbit, msg);
+        return;
+      }
       if (cmd !== 'TAGMSG') return;
       var tags = msg.tags || {};
       if (tagVal(tags, HP) !== 'v1') return;
