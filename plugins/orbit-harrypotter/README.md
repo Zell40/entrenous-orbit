@@ -47,6 +47,8 @@ Le bot envoie l’état de la partie en **TAGMSG IRCv3** (`+hp=v1`, `+ev=…`) s
 | `score` / `state_sync` | scores + phase (`!etat`) |
 | `ambiance` / `mimsy` | PNJ (tags seulement si `quietChannel`) |
 
+Les temps forts (SANICK, maison, sort réussi, duel, coupe) déclenchent un **calque plein écran** : baguette, étincelles, métamorphose du nick. `prefers-reduced-motion` raccourcit l’animation.
+
 ## Développement local (Windows)
 
 ```powershell

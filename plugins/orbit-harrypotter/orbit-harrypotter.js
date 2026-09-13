@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var HP_VER = 3;
+  var HP_VER = 4;
   var HP = '+hp';
   var EV = '+ev';
   var HOUSES = {
@@ -27,6 +27,8 @@
   var pluginOrbit = null;
   var store = { byChannel: {}, rev: 0, listeners: [] };
   var syncAt = Object.create(null);
+  var lastFxKey = '';
+  var fxTimer = 0;
 
   function subscribe(fn) {
     store.listeners.push(fn);
@@ -182,6 +184,7 @@
         patchChannel(channel, Object.assign(defaultState(), {
           phase: 'waiting', lastEvent: ev
         }));
+        playHpFx(channel, 'year', { title: 'Bienvenue à Poudlard' });
         break;
       case 'game_end':
         patchChannel(channel, {
@@ -191,6 +194,10 @@
           houses: parseHouses(tagVal(tags, '+houses')),
           ranking: parseRanking(tagVal(tags, '+ranking')),
           deadline: 0
+        });
+        playHpFx(channel, 'cup', {
+          title: tagVal(tags, '+winner') || 'Poudlard',
+          sub: (tagVal(tags, '+points') || '0') + ' points'
         });
         break;
       case 'sorting':
@@ -210,9 +217,15 @@
           toast: (tagVal(tags, '+nick') || '') + ' → ' + (tagVal(tags, '+house') || ''),
           sortHouse: tagVal(tags, '+house')
         });
+        playHpFx(channel, 'transform', {
+          nick: tagVal(tags, '+nick'),
+          next: tagVal(tags, '+game_nick') || tagVal(tags, '+nick'),
+          house: tagVal(tags, '+house')
+        });
         break;
       case 'year_start':
         patchChannel(channel, { phase: 'playing', lastEvent: ev, toast: 'L\'année commence !' });
+        playHpFx(channel, 'year', { title: 'L\'année commence !' });
         break;
       case 'question':
         t = startTimer(channel, tagVal(tags, '+timeout'), tagVal(tags, '+timeout'));
@@ -227,6 +240,10 @@
         patchChannel(channel, {
           phase: 'playing', lastEvent: ev, deadline: 0, q: '',
           toast: '✅ ' + tagVal(tags, '+nick') + ' +' + (tagVal(tags, '+points') || '10')
+        });
+        playHpFx(channel, 'spark', {
+          title: tagVal(tags, '+nick'),
+          sub: '+' + (tagVal(tags, '+points') || '10') + ' points'
         });
         break;
       case 'answer_ko':
@@ -251,6 +268,10 @@
           phase: 'playing', lastEvent: ev, deadline: 0, inc: '',
           toast: '🌟 ' + tagVal(tags, '+nick') + ' +' + (tagVal(tags, '+points') || '8')
         });
+        playHpFx(channel, 'spell', {
+          title: tagVal(tags, '+inc') || 'Sortilège',
+          sub: tagVal(tags, '+nick')
+        });
         break;
       case 'spell_ko':
         patchChannel(channel, { lastEvent: ev, toast: '🙃 ' + tagVal(tags, '+nick') });
@@ -265,6 +286,10 @@
           p1: tagVal(tags, '+p1'), p2: tagVal(tags, '+p2'),
           toast: tagVal(tags, '+taunt')
         }, t));
+        playHpFx(channel, 'duel', {
+          title: tagVal(tags, '+p1'),
+          sub: tagVal(tags, '+p2')
+        });
         break;
       case 'duel_choice':
         patchChannel(channel, { lastEvent: ev, toast: tagVal(tags, '+nick') + ' a choisi.' });
@@ -280,6 +305,10 @@
         patchChannel(channel, {
           phase: 'playing', lastEvent: ev, deadline: 0, p1: '', p2: '',
           toast: '🏅 ' + tagVal(tags, '+winner') + ' (' + tagVal(tags, '+s1') + ' bat ' + tagVal(tags, '+s2') + ')'
+        });
+        playHpFx(channel, 'spark', {
+          title: tagVal(tags, '+winner'),
+          sub: (tagVal(tags, '+s1') || '') + ' bat ' + (tagVal(tags, '+s2') || '')
         });
         break;
       case 'duel_expire':
@@ -312,6 +341,11 @@
           lastEvent: ev,
           toast: tagVal(tags, '+nick') + ' devient ' + tagVal(tags, '+game_nick')
         });
+        playHpFx(channel, 'transform', {
+          nick: tagVal(tags, '+nick'),
+          next: tagVal(tags, '+game_nick'),
+          house: tagVal(tags, '+house')
+        });
         break;
       default:
         break;
@@ -324,10 +358,116 @@
     });
   }
 
+  function fxLayer() {
+    var el = document.getElementById('ohp-fx');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'ohp-fx';
+    el.className = 'ohp-fx';
+    el.hidden = true;
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function wandSvg() {
+    return '<svg class="ohp-fx-wand" viewBox="0 0 280 48" aria-hidden="true">' +
+      '<defs><linearGradient id="ohpWandGold" x1="0" x2="1"><stop offset="0" stop-color="#7a4a12"/><stop offset="1" stop-color="#e8c547"/></linearGradient>' +
+      '<filter id="ohpGlow"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
+      '<rect x="8" y="20" width="132" height="10" rx="4" fill="#3a2410"/>' +
+      '<rect x="136" y="18" width="108" height="13" rx="3" fill="url(#ohpWandGold)"/>' +
+      '<circle cx="252" cy="24" r="10" fill="#fff6c8" filter="url(#ohpGlow)"/>' +
+      '<circle cx="252" cy="24" r="4" fill="#fff"/>' +
+      '</svg>';
+  }
+
+  function sparklesHtml() {
+    var bits = [];
+    var i;
+    for (i = 0; i < 14; i++) {
+      var x = 8 + Math.random() * 84;
+      var y = 18 + Math.random() * 64;
+      var dx = (Math.random() * 140 - 70).toFixed(0) + 'px';
+      var dy = (Math.random() * -120 - 20).toFixed(0) + 'px';
+      bits.push('<i style="left:' + x + '%;top:' + y + '%;--dx:' + dx + ';--dy:' + dy + ';animation-delay:' + (i * 0.05).toFixed(2) + 's"></i>');
+    }
+    return '<div class="ohp-fx-sparkles">' + bits.join('') + '</div>';
+  }
+
+  function houseColor(house) {
+    var n = String(house || '').toLowerCase();
+    if (n.indexOf('gryff') === 0) return HOUSES.G.color;
+    if (n.indexOf('serp') === 0) return HOUSES.S.color;
+    if (n.indexOf('pouf') === 0) return HOUSES.P.color;
+    if (n.indexOf('serd') === 0) return HOUSES.R.color;
+    return '#e8c547';
+  }
+
+  function shouldShowFx(channel, involvedNicks) {
+    if (!pluginOrbit || isBouncerSession(pluginOrbit)) return false;
+    var buf = pluginOrbit.state.active();
+    var onChan = isHpChannel(pluginOrbit, buf) &&
+      normChan(resolveChannelName(pluginOrbit, buf) || buf) === normChan(channel);
+    if (onChan) return true;
+    var me = String(pluginOrbit.state.nick() || '').toLowerCase();
+    if (!me || !involvedNicks) return false;
+    return involvedNicks.some(function (n) { return String(n || '').toLowerCase() === me; });
+  }
+
+  function playHpFx(channel, kind, data) {
+    data = data || {};
+    var nick = data.nick || '';
+    var next = data.next || '';
+    var key = kind + '|' + nick + '|' + next + '|' + (data.house || '');
+    if (kind === 'transform' && lastFxKey === key) return;
+    if (kind === 'transform') lastFxKey = key;
+    if (!shouldShowFx(channel, [nick, next, data.title, data.sub])) return;
+
+    var layer = fxLayer();
+    var reduced = false;
+    try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
+    var html = sparklesHtml();
+    if (kind === 'transform') {
+      html += wandSvg() +
+        '<div class="ohp-fx-nicks">' +
+        '<span class="ohp-fx-old">' + escHtml(nick || '…') + '</span>' +
+        '<span class="ohp-fx-arrow">→</span>' +
+        '<span class="ohp-fx-new" style="color:' + houseColor(data.house) + '">' + escHtml(next || nick) + '</span>' +
+        '</div>' +
+        (data.house ? '<div class="ohp-fx-house">' + escHtml(data.house) + '</div>' : '');
+    } else if (kind === 'spell') {
+      html += wandSvg() + '<span class="ohp-fx-ico">✨</span><p class="ohp-fx-title">' +
+        escHtml(data.title || 'Sortilège') + '</p><p class="ohp-fx-sub">' + escHtml(data.sub || '') + '</p>';
+    } else if (kind === 'duel') {
+      html += '<span class="ohp-fx-ico">⚔️</span><div class="ohp-fx-nicks"><span class="ohp-fx-new">' +
+        escHtml(data.title || '') + '</span><span class="ohp-fx-arrow">vs</span><span class="ohp-fx-new">' +
+        escHtml(data.sub || '') + '</span></div>';
+    } else if (kind === 'cup') {
+      html += '<span class="ohp-fx-ico">🏆</span><p class="ohp-fx-title">' + escHtml(data.title || '') +
+        '</p><p class="ohp-fx-sub">' + escHtml(data.sub || '') + '</p>';
+    } else if (kind === 'year') {
+      html += '<span class="ohp-fx-ico">🏰</span><p class="ohp-fx-title">' + escHtml(data.title || '') + '</p>';
+    } else {
+      html += '<span class="ohp-fx-ico">🌟</span><p class="ohp-fx-title">' + escHtml(data.title || '') +
+        '</p><p class="ohp-fx-sub">' + escHtml(data.sub || '') + '</p>';
+    }
+    layer.innerHTML = '<div class="ohp-fx__vignette"></div><div class="ohp-fx__scene">' + html + '</div>';
+    layer.hidden = false;
+    if (fxTimer) clearTimeout(fxTimer);
+    fxTimer = setTimeout(function () {
+      layer.hidden = true;
+      layer.innerHTML = '';
+      fxTimer = 0;
+    }, reduced ? 1400 : (kind === 'transform' || kind === 'spell' ? 3200 : 2200));
+  }
+
   function injectStyles() {
-    if (document.getElementById('orbit-harrypotter-css')) return;
-    var el = document.createElement('style');
-    el.id = 'orbit-harrypotter-css';
+    var el = document.getElementById('orbit-harrypotter-css');
+    if (!el) {
+      el = document.createElement('style');
+      el.id = 'orbit-harrypotter-css';
+      document.head.appendChild(el);
+    }
     el.textContent = [
       '.ohp-panel{flex:0 0 auto;border-bottom:1px solid color-mix(in srgb,#c9a227 35%,var(--border,#333));background:linear-gradient(180deg,#1a1208,#120c06 55%,var(--bg,#111));color:#f4e4c1;font-size:13px}',
       '.ohp-panel[hidden]{display:none!important}',
@@ -348,9 +488,30 @@
       '.ohp-hat{font-size:1.4rem;margin-bottom:.35rem}',
       '.ohp-rank{margin:.4rem 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:.35rem .7rem}',
       '.ohp-idle{display:flex;align-items:center;justify-content:space-between;gap:.6rem}',
-      '.ohp-spells{display:flex;gap:.4rem;flex-wrap:wrap}'
+      '.ohp-spells{display:flex;gap:.4rem;flex-wrap:wrap}',
+      '.ohp-fx{position:fixed;inset:0;z-index:80;pointer-events:none;display:flex;align-items:center;justify-content:center}',
+      '.ohp-fx[hidden]{display:none!important}',
+      '.ohp-fx__vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(18,10,4,.15),rgba(8,4,2,.72));animation:ohpFade .45s ease}',
+      '.ohp-fx__scene{position:relative;z-index:1;text-align:center;color:#f8e7c0;max-width:min(92vw,36rem);padding:1.2rem}',
+      '.ohp-fx-wand{width:min(72vw,22rem);height:auto;display:block;margin:0 auto .85rem;transform-origin:12% 50%;animation:ohpWand 1.15s cubic-bezier(.2,1.4,.3,1) both}',
+      '.ohp-fx-sparkles{position:absolute;inset:-10% -6%;pointer-events:none}',
+      '.ohp-fx-sparkles i{position:absolute;width:7px;height:7px;border-radius:50%;background:#ffe9a3;box-shadow:0 0 10px 3px rgba(255,220,120,.85);animation:ohpSpark 1.4s ease-out forwards}',
+      '.ohp-fx-nicks{display:flex;align-items:center;justify-content:center;gap:.7rem;flex-wrap:wrap;font-size:clamp(1.35rem,4vw,2.1rem);font-weight:800;letter-spacing:.02em}',
+      '.ohp-fx-old{opacity:.7;filter:blur(0);animation:ohpOld .9s ease forwards}',
+      '.ohp-fx-arrow{color:#e8c547;animation:ohpPop .5s .35s both}',
+      '.ohp-fx-new{color:#ffe08a;text-shadow:0 0 18px rgba(232,197,71,.75);animation:ohpNew .7s .55s both}',
+      '.ohp-fx-house{margin-top:.55rem;font-size:.95rem;letter-spacing:.12em;text-transform:uppercase;opacity:.9}',
+      '.ohp-fx-title{font-size:clamp(1.4rem,4.5vw,2.3rem);font-weight:800;margin:0;text-shadow:0 0 22px rgba(232,197,71,.45)}',
+      '.ohp-fx-sub{margin:.35rem 0 0;opacity:.88;font-size:1.05rem}',
+      '.ohp-fx-ico{font-size:3.2rem;line-height:1;display:block;margin-bottom:.4rem;animation:ohpPop .55s both}',
+      '@keyframes ohpFade{from{opacity:0}to{opacity:1}}',
+      '@keyframes ohpWand{0%{transform:translate(42%,38%) rotate(-55deg) scale(.4);opacity:0}45%{opacity:1;transform:translate(8%,-6%) rotate(-12deg) scale(1)}70%{transform:translate(0,0) rotate(8deg) scale(1.05)}100%{transform:translate(0,0) rotate(0) scale(1)}}',
+      '@keyframes ohpOld{0%{opacity:1;transform:scale(1)}70%{opacity:.25;filter:blur(4px);transform:scale(.92) rotate(-2deg)}100%{opacity:0;transform:scale(.8)}}',
+      '@keyframes ohpNew{0%{opacity:0;transform:scale(.6) rotate(6deg);filter:blur(8px)}100%{opacity:1;transform:scale(1);filter:blur(0)}}',
+      '@keyframes ohpPop{0%{opacity:0;transform:scale(.4)}70%{transform:scale(1.12)}100%{opacity:1;transform:scale(1)}}',
+      '@keyframes ohpSpark{0%{opacity:0;transform:translate(0,0) scale(.3)}25%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.1)}}',
+      '@media (prefers-reduced-motion:reduce){.ohp-fx__vignette,.ohp-fx-wand,.ohp-fx-old,.ohp-fx-new,.ohp-fx-ico,.ohp-fx-sparkles i{animation:none!important;opacity:1;transform:none;filter:none}}'
     ].join('');
-    document.head.appendChild(el);
   }
 
   function send(orbit, buffer, text) {
@@ -522,6 +683,11 @@
 
     orbit.on('buffer.active', function () {
       var buf = orbit.state.active();
+      var fx = document.getElementById('ohp-fx');
+      if (fx && !isHpChannel(orbit, buf)) {
+        fx.hidden = true;
+        fx.innerHTML = '';
+      }
       if (isHpChannel(orbit, buf)) {
         var g = getChannelState(buf);
         var key = normChan(resolveChannelName(orbit, buf) || buf);
