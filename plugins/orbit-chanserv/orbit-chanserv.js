@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=78"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=79"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1413,6 +1413,19 @@
         '.ocs-ml__btns{display:flex;gap:.22rem;flex:none;white-space:nowrap}',
         '.ocs-ml__btns .ocs-btn{min-height:26px;padding:.12rem .45rem;font-size:.7rem}',
         '.ocs-ml__btns .ocs-btn .ocs-miwrap + span:empty{display:none}',
+        '.ocs-pr{display:flex;flex-direction:column;gap:.22rem;padding:.28rem .5rem;border-radius:10px;',
+        'background:var(--bg-soft);border:1px solid var(--border);min-width:0}',
+        '.ocs-pr.is-on{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft)}',
+        '.ocs-pr.is-lock{border-style:dashed}',
+        '.ocs-pr__l{display:flex;align-items:center;gap:.32rem;font-size:.8rem;font-weight:750;min-width:0}',
+        '.ocs-pr__m{flex:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.72rem;font-weight:700;',
+        'padding:.08rem .28rem;border-radius:5px;background:var(--bg-2,rgba(127,127,127,.16));color:var(--muted)}',
+        '.ocs-pr.is-on .ocs-pr__m{color:var(--accent)}',
+        '.ocs-pr__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-pr__act{display:flex;align-items:center;gap:.22rem;min-width:0}',
+        '.ocs-pr__in{flex:1;min-width:0;min-height:26px;box-sizing:border-box;padding:.12rem .4rem;font:inherit;font-size:.78rem;',
+        'border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--ink)}',
+        '.ocs-pr__act .ocs-btn{min-height:26px;padding:.12rem .45rem;font-size:.7rem}',
         '.ocs-drop__msg{margin:0;padding:.85rem 1rem .2rem;font-size:.88rem;line-height:1.4;color:var(--ink)}',
         '.ocs-drop__code{margin:.35rem 1rem 1rem;padding:.55rem .7rem;border-radius:10px;font:inherit;font-weight:800;',
         'letter-spacing:.04em;background:var(--bg-soft);border:1px solid var(--border);word-break:break-all}',
@@ -1617,7 +1630,7 @@
       var flags = '';
       for (var i = 3; i < cm.length; i++) flags += cm[i];
       if (!flags) flags = 'imnstp';
-      var skip = 'qaohvbeIkflLjOFJg'; // g = chanfilter list (Orbit ChanAdmin)
+      var skip = 'qaohvbeIkflLjFJg'; // lists + type B/C; g = chanfilter (onglet Filtres Orbit)
       var px = String(isu.PREFIX || '').match(/^\(([^)]+)\)/);
       if (px) skip += px[1];
       var out = [];
@@ -1636,33 +1649,34 @@
           id: 'join',
           title: pick('Sécurité', 'Security'),
           modes: [
-            ['i', pick('Sur invitation', 'Invite only'), pick('Salon uniquement sur invitation : il faut être invité pour entrer.', 'Only invited users can join.')],
-            ['s', pick('Secret', 'Secret'), pick('Le salon n’apparaît pas dans les listes publiques.', 'The channel is hidden from public lists.')],
-            ['p', pick('Privé', 'Private'), pick('Le salon n’apparaît pas comme salon public.', 'The channel is marked private.')],
-            ['R', pick('Compte enregistré', 'Registered nick'), pick('Il faut un pseudo enregistré (NickServ) pour rejoindre.', 'A registered nickname is required to join.')],
-            ['z', pick('Connexion chiffrée', 'TLS only'), pick('Uniquement les connexions chiffrées (TLS/SSL).', 'Only TLS/SSL connections may join.')],
-            ['A', pick('Autoriser les invitations', 'Allow invite'), pick('Les membres peuvent INVITE même si le salon est +i.', 'Members may INVITE even when the channel is +i.')],
+            ['i', pick('Sur invitation', 'Invite only'), pick('Il faut être invité pour entrer.', 'Only invited users can join.')],
+            ['s', pick('Secret', 'Secret'), pick('Caché des listes publiques.', 'Hidden from public lists.')],
+            ['p', pick('Privé', 'Private'), pick('Absent des listes, /whois masqué.', 'Private: absent from lists, hidden in WHOIS.')],
+            ['R', pick('Comptes uniquement', 'Registered only'), pick('Il faut être enregistré pour entrer.', 'A registered nickname is required to join.')],
+            ['O', pick('Opérateurs uniquement', 'Opers only'), pick('Réservé aux opérateurs IRC.', 'Reserved for IRC operators.')],
+            ['z', pick('TLS uniquement', 'TLS only'), pick('Connexion sécurisée obligatoire.', 'A TLS/SSL connection is required.')],
+            ['A', pick('Invitations libres', 'Allow invite'), pick('Tout le monde peut inviter.', 'Anyone may INVITE.')],
           ],
         },
         {
           id: 'talk',
           title: pick('Discussion', 'Talking'),
           modes: [
-            ['n', pick('Pas de msg extérieur', 'No external msgs'), pick('Impossible d’écrire depuis l’extérieur du salon.', 'Messages from outside the channel are blocked.')],
-            ['t', pick('Topic protégé', 'Topic locked'), pick('Seuls les opérateurs peuvent changer le sujet.', 'Only operators can change the topic.')],
-            ['m', pick('Modéré', 'Moderated'), pick('Seuls les personnes avec voix ou op peuvent écrire.', 'Only voiced or opped users can speak.')],
-            ['c', pick('Bloquer les couleurs', 'Block colors'), pick('Les messages avec couleurs IRC sont refusés.', 'Messages containing IRC colors are rejected.')],
-            ['C', pick('Pas de CTCP', 'No CTCP'), pick('Les requêtes CTCP (hors ACTION) sont bloquées.', 'CTCP requests (except ACTION) are blocked.')],
-            ['T', pick('Pas de NOTICE', 'No NOTICE'), pick('Les messages NOTICE vers le salon sont bloqués.', 'Channel NOTICE messages are blocked.')],
-            ['N', pick('Pas de changement de pseudo', 'No nick change'), pick('Impossible de changer de pseudo dans ce salon.', 'Nickname changes are blocked in this channel.')],
-            ['M', pick('Parler si enregistré', 'Registered to speak'), pick('Il faut un pseudo enregistré pour parler.', 'A registered nickname is required to speak.')],
-            ['S', pick('Retirer les couleurs', 'Strip colors'), pick('Les couleurs IRC sont enlevées des messages.', 'IRC colors are stripped from messages.')],
-            ['G', pick('Filtre de mots', 'Badword filter'), pick('Les mots filtrés par le serveur sont censurés.', 'Server-filtered words are censored.')],
-            ['Q', pick('Pas d’expulsion', 'No kicks'), pick('Les kicks par les opérateurs du salon sont interdits.', 'Channel operator kicks are forbidden.')],
-            ['U', pick('Op-modéré', 'Op-moderated'), pick('Les messages des membres sans voix/op sont masqués pour les autres membres sans privilège.', 'Messages from unprivileged users are hidden from other unprivileged users.')],
-            ['V', pick('Anti-highlight de masse', 'Block mass highlight'), pick(
-              'Déconnecte ceux qui mentionnent trop de personnes d’un coup (spam de highlights).',
-              'Kills clients that mass-highlight many nicks in one message.'
+            ['n', pick('Pas de messages externes', 'No external msgs'), pick('Seuls les membres peuvent écrire.', 'Only members can speak.')],
+            ['t', pick('Sujet protégé', 'Topic locked'), pick('Seuls les ops changent le sujet.', 'Only operators can change the topic.')],
+            ['m', pick('Modéré', 'Moderated'), pick('Seuls les voix et ops peuvent parler.', 'Only voiced or opped users can speak.')],
+            ['c', pick('Sans couleurs', 'No colors'), pick('Bloque les codes couleur/format.', 'Blocks color/format codes.')],
+            ['C', pick('Sans CTCP', 'No CTCP'), pick('Bloque les requêtes CTCP.', 'Blocks CTCP requests.')],
+            ['S', pick('Couleurs retirées', 'Strip colors'), pick('Retire les codes couleur des messages.', 'Strips color codes from messages.')],
+            ['T', pick('Sans notices', 'No NOTICE'), pick('Les NOTICE vers le salon sont bloqués.', 'Channel NOTICE messages are blocked.')],
+            ['N', pick('Pseudo verrouillé', 'No nick change'), pick('Interdit de changer de pseudo.', 'Nickname changes are blocked.')],
+            ['M', pick('Enregistrés pour parler', 'Registered to speak'), pick('Seuls les comptes enregistrés parlent.', 'Only registered nicks can speak.')],
+            ['G', pick('Censure', 'Censor'), pick('Filtre les mots interdits du serveur.', 'Server-filtered words are censored.')],
+            ['Q', pick('Sans expulsion', 'No kicks'), pick('Interdit les KICK.', 'Forbids channel operator kicks.')],
+            ['U', pick('Modéré vers les ops', 'Op-moderated'), pick('Les messages bloqués vont aux opérateurs.', 'Blocked messages go to operators.')],
+            ['V', pick('Anti-mentions de masse', 'Block mass highlight'), pick(
+              'Sanctionne les mentions de trop de membres.',
+              'Punishes mass-highlighting many nicks in one message.'
             )],
           ],
         },
@@ -1670,16 +1684,52 @@
           id: 'other',
           title: pick('Autres', 'Other'),
           modes: [
-            ['r', pick('Salon enregistré', 'Registered channel'), pick('Marqueur de salon enregistré (souvent posé par les services).', 'Registered-channel flag (usually set by services).')],
-            ['P', pick('Permanent', 'Permanent'), pick('Le salon n’est pas détruit même vide.', 'The channel is not destroyed when empty.')],
-            ['K', pick('Pas de knock', 'No knock'), pick('La commande KNOCK (toquer) est interdite.', 'The KNOCK command is disabled.')],
-            ['D', pick('Entrée différée', 'Delay join'), pick('Les arrivées ne s’affichent qu’au premier message.', 'Joins are hidden until the user speaks.')],
-            ['d', pick('Membres masqués', 'Hidden members'), pick('Les membres inactifs peuvent être masqués (delay join).', 'Idle members may be hidden (delay join).')],
-            ['H', pick('Masquer les arrivées', 'Hide joins'), pick('Les messages d’arrivée/départ sont masqués.', 'Join and part messages are hidden.')],
-            ['u', pick('Auditorium', 'Auditorium'), pick('Les simples membres ne se voient pas entre eux.', 'Regular members cannot see each other.')],
+            ['r', pick('Salon enregistré', 'Registered channel'), pick('Le salon est enregistré auprès des services.', 'The channel is registered with services.')],
+            ['P', pick('Permanent', 'Permanent'), pick('Le salon persiste sans membres.', 'The channel is not destroyed when empty.')],
+            ['K', pick('Pas de KNOCK', 'No KNOCK'), pick('Empêche de demander l’entrée d’un salon +i.', 'Disables the KNOCK command.')],
+            ['D', pick('Arrivées masquées', 'Delay join'), pick('Cache les JOIN jusqu’au premier message.', 'Joins are hidden until the user speaks.')],
+            ['u', pick('Auditorium', 'Auditorium'), pick('Masque la liste des membres.', 'Hides the member list from regular users.')],
           ],
         },
       ];
+    }
+
+    /** Type B/C modes with a value — same catalogue as Orbit ChanAdmin (sauf +k/+l). */
+    function paramCatalog() {
+      return [
+        ['B', pick('Anti-majuscules', 'Anti-caps'), '80:2'],
+        ['d', pick('Délai de parole', 'Delay speak'), '5'],
+        ['E', pick('Anti-répétition', 'Anti-repeat'), '5:5'],
+        ['f', pick('Anti-flood', 'Anti-flood'), '*5:10'],
+        ['F', pick('Flood de pseudos', 'Nick flood'), '5:10'],
+        ['H', pick('Historique', 'History'), '20:1d'],
+        ['j', pick('Flood d’entrées', 'Join flood'), '5:10'],
+        ['J', pick('Anti-rejoin', 'No rejoin'), '5'],
+        ['L', pick('Redirection', 'Redirect'), '#salon'],
+        ['W', pick('Anti-snoop', 'Anti-snoop'), '5m'],
+      ];
+    }
+    function chanParamLetters() {
+      var isu = orbit.server.isupport() || {};
+      var cm = String(isu.CHANMODES || 'beI,k,l,imnstp').split(',');
+      var typeB = String(cm[1] || '');
+      var typeC = String(cm[2] || '');
+      var skip = 'kl';
+      var out = [];
+      function add(pack) {
+        for (var i = 0; i < pack.length; i++) {
+          var letter = pack.charAt(i);
+          if (!letter || skip.indexOf(letter) >= 0 || out.indexOf(letter) >= 0) continue;
+          out.push(letter);
+        }
+      }
+      add(typeB);
+      add(typeC);
+      return { typeB: typeB, letters: out };
+    }
+    function bufferModeParams(chan) {
+      var buf = findBuffer(chan);
+      return (buf && buf.modeParams) || {};
     }
 
     function useActiveBuffer() {
@@ -2327,6 +2377,9 @@
       var modeGroupSt = useState('join');
       var modeGroup = modeGroupSt[0];
       var setModeGroup = modeGroupSt[1];
+      var paramDraftSt = useState({});
+      var paramDraft = paramDraftSt[0];
+      var setParamDraft = paramDraftSt[1];
       var setGroupSt = useState('sec');
       var setGroup = setGroupSt[0];
       var setSetGroup = setGroupSt[1];
@@ -2674,8 +2727,9 @@
             { id: 'join', label: pick('Sécurité', 'Security') },
             { id: 'talk', label: pick('Discussion', 'Talking') },
             { id: 'other', label: pick('Autres', 'Other') },
+            { id: 'limits', label: pick('Limites', 'Limits') },
           ];
-          var gid = modeGroup === 'talk' || modeGroup === 'other' ? modeGroup : 'join';
+          var gid = (modeGroup === 'talk' || modeGroup === 'other' || modeGroup === 'limits') ? modeGroup : 'join';
           function modeRow(letter, name, tip) {
             var on = modeIsOn(nowModes, letter);
             var forced = modeForcedLock(letter);
@@ -2721,6 +2775,73 @@
             shown = shown.concat(extraModes.map(function (row) {
               return modeRow(row[0], row[1], row[2]);
             }));
+          }
+          if (gid === 'limits') {
+            var pmeta = chanParamLetters();
+            var pcat = paramCatalog();
+            var pused = {};
+            var params = bufferModeParams(ch);
+            pcat.forEach(function (row) { pused[row[0]] = true; });
+            var paramRows = pcat.filter(function (row) { return pmeta.letters.indexOf(row[0]) >= 0; });
+            pmeta.letters.forEach(function (letter) {
+              if (!pused[letter]) paramRows.push([letter, pick('Mode ', 'Mode ') + letter, letter]);
+            });
+            shown = paramRows.map(function (row) {
+              var letter = row[0];
+              var name = row[1];
+              var hint = row[2];
+              var cur = String(params[letter] || '');
+              var draft = Object.prototype.hasOwnProperty.call(paramDraft, letter) ? paramDraft[letter] : cur;
+              var on = !!cur;
+              var locked = mlockHas(lockedModes, letter);
+              var typeB = pmeta.typeB.indexOf(letter) >= 0;
+              return h('div', { key: letter, className: 'ocs-pr' + (on ? ' is-on' : '') + (locked ? ' is-lock' : '') },
+                h('div', { className: 'ocs-pr__l' },
+                  h('code', { className: 'ocs-pr__m' }, '+' + letter),
+                  h('span', { className: 'ocs-pr__name' }, name)
+                ),
+                h('div', { className: 'ocs-pr__act' },
+                  h('input', {
+                    className: 'ocs-pr__in',
+                    value: draft,
+                    placeholder: hint,
+                    disabled: locked,
+                    onChange: function (e) {
+                      var v = e.target.value;
+                      setParamDraft(function (prev) {
+                        var next = {};
+                        Object.keys(prev || {}).forEach(function (k) { next[k] = prev[k]; });
+                        next[letter] = v;
+                        return next;
+                      });
+                    },
+                    onKeyDown: function (e) {
+                      if (e.key !== 'Enter' || locked) return;
+                      var v = String(draft || '').trim();
+                      if (v) csMode('SET', '+' + letter + ' ' + v);
+                    },
+                  }),
+                  h('button', {
+                    type: 'button',
+                    className: 'ocs-btn ocs-btn--primary',
+                    disabled: locked,
+                    onClick: function () {
+                      var v = String(draft || '').trim();
+                      if (v) csMode('SET', '+' + letter + ' ' + v);
+                    },
+                  }, pick('Appliquer', 'Apply')),
+                  h('button', {
+                    type: 'button',
+                    className: 'ocs-btn',
+                    disabled: locked || !on,
+                    onClick: function () {
+                      if (!on) return;
+                      csMode('SET', '-' + letter + (typeB && cur ? ' ' + cur : ''));
+                    },
+                  }, pick('Retirer', 'Clear'))
+                )
+              );
+            });
           }
           body.push(h('div', { className: 'ocs-block' }, [
             h('p', { className: 'ocs-h' }, pick('Modifier les modes salon', 'Edit channel modes')),
