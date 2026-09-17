@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=77"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=78"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1617,7 +1617,7 @@
       var flags = '';
       for (var i = 3; i < cm.length; i++) flags += cm[i];
       if (!flags) flags = 'imnstp';
-      var skip = 'qaohvbeIkflLjOFJ';
+      var skip = 'qaohvbeIkflLjOFJg'; // g = chanfilter list (Orbit ChanAdmin)
       var px = String(isu.PREFIX || '').match(/^\(([^)]+)\)/);
       if (px) skip += px[1];
       var out = [];
@@ -1625,9 +1625,9 @@
         if (!letter || skip.indexOf(letter) >= 0 || out.indexOf(letter) >= 0) return;
         out.push(letter);
       }
+      // Type-D only — do not inject catalogue letters the ircd did not advertise
+      // (channel +G / censor.cpp must stay hidden when the module is unloaded).
       for (var j = 0; j < flags.length; j++) add(flags[j]);
-      var catalog = 'iARzspmnUtMNCTcSGQKDdHPruV';
-      for (var k = 0; k < catalog.length; k++) add(catalog[k]);
       return out;
     }
     function modeCatalog() {
