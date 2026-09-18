@@ -12,7 +12,7 @@ Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
 - **Accès Anope** (VOP / HOP / AOP / SOP / QOP) : sous-menu *Gérer les accès* — liste permanente.
 - ChanServ `VOICE` / `OP` n’apparaît que si tu as un accès services sans être oppé sur le salon.
 
-**Lectures** (INFO / STATUS / listes VOP–SOP) : JSON-RPC Anope (`chanserv-rpc.php`).
+**Lectures** (INFO / STATUS / listes VOP–SOP, NickServ INFO / ALIST) : JSON-RPC Anope (`chanserv-rpc.php`).
 **Actions** (SET, TOPIC, MODE, KICK, …) : IRC `PRIVMSG` vers ChanServ / BotServ. Syntaxe Anope 2 : `SET option canal paramètres`.
 Les réponses IRC sont masquées du tchat et affichées dans le bandeau du panneau (pas dans Status).
 

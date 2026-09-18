@@ -1,13 +1,14 @@
 <?php
 /*
- * chanserv-rpc.php — INFO / STATUS / BOTLIST via Anope JSON-RPC (no IRC PMs).
+ * chanserv-rpc.php — ChanServ / NickServ INFO via Anope JSON-RPC (no IRC PMs).
  *
  * Same origin as Orbit:
  *   /app/plugins/third/orbit-chanserv/chanserv-rpc.php
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
- * Read-only: INFO / STATUS / BOTLIST / ACCESS LIST * ALL. REGISTER stays on IRC so Anope
- * maxregistered + require_oper apply as on a normal client.
+ * Read-only: ChanServ INFO / STATUS / BOTLIST / ACCESS LIST * ALL,
+ * NickServ INFO ALL / ALIST.
+ * REGISTER stays on IRC so Anope maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
 
@@ -169,14 +170,57 @@ if (!is_array($body)) {
 $account = trim((string) ($body['account'] ?? ''));
 $channel = trim((string) ($body['channel'] ?? ''));
 $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
-if (!valid_account($account) || !valid_channel($channel)) {
+if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
-if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access') {
+if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access' && $action !== 'nsinfo' && $action !== 'nsalist') {
   fail(400, 'bad_action');
+}
+if ($action !== 'nsinfo' && $action !== 'nsalist' && !valid_channel($channel)) {
+  fail(400, 'bad_params');
 }
 
 try {
+  if ($action === 'nsinfo') {
+    $info = '';
+    try {
+      $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'INFO', $account, 'ALL',
+      ]));
+    } catch (Throwable $e) {
+      $info = '';
+    }
+    $fold = strtolower($info);
+    $isHelp = str_contains($fold, 'syntaxe:') || str_contains($fold, 'syntax:');
+    if ($info === '' || $isHelp) {
+      $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'INFO', $account,
+      ]));
+    }
+    echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nsalist') {
+    $list = '';
+    try {
+      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'ALIST',
+      ]));
+    } catch (Throwable $e) {
+      $list = '';
+    }
+    $fold = strtolower($list);
+    $isHelp = str_contains($fold, 'syntaxe:') || str_contains($fold, 'syntax:');
+    if ($list === '' || $isHelp) {
+      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'ALIST', $account,
+      ]));
+    }
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'access') {
     try {
       $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
