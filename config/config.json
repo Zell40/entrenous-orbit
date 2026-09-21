@@ -213,6 +213,10 @@
   "chanserv": {
     "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
   },
+  "moderation": {
+    "redirectChannel": "#Bannis.chat",
+    "redirectSuffix": ".chat"
+  },
   "builtins": [],
   "analytics": {
     "endpoint": "",
