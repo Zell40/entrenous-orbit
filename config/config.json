@@ -29,7 +29,8 @@
   },
   "branding": {
     "name": "EntreNous",
-    "icon": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/cropped-icone_ren.png",
+    "icon": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/icone_ren.png",
+    "logo": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/logo_ren_grand.png",
     "url": "https://www.entrenous.chat",
     "tagline": "Tchat des Electricien(ne)s et Gazier(e)s Français(es),",
     "taglineEm": "nous vous accueillons maintenant!",
