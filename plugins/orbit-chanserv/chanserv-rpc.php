@@ -97,6 +97,10 @@ function flatten_rpc($value): string {
   return implode("\n", array_values(array_filter($lines, static fn($s) => $s !== '')));
 }
 
+function looks_like_alist(string $s): bool {
+  return (bool) preg_match('/\d+\s*[:.)]?\s+!?[#&]/', $s);
+}
+
 function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params): mixed {
   if (!function_exists('curl_init')) {
     throw new RuntimeException('curl');
@@ -210,12 +214,17 @@ try {
     } catch (Throwable $e) {
       $list = '';
     }
-    $fold = strtolower($list);
-    $isHelp = str_contains($fold, 'syntaxe:') || str_contains($fold, 'syntax:');
-    if ($list === '' || $isHelp) {
-      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'ALIST', $account,
-      ]));
+    if (!looks_like_alist($list)) {
+      try {
+        $other = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+          $account, 'NickServ', 'ALIST', $account,
+        ]));
+        if (looks_like_alist($other) || $list === '') {
+          $list = $other;
+        }
+      } catch (Throwable $e) {
+        // keep $list
+      }
     }
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
