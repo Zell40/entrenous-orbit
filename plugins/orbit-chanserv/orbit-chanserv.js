@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=80"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=81"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1445,7 +1445,6 @@
         '.ocs-th__row:first-child{border-top:0}',
         '.ocs-th__top{display:flex;align-items:flex-start;justify-content:space-between;gap:.45rem}',
         '.ocs-th__meta{font-size:.72rem;color:var(--muted);font-weight:650;line-height:1.35;min-width:0}',
-        '.ocs-th__acts{display:flex;flex-wrap:wrap;gap:.3rem;flex:none}',
         '.ocs-th__who{font-weight:800;color:var(--ink)}',
         '.ocs-th__text{font-size:.86rem;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}',
         '.ocs-th__edit,.ocs-setinfo{font:inherit;font-family:inherit;font-size:.86rem;line-height:1.4}',
@@ -2689,16 +2688,10 @@
                     return h('div', { key: row.n, className: 'ocs-th__row' },
                       h('div', { className: 'ocs-th__top' },
                         h('div', { className: 'ocs-th__meta' }, meta),
-                        h('div', { className: 'ocs-th__acts' },
-                          h('button', {
-                            type: 'button', className: 'ocs-btn',
-                            onClick: function () { goCs('TOPICHISTORY ' + ch + ' SET ' + row.n); },
-                          }, pick('Restaurer', 'Restore')),
-                          h('button', {
-                            type: 'button', className: 'ocs-btn',
-                            onClick: function () { goCs('TOPICHISTORY ' + ch + ' DEL ' + row.n); },
-                          }, pick('Supprimer', 'Delete'))
-                        )
+                        h('button', {
+                          type: 'button', className: 'ocs-btn',
+                          onClick: function () { goCs('TOPICHISTORY ' + ch + ' SET ' + row.n); },
+                        }, pick('Restaurer', 'Restore'))
                       ),
                       h('div', { className: 'ocs-th__text' }, topicTxt)
                     );
