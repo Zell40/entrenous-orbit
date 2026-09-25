@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=81"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=82"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -912,7 +912,7 @@
         if (!m) {
           if (joinWrap && rows.length && !/^(end of|fin de|liste|list|syntaxe|syntax)\b/i.test(s)) {
             var prev = rows[rows.length - 1];
-            var glue = (/[A-Za-zÀ-ÿ]$/.test(prev.text) && /^[a-zà-ÿ]/.test(s)) ? '' : ' ';
+            var glue = /-$/.test(prev.text) || /^[,.;:!?')\]]/.test(s) ? '' : ' ';
             prev.text = prev.text.replace(/\s+$/, '') + glue + s.replace(/^\s+/, '');
           }
           return;
@@ -920,6 +920,42 @@
         var rest = m[2].trim();
         if (!rest || /^(end of|fin de|liste|list)\b/i.test(rest)) return;
         rows.push({ n: m[1], text: rest });
+      });
+      return rows;
+    }
+    function isTopicHistoryChrome(s) {
+      var t = foldText(s);
+      return /^(end of|fin de|liste|list|syntaxe|syntax)\b/.test(t)
+        || /historique des (sujets|topics)|topic history (list|for)/.test(t)
+        || /^(numero|number)(\s+(defini|set|date))?(\s+(par|by))?(\s+(topic|sujet))?$/.test(t)
+        || /^(numero|number)\s+(defini|set)\s+(par|by)\s+(topic|sujet)/.test(t);
+    }
+    function parseTopicHistoryList(text) {
+      var rows = [];
+      var seen = {};
+      String(text || '').split(/\n/).forEach(function (line) {
+        var s = stripIrc(line).trim();
+        if (!s || isTopicHistoryChrome(s)) return;
+        var m = s.match(/^(?:[-*•]\s*)?(\d+)\s+((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+.+)$/i)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s*(.+)$/)
+          || s.match(/^\[(\d+)\]\s*(.+)$/)
+          || s.match(/^(?:[-*•]\s*)?(\d+)\s{2,}(.+)$/);
+        if (!m) {
+          if (!rows.length) return;
+          var prev = rows[rows.length - 1];
+          var glue = /-$/.test(prev.text) || /^[,.;:!?')\]]/.test(s) ? '' : ' ';
+          prev.text = prev.text.replace(/\s+$/, '') + glue + s.replace(/^\s+/, '');
+          return;
+        }
+        var rest = m[2].trim();
+        if (!rest || isTopicHistoryChrome(rest)) return;
+        var row = { n: m[1], text: rest };
+        var idx = seen[row.n];
+        if (idx != null) rows[idx] = row;
+        else {
+          seen[row.n] = rows.length;
+          rows.push(row);
+        }
       });
       return rows;
     }
@@ -934,8 +970,7 @@
     }
     function parseTopicStamp(text) {
       var s = String(text || '').trim();
-      var m = s.match(/^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s*[¤:]\s*(.*)$/i)
-        || s.match(/^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+(.*)$/i);
+      var m = s.match(/^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+(.*)$/i);
       if (!m) return { when: '', who: '', topic: s };
       return { when: formatEnDateFr(m[1]), who: m[2], topic: String(m[3] || '').trim() };
     }
@@ -1072,7 +1107,7 @@
       }
       if (kind === 'topichistory') {
         var thRaw = stripIrc(text);
-        var thRows = parseEntryList(thRaw, true).map(function (row) {
+        var thRows = parseTopicHistoryList(thRaw).map(function (row) {
           var p = parseTopicStamp(row.text);
           return { n: row.n, text: row.text, when: p.when, who: p.who, topic: p.topic };
         });
@@ -2405,12 +2440,13 @@
         if (s.tab === 'divers' && (ACCESS_RANK[s.access] || 0) >= ACCESS_RANK.sop) queryEntryMsg(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
+      var topicHistOn = !!parseChanOptions(s.infoText).TOPICHISTORY;
       useEffect(function () {
         if (!s.open || s.registered !== true || s.tab !== 'topic') return undefined;
-        if (parseChanOptions(s.infoText).TOPICHISTORY) queryTopicHistory(s.chan || chan);
+        if (topicHistOn) queryTopicHistory(s.chan || chan);
         else patchUi({ topicHistory: [] });
         return undefined;
-      }, [s.open, s.tab, s.chan, s.registered, s.infoText]);
+      }, [s.open, s.tab, s.chan, s.registered, topicHistOn]);
       useEffect(function () {
         if (!s.open || s.registered !== true || s.tab !== 'set' || setGroup !== 'mod') return undefined;
         queryBadwords(s.chan || chan);
