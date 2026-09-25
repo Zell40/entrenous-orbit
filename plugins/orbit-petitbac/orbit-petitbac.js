@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 77;
+  var PBAC_VER = 78;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -47,6 +47,7 @@
   var pluginOrbit = null;
   var extraModes = [];
   var extraModesTick = 0;
+  var officialModes = [];
   var listeAt = 0;
   var waitingListe = false;
   var pendingCreate = false;
@@ -3918,30 +3919,52 @@
   }
 
   function gameModeOptions() {
+    var src = officialModes.length ? officialModes : defaultOfficialModes();
+    return src.map(function (m) {
+      return {
+        id: m.id,
+        emoji: modeEmoji(m.id),
+        label: modeLabel(m.id, m.label),
+        hint: modeHint(m),
+        cats: m.cats || m.categories,
+        duration: m.duration,
+        rounds: m.rounds || m.maxrounds,
+      };
+    });
+  }
+
+  function modeEmoji(id) {
+    var map = { facile: '🌱', moyen: '⚡', difficile: '🔥', extreme: '💀' };
+    return map[String(id || '').toLowerCase()] || '🎮';
+  }
+
+  function modeLabel(id, fallback) {
+    var table = {
+      facile: { fr: 'Facile', en: 'Easy' },
+      moyen: { fr: 'Moyen', en: 'Medium' },
+      difficile: { fr: 'Difficile', en: 'Hard' },
+      extreme: { fr: 'Extrême', en: 'Extreme' },
+    };
+    var t = table[String(id || '').toLowerCase()];
+    if (t) return pick(t);
+    var s = String(fallback || id || '').trim();
+    if (!s) return '';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function defaultOfficialModes() {
     return [
-      {
-        id: 'facile',
-        emoji: '🌱',
-        label: pick({ fr: 'Facile', en: 'Easy' }),
-        hint: pick({ fr: '3 catégories · 30 s · 10 manches', en: '3 categories · 30 s · 10 rounds' }),
-      },
-      {
-        id: 'moyen',
-        emoji: '⚡',
-        label: pick({ fr: 'Moyen', en: 'Medium' }),
-        hint: pick({ fr: '5 catégories · 40 s · 12 manches', en: '5 categories · 40 s · 12 rounds' }),
-      },
-      {
-        id: 'difficile',
-        emoji: '🔥',
-        label: pick({ fr: 'Difficile', en: 'Hard' }),
-        hint: pick({ fr: '7 catégories · 45 s · 15 manches', en: '7 categories · 45 s · 15 rounds' }),
-      },
+      { id: 'facile', cats: 3, duration: 60, rounds: 10, locked: true },
+      { id: 'moyen', cats: 5, duration: 45, rounds: 12, locked: true },
+      { id: 'difficile', cats: 7, duration: 45, rounds: 15, locked: true },
+      { id: 'extreme', cats: 7, duration: 30, rounds: 15, locked: true },
     ];
   }
 
   function isBuiltinMode(mode) {
-    return /^(facile|moyen|difficile)$/.test(String(mode || '').trim().toLowerCase());
+    var id = String(mode || '').trim().toLowerCase();
+    if (/^(facile|moyen|difficile|extreme)$/.test(id)) return true;
+    return officialModes.some(function (m) { return m.id === id; });
   }
 
   function sanitizeModeId(mode) {
@@ -4357,11 +4380,15 @@
     if (waitingListe) {
       var row = parseListeLine(body);
       if (row) {
-        if (row.custom && !extraModes.some(function (x) { return x.id === row.id; })) {
-          extraModes.push(row);
-          extraModesTick++;
-          bumpStore();
-          refreshPlayMenuCustom();
+        if (row.custom) {
+          if (!extraModes.some(function (x) { return x.id === row.id; })) {
+            extraModes.push(row);
+            extraModesTick++;
+            bumpStore();
+            refreshPlayMenuCustom();
+          }
+        } else {
+          upsertOfficialMode(row);
         }
         return true;
       }
@@ -4391,25 +4418,64 @@
     return false;
   }
 
+  function upsertOfficialMode(row) {
+    if (!row || !row.id) return;
+    var list = officialModes.length ? officialModes.slice() : defaultOfficialModes();
+    var found = false;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === row.id) {
+        list[i] = Object.assign({}, list[i], {
+          cats: row.cats,
+          duration: row.duration,
+          rounds: row.rounds,
+          label: row.label || list[i].label,
+          locked: true,
+        });
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      list.push({
+        id: row.id,
+        cats: row.cats,
+        duration: row.duration,
+        rounds: row.rounds,
+        label: row.label,
+        locked: true,
+      });
+    }
+    officialModes = list;
+    extraModesTick++;
+    bumpStore();
+    refreshPlayMenuCustom();
+  }
+
   function applyModesList(tags) {
     waitingListe = false;
-    var next = [];
+    var nextOfficial = [];
+    var nextCustom = [];
     String(tagVal(tags, '+modes') || '').split(',').forEach(function (chunk) {
       var p = String(chunk || '').split(':');
       if (p.length < 4) return;
       var rawId = String(p[0] || '').trim();
       var id = sanitizeModeId(rawId);
-      if (!rawId || isBuiltinMode(rawId) || isBuiltinMode(id)) return;
-      next.push({
+      if (!rawId || !id) return;
+      var locked = p[4] === '1' || /^(facile|moyen|difficile|extreme)$/.test(id);
+      var item = {
         id: id,
         label: rawId,
         cats: Number(p[1]) || 0,
         duration: Number(p[2]) || 0,
         rounds: Number(p[3]) || 0,
-        custom: true,
-      });
+        locked: locked,
+        custom: !locked,
+      };
+      if (locked) nextOfficial.push(item);
+      else nextCustom.push(item);
     });
-    extraModes = next;
+    if (nextOfficial.length) officialModes = nextOfficial;
+    extraModes = nextCustom;
     extraModesTick++;
     saveCachedExtraModes(pluginOrbit);
     bumpStore();
@@ -4556,10 +4622,9 @@
       '</div>';
   }
 
-  function buildPlayPickerHtml(selectedMode, launchHtml, allowCreate) {
+  function buildOfficialModeCardsHtml(selectedMode) {
     selectedMode = sanitizeModeId(selectedMode);
-    if (allowCreate == null) allowCreate = true;
-    var cards = gameModeOptions().map(function (m) {
+    return gameModeOptions().map(function (m) {
       var on = m.id === selectedMode;
       return '<button type="button" class="opbac-mode' + (on ? ' opbac-mode--on' : '') + '" data-act="pick-mode" data-mode="' +
         escHtml(m.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
@@ -4567,6 +4632,12 @@
         '<span class="opbac-mode__label">' + escHtml(m.label) + '</span>' +
         '<span class="opbac-mode__hint">' + escHtml(m.hint) + '</span></button>';
     }).join('');
+  }
+
+  function buildPlayPickerHtml(selectedMode, launchHtml, allowCreate) {
+    selectedMode = sanitizeModeId(selectedMode);
+    if (allowCreate == null) allowCreate = true;
+    var cards = buildOfficialModeCardsHtml(selectedMode);
     return '<div class="opbac-playpick' + (allowCreate ? '' : ' opbac-playpick--home') + '" data-opbac-playpick>' +
       '<div class="opbac-setup' + (allowCreate ? '' : ' opbac-setup--solo') + '">' +
         '<div class="opbac-setup__modes">' +
@@ -4593,10 +4664,23 @@
     if (overlay) hosts.push(overlay);
     var panel = document.getElementById('opbac-dom-panel');
     if (panel) hosts.push(panel);
+    var helpOverlay = document.getElementById('opbac-help-overlay');
+    if (helpOverlay) hosts.push(helpOverlay);
     var selected = selectId || (panel && panel.__opbacReplayMode) || '';
     hosts.forEach(function (host) {
       var wrap = host.querySelector('[data-opbac-customs]');
       if (wrap) wrap.innerHTML = buildCustomModesHtml(selected);
+      var modesWrap = host.querySelector('.opbac-modes');
+      if (modesWrap) modesWrap.innerHTML = buildOfficialModeCardsHtml(selected);
+      var helpModes = host.querySelector('.opbac-help-modes');
+      if (helpModes) {
+        helpModes.innerHTML = gameModeOptions().map(function (m) {
+          return '<div class="opbac-help-mode">' +
+            '<span class="opbac-help-mode__emoji" aria-hidden="true">' + m.emoji + '</span>' +
+            '<strong>' + escHtml(m.label) + '</strong>' +
+            '<span>' + escHtml(m.hint) + '</span></div>';
+        }).join('');
+      }
       if (selectId) updateReplayModeUi(host, selectId);
       syncCreatedNotice(host);
       var modeDd = host.querySelector('[data-opbac-mode-dd]');
@@ -5077,8 +5161,8 @@
         '<h4 class="opbac-help-sec__h">🎮 ' + escHtml(pick({ fr: 'Niveaux de jeu', en: 'Game levels' })) + '</h4>' +
         '<div class="opbac-help-modes">' + modeCards + '</div>' +
         '<p class="opbac-help-sec__note">' + escHtml(pick({
-          fr: 'Au lancement ou en fin de partie : choisissez Facile, Moyen ou Difficile puis confirmez.',
-          en: 'When starting or after a game: pick Easy, Medium or Hard then confirm.',
+          fr: 'Au lancement ou en fin de partie : choisissez un mode (mêmes durées et catégories que !jeu liste) puis confirmez.',
+          en: 'When starting or after a game: pick a mode (same durations and categories as !jeu liste) then confirm.',
         })) + '</p>' +
       '</section>' +
       '<section class="opbac-help-sec">' +
