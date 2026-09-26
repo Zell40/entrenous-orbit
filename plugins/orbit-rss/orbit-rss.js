@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 5;
+  var ORX_VER = 6;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -24,6 +24,7 @@
 
     var pluginOrbit = null;
     var db = { seen: {}, items: {} };
+    var imgWait = {};
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
 
@@ -148,7 +149,16 @@
     function remember(chan, item) {
       var key = chanKey(chan);
       var list = db.items[key] ? db.items[key].slice() : [];
-      if (list.some(function (it) { return it.id === item.id; })) return false;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id !== item.id) continue;
+        if (item.img && list[i].img !== item.img) {
+          list[i].img = item.img;
+          db.items[key] = list;
+          saveDb();
+          ui.rev++;
+        }
+        return false;
+      }
       list.unshift(item);
       db.items[key] = list.slice(0, MAX_ITEMS);
       saveDb();
@@ -241,19 +251,20 @@
         '.orx__stack{display:flex;flex-direction:column;align-items:flex-end;width:100%}',
         '@keyframes orx-pop{from{transform:translateY(12px) scale(.88);opacity:0}to{transform:none;opacity:1}}',
         '@keyframes orx-glow{0%,100%{box-shadow:0 10px 18px -10px rgba(0,0,0,.55),0 0 0 0 transparent}50%{box-shadow:0 14px 22px -8px rgba(0,0,0,.5),0 0 0 4px color-mix(in srgb,var(--orx-c,#3b82f6) 55%,transparent)}}',
-        '.orx__bubble{position:relative;width:100%;height:72px;margin-top:-22px;border-radius:999px;border:3px solid var(--orx-c,#3b82f6);background:#0f172a center/cover no-repeat;color:#fff;overflow:hidden;animation:orx-pop .4s ease both,orx-glow 2.8s ease-in-out infinite}',
+        '.orx__bubble{position:relative;width:100%;height:72px;margin-top:-22px;border-radius:999px;border:3px solid var(--orx-c,#3b82f6);background:transparent;color:#fff;overflow:hidden;animation:orx-pop .4s ease both,orx-glow 2.8s ease-in-out infinite}',
         '.orx__bubble:first-child{margin-top:0}',
-        '.orx__bubble::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,10,18,.72),rgba(6,10,18,.28) 62%,rgba(6,10,18,.5));pointer-events:none}',
+        '.orx__bg{position:absolute;inset:0;z-index:0;background-color:#0f172a;background-position:center;background-size:cover;background-repeat:no-repeat}',
+        '.orx__bubble::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,rgba(6,10,18,.58) 0%,rgba(6,10,18,.22) 46%,rgba(6,10,18,.08) 100%);pointer-events:none}',
         '.orx__bubble:hover,.orx__bubble.is-open{z-index:50 !important;animation:none}',
         '.orx__bubble.is-open{height:auto;min-height:72px;margin-top:8px;border-radius:22px}',
-        '.orx__row{position:relative;z-index:1;display:flex;align-items:center;min-height:66px}',
+        '.orx__row{position:relative;z-index:2;display:flex;align-items:center;min-height:66px}',
         '.orx__main{flex:1;min-width:0;border:0;background:transparent;color:#fff;text-align:left;cursor:pointer;padding:.35rem .3rem .35rem .85rem;font:inherit}',
         '.orx__title{display:block;font-size:.78rem;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.65)}',
         '.orx__bubble.is-open .orx__title{white-space:normal}',
         '.orx__date{display:block;margin-top:.08rem;font-size:.62rem;font-weight:700;line-height:1.2;color:rgba(255,255,255,.92);text-shadow:0 1px 2px rgba(0,0,0,.65)}',
         '.orx__x{position:relative;z-index:2;flex:none;width:1.35rem;height:1.35rem;margin-right:.45rem;border:0;border-radius:999px;background:rgba(0,0,0,.4);color:#fff;cursor:pointer;font-size:.9rem;line-height:1}',
         '.orx__x:hover{background:rgba(0,0,0,.62)}',
-        '.orx__full{position:relative;z-index:1;padding:0 .8rem .65rem;font-size:.78rem;line-height:1.4;color:#fff}',
+        '.orx__full{position:relative;z-index:2;padding:0 .8rem .65rem;font-size:.78rem;line-height:1.4;color:#fff}',
         '.orx__headline{font-size:.8rem;font-weight:700;line-height:1.35;margin:0 0 .35rem;text-shadow:0 1px 2px rgba(0,0,0,.55)}',
         '.orx__desc{margin:0 0 .45rem;white-space:pre-wrap;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.55)}',
         '.orx__link{display:inline-block;font-size:.74rem;font-weight:800;color:#fff;text-decoration:underline}',
@@ -275,9 +286,42 @@
 
     function bubbleStyle(it, i) {
       var color = feedColor(it.feed || it.feedtitle || it.id);
+      return '--orx-c:' + color + ';z-index:' + (24 - i) + ';animation-delay:' + (i * 0.07) + 's';
+    }
+
+    function bgStyle(it) {
       var img = cssUrl(it.img);
-      var bg = img ? 'background-image:url("' + img + '");' : '';
-      return '--orx-c:' + color + ';z-index:' + (24 - i) + ';' + bg + 'animation-delay:' + (i * 0.07) + 's';
+      return img ? 'background-image:url("' + img + '")' : '';
+    }
+
+    function fillImage(chan, it) {
+      if (!it || it.img || !it.link || imgWait[it.id]) return;
+      imgWait[it.id] = true;
+      var link = it.link;
+      fetch(link, { credentials: 'omit' }).then(function (res) {
+        if (!res.ok) throw new Error('http');
+        return res.text();
+      }).then(function (html) {
+        var m = String(html || '').match(/property=["']og:image["'][^>]*content=["']([^"']+)/i) ||
+          String(html || '').match(/content=["']([^"']+)["'][^>]*property=["']og:image["']/i) ||
+          String(html || '').match(/name=["']twitter:image["'][^>]*content=["']([^"']+)/i);
+        if (!m) return;
+        var url = m[1].replace(/&amp;/g, '&');
+        if (url.indexOf('//') === 0) url = 'https:' + url;
+        else if (url.charAt(0) === '/') {
+          var origin = link.match(/^https?:\/\/[^/]+/);
+          if (origin) url = origin[0] + url;
+        }
+        url = safeHttp(url);
+        if (!url) return;
+        var list = db.items[chanKey(chan)] || [];
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].id === it.id) list[i].img = url;
+        }
+        saveDb();
+        ui.rev++;
+        paint();
+      }).catch(function () { /* une seule tentative */ });
     }
 
     function bubbleHtml(chan, it, i) {
@@ -294,6 +338,7 @@
           '</div>';
       }
       return '<article class="orx__bubble' + (open ? ' is-open' : '') + '" style="' + esc(bubbleStyle(it, i)) + '">' +
+        '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
         '<div class="orx__row">' +
           '<button type="button" class="orx__main" data-act="open" data-id="' + esc(it.id) + '">' +
             '<span class="orx__title">' + esc(label) + '</span>' +
@@ -334,6 +379,7 @@
 
     function render(chan) {
       var list = bubbles(chan);
+      list.forEach(function (it) { fillImage(chan, it); });
       var n = unread(chan).length;
       var chipClass = 'orx__chip' + (ui.archive ? ' is-on' : '');
       var badge = n ? '<span class="orx__n">' + (n > 9 ? '9+' : String(n)) + '</span>' : '';
