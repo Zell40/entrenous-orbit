@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 8;
+  var ORX_VER = 9;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -25,6 +25,7 @@
     var pluginOrbit = null;
     var db = { seen: {}, items: {} };
     var imgWait = {};
+    var asked = {};
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
 
@@ -267,6 +268,27 @@
         var line = parseLine(text);
         if (line) remember(chan, line);
       }
+    }
+
+    function requestHistory(chan) {
+      var key = chanKey(chan);
+      var now = Date.now();
+      if (asked[key] && now - asked[key] < 10 * 60 * 1000) return;
+      if (!pluginOrbit || !pluginOrbit.irc || !pluginOrbit.irc.msg) return;
+      asked[key] = now;
+      try {
+        pluginOrbit.irc.msg(botNick(), 'rss_ircv3 recent ' + chan);
+      } catch (e) { /* ignore */ }
+    }
+
+    function rememberHist(chan, tags) {
+      if (tagVal(tags, EV) !== 'hist') return;
+      if (!chan || chan.charAt(0) !== '#') return;
+      if (!tagVal(tags, '+title')) return;
+      var item = itemFromTags(tags);
+      if (!item) return;
+      var added = remember(chan, item);
+      if (added) markSeen(chan, item.id);
     }
 
     function harvest(chan) {
@@ -522,6 +544,7 @@
       }
       if (root.parentNode !== main) main.appendChild(root);
       root.style.top = (hero.offsetTop + hero.offsetHeight + 8) + 'px';
+      requestHistory(chan);
       harvest(chan);
       var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
@@ -560,6 +583,12 @@
         if (cmd !== 'TAGMSG') return;
         var tags = msg.tags || {};
         if (tagVal(tags, RSS) !== 'v1') return;
+        var histChan = tagVal(tags, '+chan');
+        if (tagVal(tags, EV) === 'hist' && histChan) {
+          rememberHist(histChan, tags);
+          paint();
+          return;
+        }
         var target = (msg.params && msg.params[0]) || '';
         if (!target || target.charAt(0) !== '#') return;
         handleItem(target, tags);

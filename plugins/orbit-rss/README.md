@@ -18,11 +18,11 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 ```json
 "rss": { "bot": "Actu", "max": 10 },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=8"
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=9"
 ]
 ```
 
-`bot` est le nick dont la présence affiche le bouton Actualités.
+`bot` est le nick dont la présence affiche le bouton Actualités. `max` est le nombre de titres gardés dans la liste. À l’ouverture du salon, Orbit demande en privé `rss_ircv3 recent #salon` : Actu renvoie les derniers titres encore dans les flux annoncés, en TAGMSG (`+ev=hist`).
 
 ## Protocole
 
