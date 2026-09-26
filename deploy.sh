@@ -313,6 +313,12 @@ ECHECS_DIR="plugins/third/orbit-echecs"
 mkdir -p "$WEBROOT/$ECHECS_DIR/assets"
 cp -f "$PLUGINS_REPO/plugins/orbit-echecs/orbit-echecs.js" \
       "$WEBROOT/$ECHECS_DIR/"
+
+# Actualités RSS (TAGMSG +rss=v1)
+RSS_DIR="plugins/third/orbit-rss"
+mkdir -p "$WEBROOT/$RSS_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-rss/orbit-rss.js" \
+      "$WEBROOT/$RSS_DIR/"
 if [ -d "$PLUGINS_REPO/plugins/orbit-echecs/assets" ]; then
   cp -f "$PLUGINS_REPO/plugins/orbit-echecs/assets/"* \
         "$WEBROOT/$ECHECS_DIR/assets/" 2>/dev/null || true
@@ -536,6 +542,16 @@ if ! grep -q 'orbit-echecs' "$WEBROOT/config.json"; then
   exit 1
 fi
 log "verified orbit-echecs (plugin file + config.json entry)"
+
+if [ ! -f "$WEBROOT/$RSS_DIR/orbit-rss.js" ]; then
+  log "ERROR: missing $WEBROOT/$RSS_DIR/orbit-rss.js after overlay"
+  exit 1
+fi
+if ! grep -q 'orbit-rss' "$WEBROOT/config.json"; then
+  log "ERROR: config.json missing orbit-rss plugin entry"
+  exit 1
+fi
+log "verified orbit-rss (plugin file + config.json entry)"
 
 if [ ! -f "$WEBROOT/$HARRYPOTTER_DIR/orbit-harrypotter.js" ]; then
   log "ERROR: missing $WEBROOT/$HARRYPOTTER_DIR/orbit-harrypotter.js after overlay"
