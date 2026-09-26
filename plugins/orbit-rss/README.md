@@ -16,9 +16,9 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 2. Entrée dans `config/config.json` :
 
 ```json
-"rss": { "bot": "Actu" },
+"rss": { "bot": "Actu", "max": 10 },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=7"
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=8"
 ]
 ```
 

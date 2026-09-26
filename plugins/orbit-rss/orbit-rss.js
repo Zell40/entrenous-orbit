@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 7;
+  var ORX_VER = 8;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -56,6 +56,14 @@
       var s = String(url || '').trim();
       if (/^https?:\/\//i.test(s)) return s;
       return '';
+    }
+
+    function listMax() {
+      var cfg = (pluginOrbit && pluginOrbit.config && pluginOrbit.config()) || {};
+      var n = parseInt(cfg.rss && cfg.rss.max, 10);
+      if (!isFinite(n) || n < 1) n = 10;
+      if (n > MAX_ITEMS) n = MAX_ITEMS;
+      return n;
     }
 
     function botNick() {
@@ -160,7 +168,7 @@
         return false;
       }
       list.unshift(item);
-      db.items[key] = list.slice(0, MAX_ITEMS);
+      db.items[key] = list.slice(0, listMax());
       saveDb();
       ui.rev++;
       return true;
@@ -204,6 +212,74 @@
         desc: tagVal(tags, '+desc').trim(),
         ts: Date.now(),
       };
+    }
+
+    function parseLine(text) {
+      var raw = String(text || '').replace(/\s+/g, ' ').trim();
+      var m = raw.match(/^(.*)\s+<(https?:\/\/[^>\s]+)>\s*$/);
+      if (!m) return null;
+      var head = m[1].trim();
+      var link = safeHttp(m[2]);
+      if (!link) return null;
+      var feed = '';
+      var title = '';
+      var date = '';
+      var news = head.match(/^News from\s+(.+?):\s+(.+)$/i);
+      if (news) {
+        feed = news[1].trim();
+        title = news[2].trim();
+      } else {
+        var sep = head.indexOf(': ');
+        if (sep < 1) return null;
+        date = head.slice(0, sep).trim();
+        title = head.slice(sep + 2).trim();
+      }
+      if (!title) return null;
+      return {
+        id: link + '\n' + title,
+        feed: feed,
+        feedtitle: feed,
+        title: title,
+        link: link,
+        img: '',
+        date: date,
+        desc: '',
+        ts: Date.now(),
+      };
+    }
+
+    function fromBot(nick) {
+      return String(nick || '').toLowerCase() === botNick().toLowerCase();
+    }
+
+    function ingest(chan, tags, text, nick) {
+      if (!chan || chan.charAt(0) !== '#') return;
+      if (tagVal(tags, RSS) === 'v1' && tagVal(tags, EV) === 'item' && tagVal(tags, '+title')) {
+        handleItem(chan, tags);
+        return;
+      }
+      if (tags && tagVal(tags, RSS) === 'v1' && fromBot(nick)) {
+        var parsed = parseLine(text);
+        if (parsed) remember(chan, parsed);
+        return;
+      }
+      if (fromBot(nick)) {
+        var line = parseLine(text);
+        if (line) remember(chan, line);
+      }
+    }
+
+    function harvest(chan) {
+      var buf = bufferOf(chan);
+      var msgs = buf && buf.messages;
+      if (!msgs || !msgs.length) return;
+      var before = ui.rev;
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (!m) continue;
+        ingest(chan, m.tags, m.text, m.from);
+      }
+      if (ui.rev !== before) saveDb();
     }
 
     function handleItem(chan, tags) {
@@ -324,7 +400,7 @@
     function bubbleHtml(chan, it, i) {
       var open = ui.expanded === it.id;
       var when = shortDate(it.date);
-      var label = it.feedtitle || it.feed || pick({ fr: 'Actualité', en: 'News' });
+      var label = it.feedtitle || it.feed || it.title || pick({ fr: 'Actualité', en: 'News' });
       var full = '';
       if (open) {
         full = '<div class="orx__full">' +
@@ -348,7 +424,7 @@
 
     function archiveHtml(chan) {
       if (!ui.archive) return '';
-      var list = itemsOf(chan);
+      var list = itemsOf(chan).slice(0, listMax());
       list.forEach(function (it) { fillImage(chan, it); });
       if (!list.length) {
         return '<div class="orx__arch"><div class="orx__empty">' +
@@ -358,7 +434,7 @@
       var rows = list.map(function (it, i) {
         var open = ui.archiveId === it.id;
         var when = shortDate(it.date);
-        var label = it.feedtitle || it.feed || pick({ fr: 'Actualité', en: 'News' });
+        var label = it.feedtitle || it.feed || it.title || pick({ fr: 'Actualité', en: 'News' });
         var full = '';
         if (open) {
           full = '<div class="orx__full">' +
@@ -446,6 +522,7 @@
       }
       if (root.parentNode !== main) main.appendChild(root);
       root.style.top = (hero.offsetTop + hero.offsetHeight + 8) + 'px';
+      harvest(chan);
       var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
@@ -471,7 +548,10 @@
         orbit.addMessageFilter(function (m) {
           if (!m || tagVal(m.tags, RSS) !== 'v1') return false;
           var cmd = String(m.command || '').toUpperCase();
-          return cmd === 'PRIVMSG' || cmd === 'NOTICE';
+          if (cmd !== 'PRIVMSG' && cmd !== 'NOTICE') return false;
+          ingest(m.target, m.tags, m.text, m.nick);
+          paint();
+          return true;
         });
       }
 
