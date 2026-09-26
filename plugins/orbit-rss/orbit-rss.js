@@ -1,13 +1,14 @@
 /*!
  * orbit-rss — bulles Actualités pour les TAGMSG +rss=v1 du bot Actu.
  * Le PRIVMSG/NOTICE +rss=v1 est masqué : les clients sans message-tags
- * gardent le texte. Pile sous le topic. Une bulle lue ou fermée ne revient pas.
+ * gardent le texte. Pile sous le topic, par-dessus les messages.
+ * Repli : titre et date. Clic : le texte entier. Une bulle lue ou fermée ne revient pas.
  * Le bouton Actualités reste pour relire l’historique.
  */
 (function () {
   'use strict';
 
-  var ORX_VER = 3;
+  var ORX_VER = 4;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -202,6 +203,20 @@
       remember(chan, item);
     }
 
+    function shortDate(s) {
+      var raw = String(s || '').trim();
+      if (!raw) return '';
+      var d = new Date(raw);
+      if (isNaN(d.getTime())) return raw.length > 32 ? raw.slice(0, 32) : raw;
+      try {
+        return d.toLocaleString((document.documentElement.lang || 'fr').slice(0, 2), {
+          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+        });
+      } catch (e) {
+        return raw;
+      }
+    }
+
     function injectStyles() {
       var css = document.getElementById('orx-css');
       if (!css) {
@@ -210,53 +225,56 @@
         document.head.appendChild(css);
       }
       css.textContent = [
-        '.chan-hero:has(.orx){overflow:visible}',
-        '.chan-hero__body > .orx{align-self:stretch;width:100%;max-width:none;margin-top:.4rem;padding-top:0}',
-        '.orx{position:relative;z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;max-width:min(280px,46vw);padding-top:.15rem}',
-        '.orx__stack{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:100%}',
-        '.orx__bubble{width:100%;text-align:left;background:var(--bg,#fff);color:var(--ink,#1c2430);border:1px solid var(--border,rgba(20,30,45,.12));border-radius:14px;box-shadow:0 8px 22px -14px rgba(20,30,45,.45);overflow:hidden}',
-        '.orx__row{display:flex;align-items:flex-start;gap:.2rem}',
-        '.orx__main{flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;padding:.45rem .2rem .45rem .6rem;font:inherit}',
-        '.orx__kicker{display:block;font-size:.62rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-d,var(--accent,#3b6cff));margin-bottom:.1rem}',
-        '.orx__title{font-size:.78rem;font-weight:700;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}',
-        '.orx__x{flex:none;width:1.7rem;height:1.7rem;margin:.25rem .3rem 0 0;border:0;border-radius:999px;background:transparent;color:var(--muted,#6b7280);cursor:pointer;font-size:1rem;line-height:1}',
+        '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.28rem;width:min(210px,46vw);max-height:min(58%,440px);pointer-events:none}',
+        '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(340px,88vw)}',
+        '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
+        '.orx__stack{display:flex;flex-direction:column;align-items:stretch;gap:.22rem;width:100%;min-height:0;overflow:auto}',
+        '.orx__bubble{width:100%;text-align:left;background:color-mix(in srgb,var(--bg,#fff) 94%,transparent);color:var(--ink,#1c2430);border:1px solid var(--border,rgba(20,30,45,.14));border-radius:10px;box-shadow:0 8px 18px -12px rgba(20,30,45,.55);overflow:hidden;backdrop-filter:blur(8px)}',
+        '.orx__bubble.is-open{background:var(--bg,#fff);box-shadow:0 16px 36px -16px rgba(20,30,45,.55)}',
+        '.orx__row{display:flex;align-items:flex-start;gap:.1rem}',
+        '.orx__main{flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;padding:.28rem .1rem .28rem .45rem;font:inherit}',
+        '.orx__kicker{display:block;font-size:.6rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-d,var(--accent,#3b6cff));margin-bottom:.12rem}',
+        '.orx__title{display:block;font-size:.68rem;font-weight:700;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+        '.orx__bubble.is-open .orx__title{white-space:normal;font-size:.84rem;line-height:1.35}',
+        '.orx__date{display:block;margin-top:.06rem;font-size:.58rem;font-weight:600;line-height:1.2;color:var(--faint,#94a3b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+        '.orx__bubble.is-open .orx__date{font-size:.68rem;white-space:normal}',
+        '.orx__x{flex:none;width:1.2rem;height:1.2rem;margin:.16rem .16rem 0 0;border:0;border-radius:999px;background:transparent;color:var(--muted,#6b7280);cursor:pointer;font-size:.85rem;line-height:1}',
         '.orx__x:hover{background:rgba(20,30,45,.06);color:var(--ink,#1c2430)}',
-        '.orx__full{padding:0 .7rem .6rem;font-size:.75rem;line-height:1.4;color:var(--ink-2,#334155)}',
-        '.orx__desc{margin:.25rem 0 .4rem;white-space:pre-wrap}',
-        '.orx__meta{font-size:.68rem;color:var(--faint,#94a3b8);margin-bottom:.35rem}',
-        '.orx__link{display:inline-block;font-size:.72rem;font-weight:700;color:var(--accent-d,var(--accent,#3b6cff));text-decoration:none}',
+        '.orx__full{padding:0 .55rem .5rem;font-size:.78rem;line-height:1.45;color:var(--ink-2,#334155)}',
+        '.orx__desc{margin:.2rem 0 .45rem;white-space:pre-wrap;overflow-wrap:anywhere}',
+        '.orx__link{display:inline-block;font-size:.75rem;font-weight:700;color:var(--accent-d,var(--accent,#3b6cff));text-decoration:none}',
         '.orx__link:hover{text-decoration:underline}',
-        '.orx__chip{display:inline-flex;align-items:center;gap:.4rem;border:0;background:linear-gradient(180deg,#3b82f6,#1d4ed8);color:#fff;border-radius:999px;padding:.42rem .95rem;font:inherit;font-size:.84rem;font-weight:800;letter-spacing:.01em;cursor:pointer;box-shadow:0 8px 18px -6px rgba(29,78,216,.75)}',
+        '.orx__chip{display:inline-flex;align-items:center;gap:.35rem;border:0;background:linear-gradient(180deg,#3b82f6,#1d4ed8);color:#fff;border-radius:999px;padding:.32rem .75rem;font:inherit;font-size:.74rem;font-weight:800;letter-spacing:.01em;cursor:pointer;box-shadow:0 8px 18px -6px rgba(29,78,216,.75)}',
         '.orx__chip:hover{filter:brightness(1.06)}',
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
-        '.orx__n{min-width:1.15rem;height:1.15rem;padding:0 .3rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.68rem;font-weight:800;line-height:1.15rem;text-align:center}',
-        '.orx__arch{width:min(320px,70vw);max-height:min(60vh,420px);overflow:auto;background:var(--bg,#fff);color:var(--ink,#1c2430);border:1px solid var(--border,rgba(20,30,45,.12));border-radius:14px;box-shadow:0 16px 40px -24px rgba(20,30,45,.55);padding:.35rem}',
-        '.orx__empty{padding:.7rem .6rem;font-size:.75rem;color:var(--muted,#6b7280)}',
-        '.orx__hit{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;cursor:pointer;padding:.45rem .5rem;border-radius:10px;font:inherit}',
+        '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
+        '.orx__arch{width:100%;max-height:min(52vh,380px);overflow:auto;background:var(--bg,#fff);color:var(--ink,#1c2430);border:1px solid var(--border,rgba(20,30,45,.12));border-radius:12px;box-shadow:0 16px 40px -18px rgba(20,30,45,.55);padding:.3rem}',
+        '.orx__empty{padding:.6rem .5rem;font-size:.74rem;color:var(--muted,#6b7280)}',
+        '.orx__hit{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;cursor:pointer;padding:.4rem .45rem;border-radius:8px;font:inherit}',
         '.orx__hit:hover,.orx__hit.is-on{background:rgba(59,108,255,.08)}',
-        '.orx__hit b{display:block;font-size:.75rem;font-weight:700;line-height:1.3}',
-        '.orx__hit span{display:block;margin-top:.12rem;font-size:.65rem;color:var(--faint,#94a3b8)}',
-        '@media (max-width:720px){.chan-hero__body > .orx{max-width:none}.orx__chip{align-self:flex-end}}'
+        '.orx__hit b{display:block;font-size:.74rem;font-weight:700;line-height:1.3}',
+        '.orx__hit span{display:block;margin-top:.1rem;font-size:.62rem;color:var(--faint,#94a3b8)}'
       ].join('');
     }
 
     function bubbleHtml(chan, it) {
       var open = ui.expanded === it.id;
-      var kicker = it.feedtitle || it.feed || pick({ fr: 'Actualité', en: 'News' });
+      var when = shortDate(it.date);
+      var kicker = it.feedtitle || it.feed || '';
       var full = '';
       if (open) {
         full = '<div class="orx__full">' +
-          (it.date ? '<div class="orx__meta">' + esc(it.date) + '</div>' : '') +
           (it.desc ? '<div class="orx__desc">' + esc(it.desc) + '</div>' : '') +
           (it.link ? '<a class="orx__link" data-act="link" data-id="' + esc(it.id) + '" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
             pick({ fr: 'Ouvrir le lien', en: 'Open link' }) + '</a>' : '') +
           '</div>';
       }
-      return '<article class="orx__bubble">' +
+      return '<article class="orx__bubble' + (open ? ' is-open' : '') + '">' +
         '<div class="orx__row">' +
           '<button type="button" class="orx__main" data-act="open" data-id="' + esc(it.id) + '">' +
-            '<span class="orx__kicker">' + esc(kicker) + '</span>' +
+            (open && kicker ? '<span class="orx__kicker">' + esc(kicker) + '</span>' : '') +
             '<span class="orx__title">' + esc(it.title) + '</span>' +
+            (when ? '<span class="orx__date">' + esc(when) + '</span>' : '') +
           '</button>' +
           '<button type="button" class="orx__x" data-act="close" data-id="' + esc(it.id) + '" aria-label="' +
             esc(pick({ fr: 'Fermer', en: 'Close' })) + '">×</button>' +
@@ -296,10 +314,10 @@
       var chipClass = 'orx__chip' + (ui.archive ? ' is-on' : '');
       var badge = n ? '<span class="orx__n">' + (n > 9 ? '9+' : String(n)) + '</span>' : '';
       root.innerHTML =
-        '<div class="orx__stack">' + list.map(function (it) { return bubbleHtml(chan, it); }).join('') + '</div>' +
         '<button type="button" class="' + chipClass + '" data-act="chip">' +
           esc(pick({ fr: 'Actualités', en: 'News' })) + badge +
         '</button>' +
+        '<div class="orx__stack">' + list.map(function (it) { return bubbleHtml(chan, it); }).join('') + '</div>' +
         archiveHtml(chan);
     }
 
@@ -351,8 +369,9 @@
     function paint() {
       if (!pluginOrbit) return;
       var hero = document.querySelector('.chan-hero');
+      var main = hero && hero.closest ? hero.closest('.main') : null;
       var chan = hero ? (hero.getAttribute('data-chan') || activeChan()) : '';
-      if (!hero || !gate(chan)) {
+      if (!hero || !main || !gate(chan)) {
         if (root && root.parentNode) root.parentNode.removeChild(root);
         return;
       }
@@ -361,8 +380,8 @@
         root.className = 'orx';
         root.addEventListener('click', onRootClick);
       }
-      var slot = hero.querySelector('.chan-hero__body') || hero;
-      if (root.parentNode !== slot) slot.appendChild(root);
+      if (root.parentNode !== main) main.appendChild(root);
+      root.style.top = (hero.offsetTop + hero.offsetHeight + 8) + 'px';
       var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
