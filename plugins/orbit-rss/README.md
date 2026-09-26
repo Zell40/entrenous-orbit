@@ -2,7 +2,7 @@
 
 Bulles **Actualités** pour le bot Limnoria **RSS_ircv3**.
 
-Le bot envoie chaque titre en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Ce plugin les affiche à droite du topic, sur le salon concerné. Une bulle lue ou fermée ne revient pas. Le bouton **Actualités** reste affiché pour relire l’historique, tant que le bot est dans le salon et que la capacité `message-tags` est négociée.
+Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Le texte porte aussi `+rss=v1` : ce plugin masque cette ligne et affiche la bulle sous le topic. Un client sans `message-tags` ne voit que le texte. Une bulle lue ou fermée ne revient pas. Le bouton **Actualités** reste affiché pour relire l’historique, tant que le bot est dans le salon et que la capacité `message-tags` est négociée.
 
 ## Prérequis
 
@@ -18,7 +18,7 @@ Le bot envoie chaque titre en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Ce plugin le
 ```json
 "rss": { "bot": "Actu" },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=1"
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=3"
 ]
 ```
 
@@ -28,6 +28,7 @@ Le bot envoie chaque titre en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Ce plugin le
 
 ```
 @+rss=v1;+ev=item;+feed=<nom>;+title=...;+link=...;+date=...;+desc=...;+id=...;+feedtitle=... TAGMSG #salon
+@+rss=v1 PRIVMSG #salon :<annonce texte>
 ```
 
 ## Développement local (Windows)
