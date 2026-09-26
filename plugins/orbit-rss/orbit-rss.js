@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 6;
+  var ORX_VER = 7;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -272,15 +272,12 @@
         '.orx__chip:hover{filter:brightness(1.06)}',
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
         '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
-        '.orx__arch{width:100%;max-height:min(52vh,380px);overflow:auto;background:var(--bg,#fff);color:var(--ink,#1c2430);border:1px solid var(--border,rgba(20,30,45,.12));border-radius:12px;box-shadow:0 16px 40px -18px rgba(20,30,45,.55);padding:.3rem}',
-        '.orx__empty{padding:.6rem .5rem;font-size:.74rem;color:var(--muted,#6b7280)}',
-        '.orx__hit{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;cursor:pointer;padding:.4rem .45rem;border-radius:8px;font:inherit}',
-        '.orx__hit:hover,.orx__hit.is-on{background:rgba(59,108,255,.08)}',
-        '.orx__full--arch{color:var(--ink,#1c2430);text-shadow:none}',
-        '.orx__full--arch .orx__headline,.orx__full--arch .orx__desc{color:var(--ink-2,#334155);text-shadow:none}',
-        '.orx__full--arch .orx__link{color:var(--accent-d,var(--accent,#3b6cff))}',
-        '.orx__hit b{display:block;font-size:.74rem;font-weight:700;line-height:1.3}',
-        '.orx__hit span{display:block;margin-top:.1rem;font-size:.62rem;color:var(--faint,#94a3b8)}'
+        '.orx__arch{width:100%;max-height:min(62vh,460px);overflow:auto;display:flex;flex-direction:column;gap:.45rem;padding:0 .15rem .15rem 0;background:transparent;border:0;box-shadow:none}',
+        '.orx__arch::-webkit-scrollbar{width:6px}',
+        '.orx__arch::-webkit-scrollbar-thumb{background:rgba(15,23,42,.28);border-radius:999px}',
+        '.orx__bubble--list{margin-top:0;height:64px;flex:none;animation:none}',
+        '.orx__bubble--list.is-open{height:auto;min-height:64px;margin-top:0;border-radius:22px}',
+        '.orx__empty{padding:.55rem .8rem;font-size:.74rem;font-weight:700;color:#fff;background:#0f172a;border-radius:999px}'
       ].join('');
     }
 
@@ -352,27 +349,33 @@
     function archiveHtml(chan) {
       if (!ui.archive) return '';
       var list = itemsOf(chan);
+      list.forEach(function (it) { fillImage(chan, it); });
       if (!list.length) {
         return '<div class="orx__arch"><div class="orx__empty">' +
           esc(pick({ fr: 'Aucune actualité pour le moment.', en: 'No news yet.' })) +
           '</div></div>';
       }
-      var rows = list.map(function (it) {
-        var on = ui.archiveId === it.id ? ' is-on' : '';
-        var detail = '';
-        if (ui.archiveId === it.id) {
-          detail = '<div class="orx__full orx__full--arch">' +
+      var rows = list.map(function (it, i) {
+        var open = ui.archiveId === it.id;
+        var when = shortDate(it.date);
+        var label = it.feedtitle || it.feed || pick({ fr: 'Actualité', en: 'News' });
+        var full = '';
+        if (open) {
+          full = '<div class="orx__full">' +
             (it.title ? '<div class="orx__headline">' + esc(it.title) + '</div>' : '') +
             (it.desc ? '<div class="orx__desc">' + esc(it.desc) + '</div>' : '') +
-            (it.link ? '<a class="orx__link" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
-              esc(pick({ fr: 'Ouvrir le lien', en: 'Open link' })) + '</a>' : '') +
+            (it.link ? '<a class="orx__link" data-act="link" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
+              pick({ fr: 'Ouvrir le lien', en: 'Open link' }) + '</a>' : '') +
             '</div>';
         }
-        var when = shortDate(it.date);
-        return '<div><button type="button" class="orx__hit' + on + '" data-act="arch" data-id="' + esc(it.id) + '">' +
-          '<b>' + esc(it.feedtitle || it.feed || it.title) + '</b>' +
-          '<span>' + esc(when || it.title) + '</span>' +
-          '</button>' + detail + '</div>';
+        return '<article class="orx__bubble orx__bubble--list' + (open ? ' is-open' : '') + '" style="' + esc(bubbleStyle(it, i)) + '">' +
+          '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
+          '<div class="orx__row">' +
+            '<button type="button" class="orx__main" data-act="arch" data-id="' + esc(it.id) + '">' +
+              '<span class="orx__title">' + esc(label) + '</span>' +
+              (when ? '<span class="orx__date">' + esc(when) + '</span>' : '') +
+            '</button>' +
+          '</div>' + full + '</article>';
       }).join('');
       return '<div class="orx__arch">' + rows + '</div>';
     }
