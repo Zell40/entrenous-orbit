@@ -18,7 +18,7 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 ```json
 "rss": { "bot": "Actu" },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=4"
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=5"
 ]
 ```
 
@@ -27,7 +27,7 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 ## Protocole
 
 ```
-@+rss=v1;+ev=item;+feed=<nom>;+title=...;+link=...;+date=...;+desc=...;+id=...;+feedtitle=... TAGMSG #salon
+@+rss=v1;+ev=item;+feed=<nom>;+title=...;+link=...;+date=...;+desc=...;+id=...;+feedtitle=...;+img=... TAGMSG #salon
 @+rss=v1 PRIVMSG #salon :<annonce texte>
 ```
 
