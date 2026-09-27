@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 16;
+  var ORX_VER = 18;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -406,8 +406,9 @@
       }
       css.textContent = [
         '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
+        '.main > .orx.orx--fixed{position:fixed;right:auto;bottom:auto;left:auto;z-index:50}',
         '.main > .orx.orx--set{visibility:visible}',
-        '.main > .orx.orx--game{z-index:45;width:auto;max-width:min(300px,72vw);max-height:none}',
+        '.main > .orx.orx--game{z-index:50;width:auto;max-width:min(300px,72vw);max-height:none}',
         '.orx--game .orx__stack{display:none}',
         '.orx--game .orx__arch{margin-top:.2rem}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
@@ -813,10 +814,21 @@
       root.classList.remove('orx--set');
     }
 
-    function gameHeadEl() {
+    function gamePanelEl() {
+      return document.querySelector('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
+    }
+
+    function panelCovers(main, panel) {
+      var box = shownBox(panel);
+      var mainBox = main && main.getBoundingClientRect();
+      if (!box || !mainBox || mainBox.height < 40 || mainBox.width < 40) return false;
+      return box.height > mainBox.height * 0.55 && box.width > mainBox.width * 0.72;
+    }
+
+    function gameHeadEl(main) {
       var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
       if (!shownBox(head)) return null;
-      var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
+      var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel') || gamePanelEl();
       if (!panel || panel.hidden) return null;
       var chatOnly = panel.classList.contains('ohp-panel--chat') ||
         panel.classList.contains('oec-panel--chat') ||
@@ -825,28 +837,102 @@
       var fullPanel = gameFull() ||
         panel.classList.contains('ohp-panel--full') ||
         panel.classList.contains('oec-panel--full') ||
-        panel.classList.contains('opbac-panel--full');
+        panel.classList.contains('opbac-panel--full') ||
+        panelCovers(main, panel);
       return fullPanel ? head : null;
+    }
+
+    function clusterBottom(el, limit) {
+      var box = shownBox(el);
+      if (!box) return 0;
+      var bottom = box.bottom;
+      var nodes = el.querySelectorAll('*');
+      for (var i = 0; i < nodes.length; i++) {
+        var rects = nodes[i].getClientRects();
+        if (!rects || !rects.length) continue;
+        var b = nodes[i].getBoundingClientRect();
+        if (b.width < 8 || b.height < 8) continue;
+        if (b.top > box.bottom + limit) continue;
+        if (b.bottom > bottom) bottom = b.bottom;
+      }
+      return bottom;
     }
 
     function bannerBottom(main, hero) {
       var heroBox = shownBox(hero);
       if (!heroBox || hero.offsetHeight < 36) return null;
-      var bottom = heroBox.bottom;
+      var bottom = clusterBottom(hero, 220);
       var bg = main.querySelector('.main__room-bg');
       var bgBox = shownBox(bg);
-      var mainBox = main.getBoundingClientRect();
-      if (bgBox && bgBox.height < mainBox.height * 0.55 &&
-          bgBox.top < heroBox.bottom + 24 && bgBox.bottom > bottom) {
-        bottom = bgBox.bottom;
+      if (bgBox && bgBox.top < heroBox.bottom + 30 && bgBox.bottom > bottom &&
+          bgBox.height < Math.max(360, main.getBoundingClientRect().height * 0.62)) {
+        bottom = Math.max(bottom, bgBox.bottom);
       }
-      return { bottom: bottom, mark: Math.round(heroBox.height) + ':' + Math.round(bgBox ? bgBox.height : 0) };
+      return {
+        bottom: bottom,
+        right: heroBox.right,
+        mark: Math.round(bottom) + ':' + Math.round(heroBox.height)
+      };
     }
 
-    function moveTop(viewportTop) {
-      root.style.top = '0px';
-      var origin = root.getBoundingClientRect().top;
-      root.style.top = Math.max(0, Math.round(viewportTop - origin)) + 'px';
+    function pinFixed(top, right) {
+      root.classList.add('orx--fixed');
+      root.style.top = Math.round(top) + 'px';
+      root.style.right = Math.round(right) + 'px';
+      root.style.left = 'auto';
+      root.style.bottom = 'auto';
+    }
+
+    function chatOnlyPanel(panel) {
+      if (!panel) return false;
+      return panel.classList.contains('ohp-panel--chat') ||
+        panel.classList.contains('oec-panel--chat') ||
+        panel.classList.contains('opbac-panel--chat');
+    }
+
+    function place(main, hero) {
+      var panel = gamePanelEl();
+      var cover = panelCovers(main, panel) && !chatOnlyPanel(panel);
+      var head = gameHeadEl(main);
+      if (cover && !head) {
+        root.classList.add('orx--game');
+        hidePlace();
+        return;
+      }
+      root.classList.toggle('orx--game', !!head);
+      if (head) {
+        var headBox = shownBox(head);
+        if (!headBox || headBox.height < 24) {
+          hidePlace();
+          return;
+        }
+        var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
+        var actionsBox = shownBox(actions);
+        var right = actionsBox
+          ? Math.max(8, window.innerWidth - actionsBox.left + 8)
+          : Math.max(8, window.innerWidth - headBox.right + 8);
+        pinFixed(headBox.top + (headBox.height - 34) / 2, right);
+        holdPlace('game:' + Math.round(headBox.top) + ':' + Math.round(headBox.left) + ':' + Math.round(right), function () {
+          var again = shownBox(head);
+          if (!again) return false;
+          var box = root.getBoundingClientRect();
+          var mid = box.top + Math.min(box.height, 36) / 2;
+          return mid >= again.top - 2 && mid <= again.bottom + 2 && box.right <= again.right + 4;
+        });
+        return;
+      }
+      var banner = bannerBottom(main, hero);
+      if (!banner) {
+        hidePlace();
+        return;
+      }
+      pinFixed(banner.bottom + 8, Math.max(8, window.innerWidth - banner.right + 10));
+      holdPlace('chat:' + banner.mark, function () {
+        var again = bannerBottom(main, hero);
+        if (!again || Math.abs(again.bottom - banner.bottom) > 3) return false;
+        var box = root.getBoundingClientRect();
+        return box.top + 2 >= again.bottom;
+      });
     }
 
     function holdPlace(key, verify) {
@@ -872,46 +958,6 @@
         return;
       }
       root.classList.add('orx--set');
-    }
-
-    function place(main, hero) {
-      var head = gameHeadEl();
-      root.classList.toggle('orx--game', !!head);
-      if (head) {
-        var headBox = shownBox(head);
-        var mainBox = main.getBoundingClientRect();
-        if (!headBox || headBox.height < 24 || mainBox.width < 8) {
-          hidePlace();
-          return;
-        }
-        var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
-        var actionsBox = shownBox(actions);
-        var reserve = actionsBox
-          ? Math.max(8, mainBox.right - actionsBox.left + 8)
-          : Math.max(8, mainBox.right - headBox.right + 8);
-        root.style.right = reserve + 'px';
-        moveTop(headBox.top + (headBox.height - 34) / 2);
-        holdPlace('game:' + Math.round(headBox.top) + ':' + Math.round(headBox.height) + ':' + Math.round(reserve), function () {
-          var again = shownBox(head);
-          if (!again) return false;
-          var box = root.getBoundingClientRect();
-          var mid = box.top + Math.min(box.height, 36) / 2;
-          return mid >= again.top && mid <= again.bottom;
-        });
-        return;
-      }
-      var banner = bannerBottom(main, hero);
-      if (!banner) {
-        hidePlace();
-        return;
-      }
-      root.style.right = '';
-      moveTop(banner.bottom + 8);
-      holdPlace('chat:' + banner.mark, function () {
-        var again = bannerBottom(main, hero);
-        if (!again || again.mark !== banner.mark) return false;
-        return root.getBoundingClientRect().top + 2 >= again.bottom;
-      });
     }
 
     function paint() {

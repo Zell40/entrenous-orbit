@@ -18,7 +18,7 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 ```json
 "rss": { "bot": "Actu", "max": 10 },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=16"
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=18"
 ]
 ```
 
