@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 20;
+  var ORX_VER = 22;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -30,6 +30,7 @@
     var asked = {};
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
+    var archLayer = null;
 
     function pick(table) {
       if (pluginOrbit && pluginOrbit.i18n && pluginOrbit.i18n.pick) return pluginOrbit.i18n.pick(table);
@@ -115,6 +116,10 @@
       return !!(chan && chan.charAt(0) === '#' && tagsOn() && botInChannel(chan));
     }
 
+    function hasLink(it) {
+      return !!(it && safeHttp(it.link));
+    }
+
     function loadDb() {
       var stored = null;
       try {
@@ -124,6 +129,15 @@
       if (!stored.seen || typeof stored.seen !== 'object') stored.seen = {};
       if (!stored.items || typeof stored.items !== 'object') stored.items = {};
       db = stored;
+      var changed = false;
+      Object.keys(db.items).forEach(function (key) {
+        var next = (db.items[key] || []).filter(hasLink);
+        if (next.length !== (db.items[key] || []).length) {
+          db.items[key] = next;
+          changed = true;
+        }
+      });
+      if (changed) saveDb();
     }
 
     function saveDb() {
@@ -146,7 +160,7 @@
     }
 
     function itemsOf(chan) {
-      return (db.items[chanKey(chan)] || []).slice().sort(byDateDesc);
+      return (db.items[chanKey(chan)] || []).filter(hasLink).slice().sort(byDateDesc);
     }
 
     function seenMap(chan) {
@@ -167,6 +181,7 @@
     }
 
     function remember(chan, item) {
+      if (!hasLink(item)) return false;
       var key = chanKey(chan);
       var list = db.items[key] ? db.items[key].slice() : [];
       for (var i = 0; i < list.length; i++) {
@@ -223,7 +238,7 @@
       var link = safeHttp(tagVal(tags, '+link'));
       var feed = tagVal(tags, '+feed').trim();
       var id = tagVal(tags, '+id').trim() || link || (feed + '\n' + title);
-      if (!title || !id) return null;
+      if (!title || !id || !link) return null;
       return {
         id: id,
         feed: feed,
@@ -278,8 +293,7 @@
     function ingest(chan, tags, text, nick) {
       if (!chan || chan.charAt(0) !== '#') return;
       if (tagVal(tags, RSS) === 'v1' && tagVal(tags, EV) === 'item' && tagVal(tags, '+title')) {
-        handleItem(chan, tags);
-        return;
+        if (handleItem(chan, tags)) return;
       }
       if (tags && tagVal(tags, RSS) === 'v1' && fromBot(nick)) {
         var parsed = parseLine(text);
@@ -334,11 +348,12 @@
     }
 
     function handleItem(chan, tags) {
-      if (tagVal(tags, RSS) !== 'v1') return;
-      if (tagVal(tags, EV) !== 'item') return;
+      if (tagVal(tags, RSS) !== 'v1') return false;
+      if (tagVal(tags, EV) !== 'item') return false;
       var item = itemFromTags(tags);
-      if (!item) return;
+      if (!item) return false;
       remember(chan, item);
+      return true;
     }
 
     function parseWhen(raw) {
@@ -409,8 +424,9 @@
         '.main > .orx.orx--set{visibility:visible}',
         '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .28rem 0 0;visibility:hidden}',
         '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set,.ohp-head__actions > .orx.orx--set,.oec-head__actions > .orx.orx--set,.opbac-head__actions > .orx.orx--set{visibility:visible}',
-        '.orx--game .orx__stack{display:none}',
-        '.orx--game .orx__arch{margin-top:.2rem}',
+        '.orx--game .orx__stack,.orx--game .orx__arch{display:none}',
+        '.orx-arch-layer{position:fixed;z-index:400;width:min(360px,92vw);max-height:min(70vh,520px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0;pointer-events:auto}',
+        '.orx-arch-layer[hidden]{display:none!important}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
         '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
         '.orx__stack{display:flex;flex-direction:column;align-items:flex-end;width:100%}',
@@ -750,17 +766,19 @@
       var chipClass = 'orx__chip' + (ui.archive ? ' is-on' : '');
       var badge = n ? '<span class="orx__n">' + (n > 9 ? '9+' : String(n)) + '</span>' : '';
       var close = ui.archive ? '<span class="orx__chip-x" aria-hidden="true">×</span>' : '';
+      var game = root.classList.contains('orx--game');
       root.innerHTML =
         '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '">' +
           esc(pick({ fr: 'Actualités', en: 'News' })) + badge + close +
         '</button>' +
-        (ui.archive ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
-        archiveHtml(chan);
+        (ui.archive || game ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
+        (game ? '' : archiveHtml(chan));
     }
 
     function onRootClick(ev) {
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
-      if (!el || !root || !root.contains(el)) return;
+      if (!el || !root) return;
+      if (!root.contains(el) && !(archLayer && archLayer.contains(el))) return;
       var chan = root.getAttribute('data-chan') || '';
       var act = el.getAttribute('data-act');
       var id = el.getAttribute('data-id') || '';
@@ -810,11 +828,51 @@
       return box;
     }
 
+    function hideArchLayer() {
+      if (!archLayer) return;
+      archLayer.hidden = true;
+      archLayer.innerHTML = '';
+    }
+
+    function pinArchLayer(chan) {
+      if (!archLayer) {
+        archLayer = document.createElement('div');
+        archLayer.id = 'orx-arch-layer';
+        archLayer.className = 'orx-arch-layer';
+        archLayer.hidden = true;
+        archLayer.addEventListener('click', onRootClick);
+        document.body.appendChild(archLayer);
+      }
+      if (!ui.archive || !root || !root.classList.contains('orx--game') || !root.classList.contains('orx--set')) {
+        hideArchLayer();
+        return;
+      }
+      var chip = root.querySelector('.orx__chip');
+      var box = chip && chip.getBoundingClientRect();
+      if (!box || box.width < 8) {
+        hideArchLayer();
+        return;
+      }
+      var key = chanKey(chan) + '|' + ui.archiveId + '|' + ui.rev;
+      if (archLayer.getAttribute('data-orx') !== key) {
+        var keep = archLayer.scrollTop;
+        archLayer.innerHTML = archiveHtml(chan);
+        archLayer.setAttribute('data-orx', key);
+        archLayer.scrollTop = keep;
+      }
+      archLayer.hidden = false;
+      archLayer.style.top = Math.round(box.bottom + 8) + 'px';
+      archLayer.style.right = Math.max(8, Math.round(window.innerWidth - box.right)) + 'px';
+      archLayer.style.left = 'auto';
+    }
+
     function conceal() {
-      if (!root) return;
-      root.__orxPlace = '';
-      root.__orxSince = 0;
-      root.classList.remove('orx--set');
+      if (root) {
+        root.__orxPlace = '';
+        root.__orxSince = 0;
+        root.classList.remove('orx--set');
+      }
+      hideArchLayer();
     }
 
     function hidePlace() {
@@ -852,8 +910,7 @@
         if (!shownBox(head)) continue;
         var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
         if (!panel || panel.hidden || !shownBox(panel)) continue;
-        if (chatOnlyPanel(panel) && !gameFull()) continue;
-        if (markedFullPanel(panel) || panelCovers(panel)) return head;
+        return head;
       }
       return null;
     }
@@ -928,9 +985,8 @@
     }
 
     function place(main, hero) {
-      var heroBox = shownBox(hero);
-      var head = heroBox ? null : visibleGameHead();
-      if (!heroBox && visibleFullGamePanel() && !head) {
+      var head = visibleGameHead();
+      if (!head && visibleFullGamePanel()) {
         dockInMain(main);
         root.classList.add('orx--game');
         hidePlace();
@@ -995,7 +1051,10 @@
       root.setAttribute('data-chan', chan);
       var sig = shown + '|' + ui.rev + '|' + ui.expanded + '|' + (ui.archive ? '1' : '0') + '|' +
         ui.archiveId + '|' + unread(chan).length + '|' + itemsOf(chan).length;
-      if (root.__orxSig === sig) return;
+      if (root.__orxSig === sig) {
+        pinArchLayer(chan);
+        return;
+      }
       root.__orxSig = sig;
       var archKeep = 0;
       var archNow = root.querySelector('.orx__arch');
@@ -1009,6 +1068,7 @@
         });
       }
       place(main, hero);
+      pinArchLayer(chan);
     }
 
     Orbit.plugin('orbit-rss', function (orbit) {
