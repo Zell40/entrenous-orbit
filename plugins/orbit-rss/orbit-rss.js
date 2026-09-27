@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 13;
+  var ORX_VER = 14;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -136,8 +136,17 @@
       return normChan(chan);
     }
 
+    function itemTime(it) {
+      var d = parseWhen(it && it.date) || parseWhen(it && it.ts);
+      return d ? d.getTime() : 0;
+    }
+
+    function byDateDesc(a, b) {
+      return itemTime(b) - itemTime(a);
+    }
+
     function itemsOf(chan) {
-      return db.items[chanKey(chan)] || [];
+      return (db.items[chanKey(chan)] || []).slice().sort(byDateDesc);
     }
 
     function seenMap(chan) {
@@ -173,13 +182,15 @@
           }
         }
         if (changed) {
-          db.items[key] = list;
+          list.sort(byDateDesc);
+          db.items[key] = list.slice(0, listMax());
           saveDb();
           ui.rev++;
         }
         return false;
       }
       list.unshift(item);
+      list.sort(byDateDesc);
       db.items[key] = list.slice(0, listMax());
       saveDb();
       ui.rev++;
