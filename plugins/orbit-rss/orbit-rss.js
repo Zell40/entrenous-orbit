@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 12;
+  var ORX_VER = 13;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -26,6 +26,7 @@
     var db = { seen: {}, items: {} };
     var imgWait = {};
     var imgReady = {};
+    var imgMiss = {};
     var asked = {};
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
@@ -161,8 +162,17 @@
       var list = db.items[key] ? db.items[key].slice() : [];
       for (var i = 0; i < list.length; i++) {
         if (list[i].id !== item.id) continue;
-        if (item.img && list[i].img !== item.img) {
-          list[i].img = item.img;
+        var prev = list[i];
+        var changed = false;
+        var keys = ['img', 'imgKind', 'date', 'title', 'desc', 'link', 'feed', 'feedtitle', 'site'];
+        for (var k = 0; k < keys.length; k++) {
+          var field = keys[k];
+          if (!prev[field] && item[field]) {
+            prev[field] = item[field];
+            changed = true;
+          }
+        }
+        if (changed) {
           db.items[key] = list;
           saveDb();
           ui.rev++;
@@ -320,14 +330,47 @@
       remember(chan, item);
     }
 
+    function parseWhen(raw) {
+      if (typeof raw === 'number' && isFinite(raw)) {
+        var fromNum = new Date(raw);
+        if (!isNaN(fromNum.getTime()) && fromNum.getFullYear() > 1990) return fromNum;
+      }
+      var s = String(raw || '').trim();
+      if (!s) return null;
+      if (/^\d{10,13}$/.test(s)) {
+        var n = parseInt(s, 10);
+        if (s.length === 10) n *= 1000;
+        var fromEpoch = new Date(n);
+        if (!isNaN(fromEpoch.getTime())) return fromEpoch;
+      }
+      var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+      if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0));
+      var dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:[ Tàa]*(\d{1,2})[h:](\d{2}))?/);
+      if (dmy) {
+        var year = +dmy[3];
+        if (year < 100) year += 2000;
+        return new Date(year, +dmy[2] - 1, +dmy[1], +(dmy[4] || 0), +(dmy[5] || 0));
+      }
+      var months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+      var ctime = s.match(/^[A-Za-z]{3,}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2})(?::\d{2})?\s+(\d{4})/);
+      if (ctime && months[ctime[1].toLowerCase()] != null) {
+        return new Date(+ctime[5], months[ctime[1].toLowerCase()], +ctime[2], +ctime[3], +ctime[4]);
+      }
+      var parsed = new Date(s);
+      if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1990) return parsed;
+      return null;
+    }
+
     function shortDate(s) {
-      var raw = String(s || '').trim();
-      if (!raw) return '';
-      var d = new Date(raw);
-      if (isNaN(d.getTime())) return '';
+      var d = parseWhen(s);
+      if (!d) return '';
       function p(n) { return n < 10 ? '0' + n : String(n); }
       return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2) +
         ' à ' + p(d.getHours()) + 'h' + p(d.getMinutes());
+    }
+
+    function whenLabel(it) {
+      return shortDate(it && it.date) || shortDate(it && it.ts);
     }
 
     var FEED_COLORS = ['#e11d48', '#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
@@ -362,7 +405,12 @@
         '@keyframes orx-glow{0%,100%{box-shadow:0 10px 18px -10px rgba(0,0,0,.55),0 0 0 0 transparent}50%{box-shadow:0 14px 22px -8px rgba(0,0,0,.5),0 0 0 4px color-mix(in srgb,var(--orx-c,#3b82f6) 55%,transparent)}}',
         '.orx__bubble{position:relative;width:100%;height:72px;margin-top:-22px;border-radius:999px;border:3px solid var(--orx-c,#3b82f6);background:transparent;color:#1e293b;overflow:hidden;animation:orx-pop .4s ease both,orx-glow 2.8s ease-in-out infinite}',
         '.orx__bubble:first-child{margin-top:0}',
-        '.orx__bg{position:absolute;inset:0;z-index:0;background-color:#f4f7fb;background-position:center;background-size:cover;background-repeat:no-repeat}',
+        '.orx__bg{position:absolute;inset:0;z-index:0;background-color:#e7eef8;background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 240 72\'%3E%3Cdefs%3E%3ClinearGradient id=\'g\' x1=\'0\' y1=\'0\' x2=\'1\' y2=\'1\'%3E%3Cstop offset=\'0\' stop-color=\'%23f8fbff\'/%3E%3Cstop offset=\'1\' stop-color=\'%23d5e3f4\'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=\'240\' height=\'72\' fill=\'url(%23g)\'/%3E%3Ccircle cx=\'186\' cy=\'20\' r=\'9\' fill=\'%23fde68a\'/%3E%3Cpath d=\'M148 60l28-26 18 16 20-22 22 32H148z\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M162 60l20-16 16 16H162z\' fill=\'%2364748b\'/%3E%3C/svg%3E");background-position:center;background-size:cover;background-repeat:no-repeat}',
+        '@keyframes orx-spin{to{transform:rotate(360deg)}}',
+        '.orx__spin{display:none;position:absolute;z-index:3;right:2.15rem;top:50%;width:1.05rem;height:1.05rem;margin-top:-.52rem;border-radius:999px;border:2px solid rgba(37,99,235,.28);border-top-color:#2563eb;animation:orx-spin .7s linear infinite}',
+        '.orx__bubble.is-wait .orx__spin{display:block}',
+        '.orx__bubble.is-wait .orx__main{padding-right:1.7rem}',
+        '.orx__bubble.is-icon .orx__bg{background-size:42%;background-color:#e7eef8}',
         '.orx__bubble::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,rgba(255,255,255,.88) 0%,rgba(255,255,255,.55) 52%,rgba(255,255,255,.2) 100%);pointer-events:none}',
         '.orx__bubble.is-photo{color:#fff}',
         '.orx__bubble.is-photo::before{background:linear-gradient(90deg,rgba(6,10,18,.58) 0%,rgba(6,10,18,.22) 46%,rgba(6,10,18,.08) 100%)}',
@@ -408,24 +456,80 @@
       return 'background-image:url("' + img + '")';
     }
 
-    function watchImage(url) {
-      var img = cssUrl(url);
-      if (!img || imgReady[img] != null) return;
-      imgReady[img] = 0;
-      var pic = new Image();
-      pic.onload = function () {
-        imgReady[img] = 1;
-        if (!root) return;
-        var nodes = root.querySelectorAll('.orx__bubble');
-        for (var i = 0; i < nodes.length; i++) {
-          if (nodes[i].getAttribute('data-img') !== img) continue;
-          nodes[i].classList.add('is-photo');
-          var bg = nodes[i].querySelector('.orx__bg');
-          if (bg) bg.style.backgroundImage = 'url("' + img + '")';
+    function paintBubble(id, img, kind) {
+      if (!root) return;
+      var nodes = root.querySelectorAll('.orx__bubble');
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].getAttribute('data-id') !== id) continue;
+        nodes[i].classList.remove('is-wait', 'is-idle', 'is-photo', 'is-icon');
+        nodes[i].classList.add(kind === 'icon' ? 'is-icon' : 'is-photo');
+        nodes[i].setAttribute('data-img', img);
+        var bg = nodes[i].querySelector('.orx__bg');
+        if (!bg) continue;
+        bg.style.backgroundImage = 'url("' + img + '")';
+        if (kind === 'icon') {
+          bg.style.backgroundSize = '42%';
+          bg.style.backgroundColor = '#e7eef8';
         }
-      };
-      pic.onerror = function () { imgReady[img] = -1; };
-      pic.src = safeHttp(url);
+      }
+    }
+
+    function idleBubble(id) {
+      if (!root) return;
+      var nodes = root.querySelectorAll('.orx__bubble');
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].getAttribute('data-id') !== id) continue;
+        nodes[i].classList.remove('is-wait');
+        nodes[i].classList.add('is-idle');
+      }
+    }
+
+    function acceptPicture(chan, it, url, kind) {
+      var img = cssUrl(url);
+      if (!img) return;
+      imgReady[img] = 1;
+      var list = db.items[chanKey(chan)] || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id !== it.id) continue;
+        if (list[i].img !== img || list[i].imgKind !== kind) {
+          list[i].img = img;
+          list[i].imgKind = kind;
+          saveDb();
+          ui.rev++;
+        }
+      }
+      paintBubble(it.id, img, kind);
+    }
+
+    function probePictures(chan, it, pics) {
+      var step = 0;
+      function next() {
+        if (step >= pics.length) {
+          imgMiss[it.id] = true;
+          idleBubble(it.id);
+          return;
+        }
+        var pic = pics[step++];
+        var img = cssUrl(pic.url);
+        if (!img) { next(); return; }
+        if (imgReady[img] === 1) {
+          acceptPicture(chan, it, img, pic.kind || 'photo');
+          return;
+        }
+        if (imgReady[img] === -1) { next(); return; }
+        imgReady[img] = 0;
+        var im = new Image();
+        im.onload = function () {
+          var kind = pic.kind === 'icon' || (im.naturalWidth && im.naturalWidth < 96) ? 'icon' : 'photo';
+          acceptPicture(chan, it, img, kind);
+        };
+        im.onerror = function () {
+          imgReady[img] = -1;
+          next();
+        };
+        im.src = img;
+      }
+      next();
     }
 
     function siteHost(link) {
@@ -440,12 +544,23 @@
     }
 
     function bubbleLabel(it) {
-      var feed = String((it && (it.feedtitle || it.feed)) || '').trim();
+      var feedTitle = String((it && it.feedtitle) || '').trim();
+      var feed = String((it && it.feed) || '').trim();
       var title = String((it && it.title) || '').trim();
       var site = String((it && it.site) || '').trim() || siteHost(it && it.link);
+      if (feedTitle && !genericFeed(feedTitle) && feedTitle.toLowerCase() !== feed.toLowerCase()) return feedTitle;
+      if (title && title.toLowerCase() !== feed.toLowerCase()) return title;
+      if (feedTitle && !genericFeed(feedTitle)) return feedTitle;
       if (feed && !genericFeed(feed)) return feed;
-      if (!title) return site || pick({ fr: 'Actualité', en: 'News' });
-      return site || title;
+      return site || title || pick({ fr: 'Actualité', en: 'News' });
+    }
+
+    function bubbleState(it) {
+      var img = cssUrl(it && it.img);
+      if (img && imgReady[img] === 1) return it.imgKind === 'icon' ? ' is-icon' : ' is-photo';
+      if (imgMiss[it && it.id]) return ' is-idle';
+      if ((it && it.link) || img) return ' is-wait';
+      return ' is-idle';
     }
 
     function absUrl(link, raw) {
@@ -458,9 +573,71 @@
       return safeHttp(url);
     }
 
+    function pushPic(list, link, raw, kind) {
+      var url = absUrl(link, raw);
+      if (!url) return;
+      if (/spacer|pixel|1x1|blank\.|tracker|badge|emoji|doubleclick|analytics/i.test(url)) return;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].url === url) return;
+      }
+      list.push({ url: url, kind: kind || 'photo' });
+    }
+
+    function picsFromHtml(html, link) {
+      var page = String(html || '');
+      var pics = [];
+      var patterns = [
+        [/property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)/gi, 'photo'],
+        [/content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/gi, 'photo'],
+        [/name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)/gi, 'photo'],
+        [/content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/gi, 'photo']
+      ];
+      var p, match;
+      for (p = 0; p < patterns.length; p++) {
+        while ((match = patterns[p][0].exec(page))) pushPic(pics, link, match[1], patterns[p][1]);
+      }
+      var icons = page.match(/<link\b[^>]*>/gi) || [];
+      for (p = 0; p < icons.length; p++) {
+        if (!/rel=["'][^"']*(?:apple-touch-icon|icon)[^"']*["']/i.test(icons[p])) continue;
+        var href = icons[p].match(/href=["']([^"']+)/i);
+        if (href) pushPic(pics, link, href[1], 'icon');
+      }
+      var imgs = page.match(/<img\b[^>]*?\bsrc=["']([^"']+)/gi) || [];
+      for (p = 0; p < imgs.length && pics.length < 6; p++) {
+        var src = imgs[p].match(/src=["']([^"']+)/i);
+        if (src) pushPic(pics, link, src[1], 'photo');
+      }
+      return pics;
+    }
+
+    function siteIcons(link) {
+      var match = safeHttp(link).match(/^https?:\/\/[^/]+/);
+      var host = match ? match[0] : '';
+      if (!host) return [];
+      return [
+        { url: host + '/apple-touch-icon.png', kind: 'icon' },
+        { url: host + '/apple-touch-icon-precomposed.png', kind: 'icon' },
+        { url: host + '/favicon.ico', kind: 'icon' }
+      ];
+    }
+
     function fillImage(chan, it) {
-      if (!it || !it.link || imgWait[it.id]) return;
-      if (it.img && it.site) return;
+      if (!it || imgWait[it.id] || imgMiss[it.id]) return;
+      if (it.img && imgReady[cssUrl(it.img)] === 1) return;
+      var known = [];
+      if (it.img) pushPic(known, it.link, it.img, it.imgKind || 'photo');
+      if (!it.link) {
+        if (known.length) {
+          imgWait[it.id] = true;
+          probePictures(chan, it, known);
+        } else imgMiss[it.id] = true;
+        return;
+      }
+      if (it.img && it.site) {
+        imgWait[it.id] = true;
+        probePictures(chan, it, known.concat(siteIcons(it.link)));
+        return;
+      }
       imgWait[it.id] = true;
       var link = it.link;
       fetch(link, { credentials: 'omit' }).then(function (res) {
@@ -468,46 +645,32 @@
         return res.text();
       }).then(function (html) {
         var page = String(html || '');
-        var changed = false;
-        var list = db.items[chanKey(chan)] || [];
-        var row = null;
-        for (var i = 0; i < list.length; i++) {
-          if (list[i].id === it.id) row = list[i];
-        }
-        if (!row) return;
-        if (!row.img) {
-          var m = page.match(/property=["']og:image["'][^>]*content=["']([^"']+)/i) ||
-            page.match(/content=["']([^"']+)["'][^>]*property=["']og:image["']/i) ||
-            page.match(/name=["']twitter:image["'][^>]*content=["']([^"']+)/i);
-          var url = m ? absUrl(link, m[1]) : '';
-          if (url) {
-            row.img = url;
-            changed = true;
+        var pics = known.concat(picsFromHtml(page, link)).concat(siteIcons(link));
+        var siteMatch = page.match(/property=["']og:site_name["'][^>]*content=["']([^"']+)/i) ||
+          page.match(/content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i);
+        var name = siteMatch ? siteMatch[1].replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim() : '';
+        if (name && name.length < 80) {
+          var list = db.items[chanKey(chan)] || [];
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === it.id && !list[i].site) {
+              list[i].site = name;
+              saveDb();
+              ui.rev++;
+              paint();
+            }
           }
         }
-        if (!row.site) {
-          var s = page.match(/property=["']og:site_name["'][^>]*content=["']([^"']+)/i) ||
-            page.match(/content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i);
-          var name = s ? s[1].replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim() : '';
-          if (name && name.length < 80) {
-            row.site = name;
-            changed = true;
-          }
-        }
-        if (!changed) return;
-        saveDb();
-        ui.rev++;
-        paint();
-      }).catch(function () { /* une seule tentative */ });
+        probePictures(chan, it, pics);
+      }).catch(function () {
+        probePictures(chan, it, known.concat(siteIcons(link)));
+      });
     }
 
     function bubbleHtml(chan, it, i) {
-      watchImage(it.img);
       var open = ui.expanded === it.id;
-      var when = shortDate(it.date);
+      var when = whenLabel(it);
       var label = bubbleLabel(it);
       var img = cssUrl(it.img);
-      var photo = img && imgReady[img] === 1 ? ' is-photo' : '';
       var full = '';
       if (open) {
         full = '<div class="orx__full">' +
@@ -517,8 +680,9 @@
             pick({ fr: 'Ouvrir le lien', en: 'Open link' }) + '</a>' : '') +
           '</div>';
       }
-      return '<article class="orx__bubble' + photo + (open ? ' is-open' : '') + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
+      return '<article class="orx__bubble' + bubbleState(it) + (open ? ' is-open' : '') + '" data-id="' + esc(it.id) + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
         '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
+        '<span class="orx__spin" aria-hidden="true"></span>' +
         '<div class="orx__row">' +
           '<button type="button" class="orx__main" data-act="open" data-id="' + esc(it.id) + '">' +
             '<span class="orx__title">' + esc(label) + '</span>' +
@@ -539,12 +703,10 @@
           '</div></div>';
       }
       var rows = list.map(function (it, i) {
-        watchImage(it.img);
         var open = ui.archiveId === it.id;
-        var when = shortDate(it.date);
+        var when = whenLabel(it);
         var label = bubbleLabel(it);
         var img = cssUrl(it.img);
-        var photo = img && imgReady[img] === 1 ? ' is-photo' : '';
         var full = '';
         if (open) {
           full = '<div class="orx__full">' +
@@ -554,8 +716,9 @@
               pick({ fr: 'Ouvrir le lien', en: 'Open link' }) + '</a>' : '') +
             '</div>';
         }
-        return '<article class="orx__bubble orx__bubble--list' + photo + (open ? ' is-open' : '') + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
+        return '<article class="orx__bubble orx__bubble--list' + bubbleState(it) + (open ? ' is-open' : '') + '" data-id="' + esc(it.id) + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
           '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
+          '<span class="orx__spin" aria-hidden="true"></span>' +
           '<div class="orx__row">' +
             '<button type="button" class="orx__main" data-act="arch" data-id="' + esc(it.id) + '">' +
               '<span class="orx__title">' + esc(label) + '</span>' +
