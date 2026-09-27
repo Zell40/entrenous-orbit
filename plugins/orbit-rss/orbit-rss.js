@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 15;
+  var ORX_VER = 16;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -807,34 +807,81 @@
       return box;
     }
 
-    function holdPlace(key, verify) {
-      if (root.__orxPlace === key && root.classList.contains('orx--set')) return;
-      root.__orxPlace = key;
+    function hidePlace() {
+      root.__orxPlace = '';
+      root.__orxSince = 0;
       root.classList.remove('orx--set');
-      requestAnimationFrame(function () {
-        if (!root || !root.isConnected || root.__orxPlace !== key) return;
-        requestAnimationFrame(function () {
-          if (!root || !root.isConnected || root.__orxPlace !== key) return;
-          if (verify && !verify()) {
-            root.__orxPlace = '';
-            root.classList.remove('orx--set');
-            return;
-          }
-          root.classList.add('orx--set');
-        });
-      });
+    }
+
+    function gameHeadEl() {
+      var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
+      if (!shownBox(head)) return null;
+      var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
+      if (!panel || panel.hidden) return null;
+      var chatOnly = panel.classList.contains('ohp-panel--chat') ||
+        panel.classList.contains('oec-panel--chat') ||
+        panel.classList.contains('opbac-panel--chat');
+      if (chatOnly && !gameFull()) return null;
+      var fullPanel = gameFull() ||
+        panel.classList.contains('ohp-panel--full') ||
+        panel.classList.contains('oec-panel--full') ||
+        panel.classList.contains('opbac-panel--full');
+      return fullPanel ? head : null;
+    }
+
+    function bannerBottom(main, hero) {
+      var heroBox = shownBox(hero);
+      if (!heroBox || hero.offsetHeight < 36) return null;
+      var bottom = heroBox.bottom;
+      var bg = main.querySelector('.main__room-bg');
+      var bgBox = shownBox(bg);
+      var mainBox = main.getBoundingClientRect();
+      if (bgBox && bgBox.height < mainBox.height * 0.55 &&
+          bgBox.top < heroBox.bottom + 24 && bgBox.bottom > bottom) {
+        bottom = bgBox.bottom;
+      }
+      return { bottom: bottom, mark: Math.round(heroBox.height) + ':' + Math.round(bgBox ? bgBox.height : 0) };
+    }
+
+    function moveTop(viewportTop) {
+      root.style.top = '0px';
+      var origin = root.getBoundingClientRect().top;
+      root.style.top = Math.max(0, Math.round(viewportTop - origin)) + 'px';
+    }
+
+    function holdPlace(key, verify) {
+      var now = Date.now();
+      if (root.__orxPlace !== key) {
+        root.__orxPlace = key;
+        root.__orxSince = now;
+        root.classList.remove('orx--set');
+      }
+      if (verify && !verify()) {
+        root.classList.remove('orx--set');
+        root.__orxSince = now;
+        return;
+      }
+      if (root.classList.contains('orx--set')) return;
+      if (now - root.__orxSince < 280) {
+        if (!root.__orxTimer) {
+          root.__orxTimer = setTimeout(function () {
+            root.__orxTimer = 0;
+            paint();
+          }, 300);
+        }
+        return;
+      }
+      root.classList.add('orx--set');
     }
 
     function place(main, hero) {
-      var full = gameFull();
-      root.classList.toggle('orx--game', full);
-      if (full) {
-        var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
+      var head = gameHeadEl();
+      root.classList.toggle('orx--game', !!head);
+      if (head) {
         var headBox = shownBox(head);
         var mainBox = main.getBoundingClientRect();
         if (!headBox || headBox.height < 24 || mainBox.width < 8) {
-          root.__orxPlace = '';
-          root.classList.remove('orx--set');
+          hidePlace();
           return;
         }
         var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
@@ -842,40 +889,27 @@
         var reserve = actionsBox
           ? Math.max(8, mainBox.right - actionsBox.left + 8)
           : Math.max(8, mainBox.right - headBox.right + 8);
-        var top = Math.max(0, headBox.top - mainBox.top + (headBox.height - 34) / 2);
         root.style.right = reserve + 'px';
-        root.style.top = top + 'px';
-        var placed = root.getBoundingClientRect();
-        if (placed.top < headBox.top - 4 || placed.top > headBox.bottom) {
-          root.__orxPlace = '';
-          root.classList.remove('orx--set');
-          return;
-        }
-        holdPlace('game:' + Math.round(top) + ':' + Math.round(reserve), function () {
+        moveTop(headBox.top + (headBox.height - 34) / 2);
+        holdPlace('game:' + Math.round(headBox.top) + ':' + Math.round(headBox.height) + ':' + Math.round(reserve), function () {
           var again = shownBox(head);
-          if (!again || Math.abs(again.top - headBox.top) > 2 || Math.abs(again.height - headBox.height) > 2) return false;
+          if (!again) return false;
           var box = root.getBoundingClientRect();
-          return box.top >= again.top - 4 && box.top <= again.bottom;
+          var mid = box.top + Math.min(box.height, 36) / 2;
+          return mid >= again.top && mid <= again.bottom;
         });
         return;
       }
-      var heroBox = shownBox(hero);
-      if (!heroBox || hero.offsetHeight < 36) {
-        root.__orxPlace = '';
-        root.classList.remove('orx--set');
+      var banner = bannerBottom(main, hero);
+      if (!banner) {
+        hidePlace();
         return;
       }
-      var topChat = hero.offsetTop + hero.offsetHeight + 8;
       root.style.right = '';
-      root.style.top = topChat + 'px';
-      if (root.getBoundingClientRect().top + 2 < heroBox.bottom) {
-        root.__orxPlace = '';
-        root.classList.remove('orx--set');
-        return;
-      }
-      holdPlace('chat:' + Math.round(topChat) + ':' + Math.round(heroBox.height), function () {
-        var again = shownBox(hero);
-        if (!again || Math.abs(again.height - heroBox.height) > 2) return false;
+      moveTop(banner.bottom + 8);
+      holdPlace('chat:' + banner.mark, function () {
+        var again = bannerBottom(main, hero);
+        if (!again || again.mark !== banner.mark) return false;
         return root.getBoundingClientRect().top + 2 >= again.bottom;
       });
     }
