@@ -1664,6 +1664,8 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    // Never on Status / server console.
+    if (!activeBuf || activeBuf === 'Status') return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
@@ -1705,6 +1707,7 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    if (!activeBuf || activeBuf === 'Status') return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
     var anyOpen = listSessions().length > 0;
