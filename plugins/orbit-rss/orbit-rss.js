@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 19;
+  var ORX_VER = 20;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -407,8 +407,8 @@
       css.textContent = [
         '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
         '.main > .orx.orx--set{visibility:visible}',
-        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .35rem 0 0;visibility:hidden}',
-        '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set{visibility:visible}',
+        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .28rem 0 0;visibility:hidden}',
+        '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set,.ohp-head__actions > .orx.orx--set,.oec-head__actions > .orx.orx--set,.opbac-head__actions > .orx.orx--set{visibility:visible}',
         '.orx--game .orx__stack{display:none}',
         '.orx--game .orx__arch{margin-top:.2rem}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
@@ -448,6 +448,7 @@
         '.orx__chip{display:inline-flex;align-items:center;gap:.35rem;border:0;background:linear-gradient(180deg,#3b82f6,#1d4ed8);color:#fff;border-radius:999px;padding:.32rem .75rem;font:inherit;font-size:.74rem;font-weight:800;letter-spacing:.01em;cursor:pointer;box-shadow:0 8px 18px -6px rgba(29,78,216,.75)}',
         '.orx__chip:hover{filter:brightness(1.06)}',
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
+        '.orx__chip-x{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;border-radius:999px;background:rgba(255,255,255,.22);font-size:.88rem;line-height:1;font-weight:800}',
         '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
         '.orx__arch{width:100%;max-height:min(62vh,460px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .15rem .15rem 0;background:transparent;border:0;box-shadow:none}',
         '.orx__arch::-webkit-scrollbar{width:6px}',
@@ -748,9 +749,10 @@
       var n = unread(chan).length;
       var chipClass = 'orx__chip' + (ui.archive ? ' is-on' : '');
       var badge = n ? '<span class="orx__n">' + (n > 9 ? '9+' : String(n)) + '</span>' : '';
+      var close = ui.archive ? '<span class="orx__chip-x" aria-hidden="true">×</span>' : '';
       root.innerHTML =
-        '<button type="button" class="' + chipClass + '" data-act="chip">' +
-          esc(pick({ fr: 'Actualités', en: 'News' })) + badge +
+        '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '">' +
+          esc(pick({ fr: 'Actualités', en: 'News' })) + badge + close +
         '</button>' +
         (ui.archive ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
         archiveHtml(chan);
@@ -808,10 +810,15 @@
       return box;
     }
 
-    function hidePlace() {
+    function conceal() {
+      if (!root) return;
       root.__orxPlace = '';
       root.__orxSince = 0;
       root.classList.remove('orx--set');
+    }
+
+    function hidePlace() {
+      conceal();
     }
 
     function chatOnlyPanel(panel) {
@@ -877,11 +884,10 @@
       root.style.left = '';
       root.style.bottom = '';
       var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
-      if (root.parentNode !== head) {
-        if (actions) head.insertBefore(root, actions);
+      var host = actions || head;
+      if (root.parentNode !== host || (actions && root !== actions.firstChild)) {
+        if (actions) actions.insertBefore(root, actions.firstChild);
         else head.appendChild(root);
-      } else if (actions && root.nextSibling !== actions) {
-        head.insertBefore(root, actions);
       }
     }
 
@@ -922,8 +928,9 @@
     }
 
     function place(main, hero) {
-      var head = visibleGameHead();
-      if (visibleFullGamePanel() && !head) {
+      var heroBox = shownBox(hero);
+      var head = heroBox ? null : visibleGameHead();
+      if (!heroBox && visibleFullGamePanel() && !head) {
         dockInMain(main);
         root.classList.add('orx--game');
         hidePlace();
@@ -932,7 +939,7 @@
       if (head) {
         dockInHead(head);
         holdPlace('game:' + (head.className || 'head') + ':' + Math.round((shownBox(head) || {}).width || 0), function () {
-          if (root.parentNode !== head) return false;
+          if (!head.contains(root)) return false;
           var again = shownBox(head);
           var box = root.getBoundingClientRect();
           if (!again || box.width < 8 || box.height < 8) return false;
@@ -963,8 +970,11 @@
       var hero = document.querySelector('.chan-hero');
       var main = hero && hero.closest ? hero.closest('.main') : null;
       var chan = hero ? (hero.getAttribute('data-chan') || activeChan()) : '';
-      if (!hero || !main || !gate(chan)) {
-        if (root && root.parentNode) root.parentNode.removeChild(root);
+      var live = chanKey(activeChan());
+      var shown = chanKey(chan);
+      if (!hero || !main || !gate(chan) || (live && shown && live !== shown)) {
+        conceal();
+        if ((!hero || !main || !gate(chan)) && root && root.parentNode) root.parentNode.removeChild(root);
         return;
       }
       if (!root) {
@@ -972,13 +982,11 @@
         root.className = 'orx';
         root.addEventListener('click', onRootClick);
       }
-      var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
         ui.archive = false;
         ui.archiveId = '';
-        root.__orxPlace = '';
-        root.classList.remove('orx--set');
+        conceal();
       }
       root.__orxChan = shown;
       place(main, hero);
@@ -1041,7 +1049,17 @@
         paint();
       });
 
+      document.addEventListener('pointerdown', function (ev) {
+        var t = ev.target && ev.target.closest ? ev.target.closest('.room') : null;
+        if (!t || t.classList.contains('is-active')) return;
+        if (ev.target.closest && ev.target.closest('.room__close')) return;
+        conceal();
+        ui.expanded = '';
+        ui.archive = false;
+        ui.archiveId = '';
+      }, true);
       orbit.on('buffer.active', function () {
+        conceal();
         ui.expanded = '';
         ui.archive = false;
         ui.archiveId = '';
