@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 18;
+  var ORX_VER = 19;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -406,9 +406,9 @@
       }
       css.textContent = [
         '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
-        '.main > .orx.orx--fixed{position:fixed;right:auto;bottom:auto;left:auto;z-index:50}',
         '.main > .orx.orx--set{visibility:visible}',
-        '.main > .orx.orx--game{z-index:50;width:auto;max-width:min(300px,72vw);max-height:none}',
+        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .35rem 0 0;visibility:hidden}',
+        '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set{visibility:visible}',
         '.orx--game .orx__stack{display:none}',
         '.orx--game .orx__arch{margin-top:.2rem}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
@@ -814,125 +814,86 @@
       root.classList.remove('orx--set');
     }
 
-    function gamePanelEl() {
-      return document.querySelector('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
+    function chatOnlyPanel(panel) {
+      return !!(panel && (
+        panel.classList.contains('ohp-panel--chat') ||
+        panel.classList.contains('oec-panel--chat') ||
+        panel.classList.contains('opbac-panel--chat')
+      ));
     }
 
-    function panelCovers(main, panel) {
+    function markedFullPanel(panel) {
+      return gameFull() || !!(panel && (
+        panel.classList.contains('ohp-panel--full') ||
+        panel.classList.contains('oec-panel--full') ||
+        panel.classList.contains('opbac-panel--full')
+      ));
+    }
+
+    function panelCovers(panel) {
       var box = shownBox(panel);
+      var main = document.querySelector('.main');
       var mainBox = main && main.getBoundingClientRect();
       if (!box || !mainBox || mainBox.height < 40 || mainBox.width < 40) return false;
       return box.height > mainBox.height * 0.55 && box.width > mainBox.width * 0.72;
     }
 
-    function gameHeadEl(main) {
-      var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
-      if (!shownBox(head)) return null;
-      var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel') || gamePanelEl();
-      if (!panel || panel.hidden) return null;
-      var chatOnly = panel.classList.contains('ohp-panel--chat') ||
-        panel.classList.contains('oec-panel--chat') ||
-        panel.classList.contains('opbac-panel--chat');
-      if (chatOnly && !gameFull()) return null;
-      var fullPanel = gameFull() ||
-        panel.classList.contains('ohp-panel--full') ||
-        panel.classList.contains('oec-panel--full') ||
-        panel.classList.contains('opbac-panel--full') ||
-        panelCovers(main, panel);
-      return fullPanel ? head : null;
-    }
-
-    function clusterBottom(el, limit) {
-      var box = shownBox(el);
-      if (!box) return 0;
-      var bottom = box.bottom;
-      var nodes = el.querySelectorAll('*');
-      for (var i = 0; i < nodes.length; i++) {
-        var rects = nodes[i].getClientRects();
-        if (!rects || !rects.length) continue;
-        var b = nodes[i].getBoundingClientRect();
-        if (b.width < 8 || b.height < 8) continue;
-        if (b.top > box.bottom + limit) continue;
-        if (b.bottom > bottom) bottom = b.bottom;
+    function visibleGameHead() {
+      var heads = document.querySelectorAll('.ohp-head, .oec-head, .opbac-head');
+      for (var i = 0; i < heads.length; i++) {
+        var head = heads[i];
+        if (!shownBox(head)) continue;
+        var panel = head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel');
+        if (!panel || panel.hidden || !shownBox(panel)) continue;
+        if (chatOnlyPanel(panel) && !gameFull()) continue;
+        if (markedFullPanel(panel) || panelCovers(panel)) return head;
       }
-      return bottom;
+      return null;
     }
 
-    function bannerBottom(main, hero) {
+    function visibleFullGamePanel() {
+      var ids = ['ohp-dom-panel', 'oec-dom-panel', 'opbac-dom-panel'];
+      for (var i = 0; i < ids.length; i++) {
+        var panel = document.getElementById(ids[i]);
+        if (!panel || panel.hidden || chatOnlyPanel(panel) || !shownBox(panel)) continue;
+        if (markedFullPanel(panel) || panelCovers(panel)) return panel;
+      }
+      return null;
+    }
+
+    function topicBottom(hero) {
       var heroBox = shownBox(hero);
       if (!heroBox || hero.offsetHeight < 36) return null;
-      var bottom = clusterBottom(hero, 220);
-      var bg = main.querySelector('.main__room-bg');
-      var bgBox = shownBox(bg);
-      if (bgBox && bgBox.top < heroBox.bottom + 30 && bgBox.bottom > bottom &&
-          bgBox.height < Math.max(360, main.getBoundingClientRect().height * 0.62)) {
-        bottom = Math.max(bottom, bgBox.bottom);
-      }
       return {
-        bottom: bottom,
-        right: heroBox.right,
-        mark: Math.round(bottom) + ':' + Math.round(heroBox.height)
+        bottom: heroBox.bottom,
+        mark: Math.round(heroBox.top) + ':' + Math.round(heroBox.height)
       };
     }
 
-    function pinFixed(top, right) {
-      root.classList.add('orx--fixed');
-      root.style.top = Math.round(top) + 'px';
-      root.style.right = Math.round(right) + 'px';
-      root.style.left = 'auto';
-      root.style.bottom = 'auto';
+    function dockInHead(head) {
+      root.classList.add('orx--game');
+      root.style.top = '';
+      root.style.right = '';
+      root.style.left = '';
+      root.style.bottom = '';
+      var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
+      if (root.parentNode !== head) {
+        if (actions) head.insertBefore(root, actions);
+        else head.appendChild(root);
+      } else if (actions && root.nextSibling !== actions) {
+        head.insertBefore(root, actions);
+      }
     }
 
-    function chatOnlyPanel(panel) {
-      if (!panel) return false;
-      return panel.classList.contains('ohp-panel--chat') ||
-        panel.classList.contains('oec-panel--chat') ||
-        panel.classList.contains('opbac-panel--chat');
+    function dockInMain(main) {
+      root.classList.remove('orx--game');
+      if (root.parentNode !== main) main.appendChild(root);
     }
 
-    function place(main, hero) {
-      var panel = gamePanelEl();
-      var cover = panelCovers(main, panel) && !chatOnlyPanel(panel);
-      var head = gameHeadEl(main);
-      if (cover && !head) {
-        root.classList.add('orx--game');
-        hidePlace();
-        return;
-      }
-      root.classList.toggle('orx--game', !!head);
-      if (head) {
-        var headBox = shownBox(head);
-        if (!headBox || headBox.height < 24) {
-          hidePlace();
-          return;
-        }
-        var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
-        var actionsBox = shownBox(actions);
-        var right = actionsBox
-          ? Math.max(8, window.innerWidth - actionsBox.left + 8)
-          : Math.max(8, window.innerWidth - headBox.right + 8);
-        pinFixed(headBox.top + (headBox.height - 34) / 2, right);
-        holdPlace('game:' + Math.round(headBox.top) + ':' + Math.round(headBox.left) + ':' + Math.round(right), function () {
-          var again = shownBox(head);
-          if (!again) return false;
-          var box = root.getBoundingClientRect();
-          var mid = box.top + Math.min(box.height, 36) / 2;
-          return mid >= again.top - 2 && mid <= again.bottom + 2 && box.right <= again.right + 4;
-        });
-        return;
-      }
-      var banner = bannerBottom(main, hero);
-      if (!banner) {
-        hidePlace();
-        return;
-      }
-      pinFixed(banner.bottom + 8, Math.max(8, window.innerWidth - banner.right + 10));
-      holdPlace('chat:' + banner.mark, function () {
-        var again = bannerBottom(main, hero);
-        if (!again || Math.abs(again.bottom - banner.bottom) > 3) return false;
-        var box = root.getBoundingClientRect();
-        return box.top + 2 >= again.bottom;
-      });
+    function moveTop(viewportTop) {
+      root.style.top = '0px';
+      var origin = root.getBoundingClientRect().top;
+      root.style.top = Math.max(0, Math.round(viewportTop - origin)) + 'px';
     }
 
     function holdPlace(key, verify) {
@@ -960,6 +921,43 @@
       root.classList.add('orx--set');
     }
 
+    function place(main, hero) {
+      var head = visibleGameHead();
+      if (visibleFullGamePanel() && !head) {
+        dockInMain(main);
+        root.classList.add('orx--game');
+        hidePlace();
+        return;
+      }
+      if (head) {
+        dockInHead(head);
+        holdPlace('game:' + (head.className || 'head') + ':' + Math.round((shownBox(head) || {}).width || 0), function () {
+          if (root.parentNode !== head) return false;
+          var again = shownBox(head);
+          var box = root.getBoundingClientRect();
+          if (!again || box.width < 8 || box.height < 8) return false;
+          var mid = box.top + Math.min(box.height, 36) / 2;
+          return mid >= again.top - 2 && mid <= again.bottom + 2 &&
+            box.left >= again.left - 4 && box.right <= again.right + 4;
+        });
+        return;
+      }
+      dockInMain(main);
+      root.style.right = '';
+      var banner = topicBottom(hero);
+      if (!banner) {
+        hidePlace();
+        return;
+      }
+      moveTop(banner.bottom + 8);
+      holdPlace('chat:' + banner.mark, function () {
+        var again = topicBottom(hero);
+        if (!again || Math.abs(again.bottom - banner.bottom) > 3) return false;
+        var box = root.getBoundingClientRect();
+        return box.top + 2 >= again.bottom && box.top <= again.bottom + 36;
+      });
+    }
+
     function paint() {
       if (!pluginOrbit) return;
       var hero = document.querySelector('.chan-hero');
@@ -974,7 +972,6 @@
         root.className = 'orx';
         root.addEventListener('click', onRootClick);
       }
-      if (root.parentNode !== main) main.appendChild(root);
       var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
@@ -1003,6 +1000,7 @@
           if (archNext.isConnected) archNext.scrollTop = archKeep;
         });
       }
+      place(main, hero);
     }
 
     Orbit.plugin('orbit-rss', function (orbit) {
