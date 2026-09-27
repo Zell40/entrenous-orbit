@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 14;
+  var ORX_VER = 15;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -405,7 +405,8 @@
         document.head.appendChild(css);
       }
       css.textContent = [
-        '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none}',
+        '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
+        '.main > .orx.orx--set{visibility:visible}',
         '.main > .orx.orx--game{z-index:45;width:auto;max-width:min(300px,72vw);max-height:none}',
         '.orx--game .orx__stack{display:none}',
         '.orx--game .orx__arch{margin-top:.2rem}',
@@ -797,27 +798,86 @@
         rootEl.contains('ohp-full') || rootEl.contains('oec-full') || rootEl.contains('opbac-full');
     }
 
+    function shownBox(el) {
+      if (!el || !el.getClientRects || !el.getClientRects().length) return null;
+      var style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
+      var box = el.getBoundingClientRect();
+      if (box.width < 8 || box.height < 8) return null;
+      return box;
+    }
+
+    function holdPlace(key, verify) {
+      if (root.__orxPlace === key && root.classList.contains('orx--set')) return;
+      root.__orxPlace = key;
+      root.classList.remove('orx--set');
+      requestAnimationFrame(function () {
+        if (!root || !root.isConnected || root.__orxPlace !== key) return;
+        requestAnimationFrame(function () {
+          if (!root || !root.isConnected || root.__orxPlace !== key) return;
+          if (verify && !verify()) {
+            root.__orxPlace = '';
+            root.classList.remove('orx--set');
+            return;
+          }
+          root.classList.add('orx--set');
+        });
+      });
+    }
+
     function place(main, hero) {
       var full = gameFull();
       root.classList.toggle('orx--game', full);
-      if (!full) {
-        root.style.right = '';
-        root.style.top = (hero.offsetTop + hero.offsetHeight + 8) + 'px';
+      if (full) {
+        var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
+        var headBox = shownBox(head);
+        var mainBox = main.getBoundingClientRect();
+        if (!headBox || headBox.height < 24 || mainBox.width < 8) {
+          root.__orxPlace = '';
+          root.classList.remove('orx--set');
+          return;
+        }
+        var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
+        var actionsBox = shownBox(actions);
+        var reserve = actionsBox
+          ? Math.max(8, mainBox.right - actionsBox.left + 8)
+          : Math.max(8, mainBox.right - headBox.right + 8);
+        var top = Math.max(0, headBox.top - mainBox.top + (headBox.height - 34) / 2);
+        root.style.right = reserve + 'px';
+        root.style.top = top + 'px';
+        var placed = root.getBoundingClientRect();
+        if (placed.top < headBox.top - 4 || placed.top > headBox.bottom) {
+          root.__orxPlace = '';
+          root.classList.remove('orx--set');
+          return;
+        }
+        holdPlace('game:' + Math.round(top) + ':' + Math.round(reserve), function () {
+          var again = shownBox(head);
+          if (!again || Math.abs(again.top - headBox.top) > 2 || Math.abs(again.height - headBox.height) > 2) return false;
+          var box = root.getBoundingClientRect();
+          return box.top >= again.top - 4 && box.top <= again.bottom;
+        });
         return;
       }
-      var head = document.querySelector('.ohp-head, .oec-head, .opbac-head');
-      var mainBox = main.getBoundingClientRect();
-      var reserve = 8;
-      var top = 8;
-      if (head) {
-        var headBox = head.getBoundingClientRect();
-        var actions = head.querySelector('.ohp-head__actions, .oec-head__actions, .opbac-head__actions');
-        if (actions) reserve = Math.max(8, mainBox.right - actions.getBoundingClientRect().left + 8);
-        else reserve = Math.max(8, mainBox.right - headBox.right + 8);
-        top = Math.max(0, headBox.top - mainBox.top + (headBox.height - 34) / 2);
+      var heroBox = shownBox(hero);
+      if (!heroBox || hero.offsetHeight < 36) {
+        root.__orxPlace = '';
+        root.classList.remove('orx--set');
+        return;
       }
-      root.style.right = reserve + 'px';
-      root.style.top = top + 'px';
+      var topChat = hero.offsetTop + hero.offsetHeight + 8;
+      root.style.right = '';
+      root.style.top = topChat + 'px';
+      if (root.getBoundingClientRect().top + 2 < heroBox.bottom) {
+        root.__orxPlace = '';
+        root.classList.remove('orx--set');
+        return;
+      }
+      holdPlace('chat:' + Math.round(topChat) + ':' + Math.round(heroBox.height), function () {
+        var again = shownBox(hero);
+        if (!again || Math.abs(again.height - heroBox.height) > 2) return false;
+        return root.getBoundingClientRect().top + 2 >= again.bottom;
+      });
     }
 
     function paint() {
@@ -835,16 +895,18 @@
         root.addEventListener('click', onRootClick);
       }
       if (root.parentNode !== main) main.appendChild(root);
-      place(main, hero);
-      requestHistory(chan);
-      harvest(chan);
       var shown = chanKey(chan);
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
         ui.archive = false;
         ui.archiveId = '';
+        root.__orxPlace = '';
+        root.classList.remove('orx--set');
       }
       root.__orxChan = shown;
+      place(main, hero);
+      requestHistory(chan);
+      harvest(chan);
       root.setAttribute('data-chan', chan);
       var sig = shown + '|' + ui.rev + '|' + ui.expanded + '|' + (ui.archive ? '1' : '0') + '|' +
         ui.archiveId + '|' + unread(chan).length + '|' + itemsOf(chan).length;
