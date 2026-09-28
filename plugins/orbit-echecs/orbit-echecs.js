@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 56;
+  var OEC_VER = 57;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -702,8 +702,18 @@
     return html;
   }
 
+  function isHistoryReplay(msg) {
+    var tags = (msg && msg.tags) || {};
+    if (tags.batch) return true;
+    var stamp = tags.time || tags['server-time'] || '';
+    if (!stamp) return false;
+    var ms = Date.parse(stamp);
+    return Number.isFinite(ms) && (Date.now() - ms) > 12000;
+  }
+
   function noteIncomingChat(orbit, msg) {
     if (!chatBadgeArmed) return;
+    if (isHistoryReplay(msg)) return;
     if (getViewMode(orbit) !== VIEW_FULL) return;
     var buf = (orbit.state.active && orbit.state.active()) || '';
     if (!isChessChannel(orbit, buf)) return;

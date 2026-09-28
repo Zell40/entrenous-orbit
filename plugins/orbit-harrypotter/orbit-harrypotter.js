@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var HP_VER = 7;
+  var HP_VER = 8;
   var HP = '+hp';
   var EV = '+ev';
   var VIEW_FULL = 'full';
@@ -348,8 +348,18 @@
       '</div>';
   }
 
+  function isHistoryReplay(msg) {
+    var tags = (msg && msg.tags) || {};
+    if (tags.batch) return true;
+    var stamp = tags.time || tags['server-time'] || '';
+    if (!stamp) return false;
+    var ms = Date.parse(stamp);
+    return Number.isFinite(ms) && (Date.now() - ms) > 12000;
+  }
+
   function noteIncomingChat(orbit, msg) {
     if (!chatBadgeArmed) return;
+    if (isHistoryReplay(msg)) return;
     if (getViewMode(orbit) !== VIEW_FULL) return;
     var buf = (orbit.state.active && orbit.state.active()) || '';
     if (!isHpChannel(orbit, buf)) return;

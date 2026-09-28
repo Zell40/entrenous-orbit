@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 79;
+  var PBAC_VER = 80;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -3098,8 +3098,18 @@
     return VIEW_FULL;
   }
 
+  function isHistoryReplay(msg) {
+    var tags = (msg && msg.tags) || {};
+    if (tags.batch) return true;
+    var stamp = tags.time || tags['server-time'] || '';
+    if (!stamp) return false;
+    var ms = Date.parse(stamp);
+    return Number.isFinite(ms) && (Date.now() - ms) > 12000;
+  }
+
   function noteIncomingChat(orbit, msg) {
     if (!chatBadgeArmed) return;
+    if (isHistoryReplay(msg)) return;
     var root = document.getElementById('opbac-dom-panel');
     if (getViewMode(orbit, root) !== VIEW_FULL) return;
     var buf = (orbit.state.active && orbit.state.active()) || '';
