@@ -7,7 +7,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=82"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=83"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1283,9 +1283,11 @@
     }
 
     function shouldHideServiceReply(m) {
-      if (Date.now() > hideUntil && !expectKind) return false;
       var cmd = String(m.command || '').toUpperCase();
       if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return false;
+      // Outgoing PRIVMSG to ChanServ/BotServ (echo-message) must never open a PM.
+      if (cmd === 'PRIVMSG' && isServNick(m.target)) return true;
+      if (Date.now() > hideUntil && !expectKind) return false;
       // Incoming: nick=ChanServ. Outgoing echo-message: target=ChanServ (nick=toi).
       return isServNick(m.nick) || isServNick(m.target);
     }
