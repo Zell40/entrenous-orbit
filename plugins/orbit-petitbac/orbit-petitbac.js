@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 78;
+  var PBAC_VER = 79;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -21,6 +21,8 @@
   var VIEW_FULL = 'full';
   var VIEW_SPLIT = 'split';
   var VIEW_CHAT = 'chat';
+  var chatUnread = 0;
+  var chatBadgeArmed = false;
   var TOP_GLOBAL_MAX = 10;
   var lobbyFetchAt = 0;
   var lobbyWaiting = false;
@@ -2258,7 +2260,10 @@
       '.opbac-mode-dd__hint{font-size:.62rem;font-weight:700;color:var(--muted,#666)}',
       '.opbac-mode-dd__note{margin:.35rem .4rem .2rem;font-size:.66rem;font-weight:600;color:var(--muted,#666);line-height:1.35}',
       '.opbac-head__actions{display:flex;align-items:center;gap:.3rem}',
-      '.opbac-head__btn{border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0}',
+      '.opbac-head__btn{position:relative;border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:36px;border-radius:9px;cursor:pointer;font-size:.82rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0}',
+      '.opbac-head__unread{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1.15rem;text-align:center;box-shadow:0 0 0 2px #4338ca}',
+      '.opbac-head__btn--ping{box-shadow:0 0 0 2px rgba(255,255,255,.55);animation:opbac-chat-ping 1.2s ease-in-out infinite}',
+      '@keyframes opbac-chat-ping{50%{box-shadow:0 0 0 6px rgba(255,255,255,.12)}}',
       '.opbac-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.opbac-head__btn--on{background:rgba(255,255,255,.32)}',
       '.opbac-head__btn svg{width:18px;height:18px;display:block}',
@@ -3093,8 +3098,32 @@
     return VIEW_FULL;
   }
 
+  function noteIncomingChat(orbit, msg) {
+    if (!chatBadgeArmed) return;
+    var root = document.getElementById('opbac-dom-panel');
+    if (getViewMode(orbit, root) !== VIEW_FULL) return;
+    var buf = (orbit.state.active && orbit.state.active()) || '';
+    if (!channelEnabled(orbit, buf)) return;
+    var target = (msg.params && msg.params[0]) || (msg.args && msg.args[0]) || '';
+    var cmd = String(msg.command || '').toUpperCase();
+    var onGameChan = isChannelName(target) && channelEnabled(orbit, target);
+    var personalNotice = cmd === 'NOTICE' && !isChannelName(target);
+    if (!onGameChan && !personalNotice) return;
+    var nick = String(msg.nick || '').toLowerCase();
+    var me = String((orbit.state.nick && orbit.state.nick()) || '').toLowerCase();
+    if (!nick || nick === me) return;
+    if (onGameChan && bacBotNicks(orbit).indexOf(nick) >= 0) return;
+    var text = String((msg.params && msg.params[1]) || (msg.args && msg.args[1]) || '');
+    if (text.charAt(0) === '\x01' && text.indexOf('ACTION ') !== 0) return;
+    chatUnread = Math.min(99, chatUnread + 1);
+    bumpStore();
+  }
+
   function setViewMode(orbit, root, mode, opts) {
     mode = normalizeViewMode(mode);
+    if (mode === VIEW_CHAT || mode === VIEW_SPLIT) {
+      if (chatUnread) chatUnread = 0;
+    }
     if (root) root.__opbacViewMode = mode;
     if (mode === VIEW_FULL || mode === VIEW_SPLIT) {
       if (root) root.__opbacGameView = mode;
@@ -3237,11 +3266,15 @@
             : pick({ fr: 'Jeu en plein écran', en: 'Fullscreen game' })) + '">' +
           iconSvg(layoutTarget) + '</button>' +
         '<button type="button" class="opbac-head__btn' + (chatOn ? ' opbac-head__btn--on' : '') +
+          (!chatOn && chatUnread ? ' opbac-head__btn--ping' : '') +
           '" data-act="' + (chatOn ? backToGame : 'view-chat') + '" data-tour="chat" title="' +
           escHtml(chatOn
             ? pick({ fr: 'Afficher le jeu', en: 'Show game' })
             : pick({ fr: 'Afficher le tchat', en: 'Show chat' })) + '">' +
-          iconSvg(chatOn ? 'game' : 'chat') + '</button>' +
+          iconSvg(chatOn ? 'game' : 'chat') +
+          (!chatOn && chatUnread ? '<span class="opbac-head__unread">' +
+            (chatUnread > 99 ? '99+' : String(chatUnread)) + '</span>' : '') +
+          '</button>' +
       '</div></div>';
   }
 
@@ -6602,6 +6635,7 @@
     loadCachedExtraModes(orbit);
     injectStyles();
     console.info('[orbit-petitbac] loaded v' + PBAC_VER);
+    setTimeout(function () { chatBadgeArmed = true; }, 800);
     if (orbit.requireVisualDisplay) {
       orbit.requireVisualDisplay({
         label: 'Petit Bac',
@@ -6628,6 +6662,7 @@
         return;
       }
       if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
+        noteIncomingChat(orbit, msg);
         var chan = (msg.params && msg.params[0]) || '';
         var text = (msg.params && msg.params[1]) || '';
         var myNick = orbit.state.nick() || '';

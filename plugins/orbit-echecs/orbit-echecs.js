@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 55;
+  var OEC_VER = 56;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -705,10 +705,18 @@
   function noteIncomingChat(orbit, msg) {
     if (!chatBadgeArmed) return;
     if (getViewMode(orbit) !== VIEW_FULL) return;
+    var buf = (orbit.state.active && orbit.state.active()) || '';
+    if (!isChessChannel(orbit, buf)) return;
     var target = (msg.params && msg.params[0]) || (msg.args && msg.args[0]) || '';
-    if (!isChannelName(target) || !isChessChannel(orbit, target)) return;
+    var cmd = String(msg.command || '').toUpperCase();
+    var onGameChan = isChannelName(target) && isChessChannel(orbit, target);
+    var personalNotice = cmd === 'NOTICE' && !isChannelName(target);
+    if (!onGameChan && !personalNotice) return;
     var nick = String(msg.nick || '').toLowerCase();
-    if (!nick || nick === myNick(orbit) || isServiceNick(nick)) return;
+    if (!nick || nick === myNick(orbit)) return;
+    // Channel spam from CapEchecs / services stays quiet; a NOTICE to us
+    // (Gardian, ChanServ, …) lands in the hidden salon and must badge.
+    if (onGameChan && isServiceNick(nick)) return;
     var text = String((msg.params && msg.params[1]) || (msg.args && msg.args[1]) || '');
     if (text.charAt(0) === '\x01' && text.indexOf('ACTION ') !== 0) return;
     chatUnread = Math.min(99, chatUnread + 1);
@@ -1824,6 +1832,8 @@
       '.oec-head__actions{margin-left:auto;display:flex;gap:.28rem}',
       '.oec-head__btn{position:relative;border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:34px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
       '.oec-head__unread{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1.15rem;text-align:center;box-shadow:0 0 0 2px #14532d}',
+      '.oec-head__btn--ping{box-shadow:0 0 0 2px rgba(255,255,255,.55);animation:oec-chat-ping 1.2s ease-in-out infinite}',
+      '@keyframes oec-chat-ping{50%{box-shadow:0 0 0 6px rgba(255,255,255,.12)}}',
       '.oec-head__btn:hover{background:rgba(255,255,255,.28)}',
       '.oec-head__btn--on{background:rgba(255,255,255,.34)}',
       '.oec-head__btn svg{width:18px;height:18px;display:block}',
@@ -2261,6 +2271,7 @@
       '<button type="button" class="oec-head__btn' + (mode === VIEW_SPLIT ? ' oec-head__btn--on' : '') +
         '" data-act="' + layoutAct + '" title="' + escHtml(layoutTitle) + '">' + iconSvg(layoutIcon) + '</button>' +
       '<button type="button" class="oec-head__btn' + (mode === VIEW_CHAT ? ' oec-head__btn--on' : '') +
+        (mode !== VIEW_CHAT && chatUnread ? ' oec-head__btn--ping' : '') +
         (ui.tour ? ' oec-head__btn--hint' : '') +
         '" data-act="' + paneAct + '" title="' + escHtml(paneTitle) + '">' + iconSvg(paneIcon) +
         (mode !== VIEW_CHAT && chatUnread ? '<span class="oec-head__unread">' +
