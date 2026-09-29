@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=88"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=89"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -338,19 +338,46 @@
       if (/salons (personnels|officiels)|service des salons|bot des salons|gestion des salons|bot de gestion/.test(desc)) return true;
       return true;
     }
-    function looksLikeManageBot(nick) {
-      var n = String(nick || '').trim();
-      if (!n) return false;
-      if (/^chanserv$/i.test(n)) return true;
-      if (isNonManageService(n)) return false;
-      var want = foldText(n);
+    function memberManageHost(member) {
+      var user = foldText((member && member.user) || '');
+      var host = foldText((member && member.host) || '');
+      return /salons\.(personnels|officiels)/.test(host) || /bot@salons\./.test(user + '@' + host);
+    }
+    function nickInManageBotList(nick) {
+      var want = foldText(nick);
+      if (!want) return false;
       var list = ui.bots || [];
-      if (!list.length) return true;
       for (var i = 0; i < list.length; i++) {
         if (foldText(botListNick(list[i])) !== want) continue;
         return isManageBotEntry(list[i]);
       }
       return false;
+    }
+    function nicklistManageBot(chan) {
+      var buf = findBuffer(chan);
+      var members = (buf && buf.members) || {};
+      var best = '';
+      var bestRank = 99;
+      Object.keys(members).forEach(function (n) {
+        var m = members[n];
+        var nick = (m && m.nick) || n;
+        if (!nick || /^chanserv$/i.test(nick) || isNonManageService(nick)) return;
+        var salonHost = memberManageHost(m);
+        var inList = nickInManageBotList(nick);
+        if (!salonHost && !inList) return;
+        var rank = salonHost ? 0 : 1;
+        if (rank < bestRank) { bestRank = rank; best = nick; }
+      });
+      return best;
+    }
+    function looksLikeManageBot(nick) {
+      var n = String(nick || '').trim();
+      if (!n) return false;
+      if (/^chanserv$/i.test(n)) return true;
+      if (isNonManageService(n)) return false;
+      var list = ui.bots || [];
+      if (!list.length) return true;
+      return nickInManageBotList(n);
     }
     function cleanBotNick(n) {
       var s = String(n || '').replace(/^[(\[{]+|[)\]}]+$/g, '').replace(/[.,;]+$/, '').trim();
@@ -383,8 +410,7 @@
       return info;
     }
     function channelManageBot(chan, fromInfo) {
-      var info = assignedBotServNick(fromInfo);
-      return info || 'ChanServ';
+      return assignedBotServNick(fromInfo) || nicklistManageBot(chan) || 'ChanServ';
     }
 
     function isServNick(name) {
@@ -3552,7 +3578,7 @@
         }
 
         if (tab === 'divers' && showDivers) {
-          var assigned = assignedBotServNick(s.bot);
+          var assigned = assignedBotServNick(s.bot) || nicklistManageBot(ch);
           function block(kids) { return h('div', { className: 'ocs-block' }, kids); }
           var intro = [];
           if (!assigned) {
