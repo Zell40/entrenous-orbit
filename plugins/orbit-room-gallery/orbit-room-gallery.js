@@ -766,7 +766,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
 
   function findAccessSection() {
     const label = t('modals.chanadmin.access');
-    const heads = document.querySelectorAll('.modal .ca-h');
+    const heads = document.querySelectorAll('.ca-h');
     for (const h of heads) {
       if (h.textContent === label) return h.closest('.ca-sec');
     }

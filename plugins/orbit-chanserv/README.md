@@ -2,11 +2,11 @@
 
 Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
-L’icône **#** change selon le salon : **+** si non enregistré, **cadenas** si enregistré sans accès, **coche** (couleur accent) si tu as un accès ChanServ.
+L’icône **curseurs** (paramètres du salon) ouvre un panneau unique, comme les Paramètres Orbit : **Gestion personnelle** (modes IRC, bans, image) et **Gestion depuis les services** (ChanServ / Gaya / Operateur). Le plugin reste séparé de l’app.
 
-Le panneau du haut : **Info**, **Topic**, **Modes**, **Bans**, **Accès**, **SET**, **Divers**.
+Le panneau services : **Info**, **Topic**, **Modes**, **Bans**, **Accès**, **SET**, **Divers**.
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
-**Commandes &lt;bot&gt;** (nom du bot assigné, sinon ChanServ).
+**Commandes** du bot de gestion du salon (ChanServ, Gaya, Operateur, ou un futur bot BotServ — accès Anope). Git, Bac, CapEchecs et les bureaux HelpServ (AideMoi, EcoutE, …) n’y figurent pas.
 
 - **Modes du salon** (`+v` / `+h` / `+o`…) : menu natif, sans créer d’accès Anope.
 - **Accès Anope** (VOP / HOP / AOP / SOP / QOP) : sous-menu *Gérer les accès* — liste permanente.
@@ -44,7 +44,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=83"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=86"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }

@@ -1,13 +1,14 @@
 /*
  * orbit-chanserv — commandes ChanServ / BotServ selon l’accès Anope.
  *
- * Icône barre du salon (desktop) + menu ⋮ (mobile). Panneau overlay (gestion salon).
- * Kick / ban / op / voix : menu de la liste (Commandes <bot>).
+ * Icône curseurs du salon (Gérer le salon) : panneau unique avec
+ * Gestion personnelle | Gestion depuis les services (plugin).
+ * Kick / ban / op / voix : menu de la liste (Commandes <bot de gestion>).
  * Salon non enregistré → REGISTER (compte NickServ requis).
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=83"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=86"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -45,6 +46,7 @@
 
     var ui = {
       open: false,
+      host: '',
       chan: '',
       loading: false,
       registered: null,
@@ -72,7 +74,7 @@
     var snap = copyUi();
     function copyUi() {
       return {
-        open: ui.open, chan: ui.chan, loading: ui.loading, registered: ui.registered,
+        open: ui.open, host: ui.host || '', chan: ui.chan, loading: ui.loading, registered: ui.registered,
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
         infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(), topicHistory: ui.topicHistory.slice(), akickList: ui.akickList.slice(),
         flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
@@ -236,10 +238,45 @@
     function isNamedService(n) {
       return /^(chan|bot|nick|host|memo|oper|help|global|link)serv$/i.test(String(n || '').replace(/\[.*$/, ''));
     }
+    function botListNick(b) {
+      if (!b) return '';
+      return typeof b === 'string' ? b : String(b.nick || '');
+    }
+    function isNonManageService(n) {
+      var s = foldText(String(n || '').replace(/\[.*$/, '').replace(/[()]/g, ''));
+      if (!s) return true;
+      if (/^(bot|nick|host|memo|oper|help|global|link|stat|sasl|group)serv$/.test(s)) return true;
+      return /^(aidemoi|essayemoi|ecoute|gardian|message|inforeseau|signalmoi)$/.test(s);
+    }
+    function isManageBotEntry(b) {
+      var nick = botListNick(b);
+      if (!nick) return false;
+      if (/^chanserv$/i.test(nick)) return true;
+      if (isNonManageService(nick)) return false;
+      var mask = foldText((b && b.mask) || '');
+      var desc = foldText((b && b.desc) || '');
+      if (/salons\.(personnels|officiels)|bot@salons\./.test(mask)) return true;
+      if (/salons (personnels|officiels)|service des salons|bot des salons|gestion des salons|bot de gestion/.test(desc)) return true;
+      return true;
+    }
+    function looksLikeManageBot(nick) {
+      var n = String(nick || '').trim();
+      if (!n) return false;
+      if (/^chanserv$/i.test(n)) return true;
+      if (isNonManageService(n)) return false;
+      var want = foldText(n);
+      var list = ui.bots || [];
+      if (!list.length) return true;
+      for (var i = 0; i < list.length; i++) {
+        if (foldText(botListNick(list[i])) !== want) continue;
+        return isManageBotEntry(list[i]);
+      }
+      return false;
+    }
     function cleanBotNick(n) {
       var s = String(n || '').replace(/^[(\[{]+|[)\]}]+$/g, '').replace(/[.,;]+$/, '').trim();
       if (!s || /^(n\/?a|none|aucun|non|not|no|unassigned|-|\*|off|oui|yes)$/i.test(s)) return '';
-      if (isNamedService(s)) return '';
+      if (isNamedService(s) || isNonManageService(s)) return '';
       return s;
     }
     function parseBotNick(text) {
@@ -261,35 +298,14 @@
         || raw.match(/\bbot\s+(\S+)\s+(?:is assigned|assigne)/i);
       return bm ? cleanBotNick(bm[1]) : '';
     }
-    function channelBotNick(chan, fromInfo) {
+    function assignedBotServNick(fromInfo) {
       var info = cleanBotNick(fromInfo) || parseBotNick(ui.botInfo);
-      if (info) return info;
-      var buf = findBuffer(chan);
-      var members = (buf && buf.members) || {};
-      var best = '';
-      var bestRank = 99;
-      function consider(nick, member) {
-        if (!nick || isNamedService(nick)) return;
-        var p = (member && (member.prefixes || member.prefix)) || '';
-        var r = !p ? 90 : (p.indexOf('~') >= 0 ? 0 : p.indexOf('&') >= 0 ? 1 : p.indexOf('@') >= 0 ? 2 : p.indexOf('%') >= 0 ? 3 : p.indexOf('+') >= 0 ? 4 : 80);
-        if (r < bestRank) { bestRank = r; best = (member && member.nick) || nick; }
-      }
-      Object.keys(members).forEach(function (n) {
-        var m = members[n];
-        if (!m || !m.bot) return;
-        consider(m.nick || n, m);
-      });
-      if (best) return best;
-      (ui.bots || []).forEach(function (bn) {
-        if (!bn) return;
-        var want = foldText(bn);
-        Object.keys(members).forEach(function (n) {
-          var m = members[n];
-          var nick = (m && m.nick) || n;
-          if (foldText(nick) === want || foldText(n) === want) consider(nick, m);
-        });
-      });
-      return best;
+      if (!info || /^chanserv$/i.test(info) || !looksLikeManageBot(info)) return '';
+      return info;
+    }
+    function channelManageBot(chan, fromInfo) {
+      var info = assignedBotServNick(fromInfo);
+      return info || 'ChanServ';
     }
 
     function isServNick(name) {
@@ -1028,14 +1044,16 @@
     }
 
     function parseBotlist(text) {
-      var names = [];
+      var rows = [];
       String(text || '').split(/\n/).forEach(function (line) {
         var s = stripIrc(line).trim();
-        if (!s || /bot list|liste des bots|end of/i.test(s)) return;
-        var m = s.match(/^[-*•]\s*(\S+)/) || s.match(/^(\S+)\s+\(/);
-        if (m && !/chanserv|botserv|nickserv/i.test(m[1])) names.push(m[1]);
+        if (!s || /bot list|liste des bots|end of|bots disponibles/i.test(s)) return;
+        var m = s.match(/^[-*•]?\s*(\S+)\s+\(([^)]*)\)\s*(?:\[(.*)\])?\s*$/)
+          || s.match(/^[-*•]\s*(\S+)/);
+        if (!m || !m[1]) return;
+        rows.push({ nick: m[1], mask: m[2] || '', desc: m[3] || '' });
       });
-      return names;
+      return rows;
     }
 
     function applyKind(kind, text) {
@@ -1318,7 +1336,8 @@
       if (!ui.open) return;
       var el = e.target;
       if (!el || !el.closest) return;
-      if (el.closest('.ocs-tb, .ocs-panel, .memberrsn, .memberrsn-scrim')) return;
+      if (el.closest('.ocs-tb, .ocs-panel, .memberrsn, .memberrsn-scrim, .settings--chanadmin, .settings-backdrop')) return;
+      if (ui.host === 'chanadmin') return;
       if (el.closest('.topbar, .nmenu')) closePanel();
     }
     document.addEventListener('mousedown', onTopbarPointer, true);
@@ -1337,6 +1356,9 @@
         'max-height:min(88vh,720px);overflow:hidden;background:var(--bg);color:var(--ink);',
         'border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-pop,0 18px 50px -16px rgba(20,30,45,.45));',
         'padding:1rem 1rem .9rem;display:flex;flex-direction:column;gap:.55rem}',
+        '.ocs-panel.ocs-panel--embed{position:relative;top:auto;right:auto;left:auto;inset:auto;z-index:auto;',
+        'width:100%;min-width:0;max-width:none;max-height:none;height:100%;',
+        'border:0;border-radius:0;box-shadow:none;padding:.85rem 1.15rem 1rem}',
         '.ocs-chrome{display:flex;flex-direction:column;gap:.55rem;flex:none;min-width:0;max-width:100%;',
         'position:sticky;top:0;z-index:2;background:var(--bg)}',
         '.ocs-body{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;',
@@ -1822,6 +1844,44 @@
       );
     }
 
+    function ServicesNavText() {
+      var chan = useActiveBuffer();
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      useEffect(function () {
+        if (!isChannel(chan) || !identified()) return undefined;
+        if (s.chan === chan && s.registered !== null) return undefined;
+        queryInfo(chan);
+        return undefined;
+      }, [chan]);
+      var bot = channelManageBot(chan, s.bot);
+      return h('span', { className: 'settings__navtxt' },
+        h('span', { className: 'settings__navlabel' }, pick('Gestion depuis les services', 'Service management')),
+        h('span', { className: 'settings__navdesc' }, bot)
+      );
+    }
+
+    function OverlayPanel() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      if (s.host === 'chanadmin') return null;
+      return h(Panel);
+    }
+
+    function PanelHost() {
+      var chan = useActiveBuffer();
+      useEffect(function () {
+        patchUi({ open: true, host: 'chanadmin' });
+        if (isChannel(chan) && identified()) queryInfo(chan);
+        return function () {
+          if (ui.host === 'chanadmin') patchUi({ open: false, host: '' });
+        };
+      }, []);
+      useEffect(function () {
+        if (ui.host !== 'chanadmin') return;
+        if (isChannel(chan) && identified()) queryInfo(chan);
+      }, [chan]);
+      return h(Panel, { embedded: true });
+    }
+
     function fitTextarea(el) {
       if (!el) return;
       el.style.height = '0px';
@@ -2025,8 +2085,8 @@
       if (!serv && !ircOp) return null;
       var ch = s.chan || chan;
       var hop = hasHalfop();
-      var botName = channelBotNick(ch, s.bot);
-      var title = pick('Commandes ', 'Commands ') + (botName || 'ChanServ');
+      var manageBot = channelManageBot(ch, s.bot);
+      var title = pick('Commandes ', 'Commands ') + manageBot;
       function go(line) {
         runCmd('ChanServ', line, false);
         close();
@@ -2342,7 +2402,8 @@
       );
     }
 
-    function Panel() {
+    function Panel(props) {
+      var embedded = !!(props && props.embedded);
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       var chan = useActiveBuffer();
       var topicSt = useState('');
@@ -2476,7 +2537,7 @@
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
       useLayoutEffect(function () {
-        if (!s.open) return undefined;
+        if (embedded || !s.open) return undefined;
         var el = panelRef.current;
         if (!el) return undefined;
         function place() {
@@ -2538,9 +2599,10 @@
             window.visualViewport.removeEventListener('scroll', place);
           }
         };
-      }, [s.open, s.chan, s.tab, s.registered, s.access, s.infoText, s.flash]);
+      }, [embedded, s.open, s.chan, s.tab, s.registered, s.access, s.infoText, s.flash]);
 
-      if (!s.open) return null;
+      if (!embedded && s.host === 'chanadmin') return null;
+      if (!s.open && !embedded) return null;
       var ch = s.chan || chan;
       var tab = s.tab || 'info';
       if (tab === 'salon') tab = 'info';
@@ -2581,13 +2643,14 @@
         }));
       }
 
-      var chrome = [
-        h('div', { className: 'ocs-head' },
+      var chrome = [];
+      if (!embedded) {
+        chrome.push(h('div', { className: 'ocs-head' },
           h('h2', { className: 'ocs-title' }, h(ChanIcon, { kind: iconKind(s, ch) }), pick('Services du salon', 'Channel services')),
           h('button', { type: 'button', className: 'ocs-x', onClick: closePanel, 'aria-label': pick('Fermer', 'Close') }, '×')
-        ),
-        h('p', { className: 'ocs-sub' }, ch),
-      ];
+        ));
+      }
+      chrome.push(h('p', { className: 'ocs-sub' }, ch));
       if (s.flash) {
         chrome.push(h('div', {
           className: 'ocs-flash' + (s.flashErr ? ' is-err' : ''),
@@ -3254,7 +3317,7 @@
         }
 
         if (tab === 'divers' && showDivers) {
-          var assigned = channelBotNick(ch, s.bot);
+          var assigned = assignedBotServNick(s.bot);
           function block(kids) { return h('div', { className: 'ocs-block' }, kids); }
           var intro = [];
           if (!assigned) {
@@ -3391,7 +3454,12 @@
           }
         }
       }
-      return h('div', { ref: panelRef, className: 'ocs-panel', role: 'dialog', 'aria-label': pick('Services du salon', 'Channel services') },
+      return h('div', {
+        ref: panelRef,
+        className: 'ocs-panel' + (embedded ? ' ocs-panel--embed' : ''),
+        role: 'dialog',
+        'aria-label': pick('Services du salon', 'Channel services'),
+      },
         h('div', { className: 'ocs-chrome' }, chrome),
         body.length ? h('div', { className: 'ocs-body' }, body) : null
       );
@@ -3399,10 +3467,12 @@
 
     orbit.on('raw', onRaw);
     orbit.on('buffer.active', function (name) {
+      if (ui.host === 'chanadmin') return;
       if (!ui.open) return;
       if (foldText(name) !== foldText(ui.chan)) closePanel();
     });
     orbit.on('orbit:panel', function (id) {
+      if (ui.host === 'chanadmin') return;
       if (id !== 'orbit-chanserv' && ui.open) closePanel();
     });
     orbit.on('status', function (st) {
@@ -3411,14 +3481,23 @@
       pending = [];
       expectKind = '';
       if (expectTimer) { clearTimeout(expectTimer); expectTimer = 0; }
-      patchUi({ open: false, registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, host: '', registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
     });
-    orbit.addUi('topbar_item', function () { return h(HeaderButton); });
-    orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
-    orbit.addUi('overlay', function () { return h(Panel); });
+    if (typeof orbit.addChanAdminSection === 'function') {
+      orbit.addChanAdminSection({
+        label: pick('Gestion depuis les services', 'Service management'),
+        icon: '🛡️',
+        nav: function () { return h(ServicesNavText); },
+        render: function () { return h(PanelHost); },
+      });
+    } else {
+      orbit.addUi('topbar_item', function () { return h(HeaderButton); });
+      orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem); });
+    }
+    orbit.addUi('overlay', function () { return h(OverlayPanel); });
     orbit.addUi('overlay', function () { return h(ReasonAsk); });
     orbit.addUi('overlay', function () { return h(DropAsk); });
     if (typeof orbit.addMemberMenu === 'function') {
@@ -3441,6 +3520,6 @@
       orbit.addCommand('bs', servSlash('BotServ'));
       orbit.addCommand('botserv', servSlash('BotServ'));
     }
-    log('ChanServ/BotServ panel — topbar + overlay');
+    log('ChanServ/BotServ panel — Gérer le salon (chanadmin_section)');
   });
 })();
