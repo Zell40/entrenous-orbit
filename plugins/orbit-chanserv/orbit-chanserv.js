@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=86"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=88"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -69,6 +69,7 @@
       accessLoading: false,
       reasonAsk: null,
       dropAsk: null,
+      registerAsk: null,
       listeners: new Set(),
     };
     var snap = copyUi();
@@ -78,7 +79,7 @@
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
         infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(), topicHistory: ui.topicHistory.slice(), akickList: ui.akickList.slice(),
         flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
-        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
+        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk, registerAsk: ui.registerAsk,
       };
     }
     function subscribeUi(cb) { ui.listeners.add(cb); return function () { ui.listeners.delete(cb); }; }
@@ -129,6 +130,84 @@
     function rank() { return ACCESS_RANK[ui.access] || 0; }
     function can(min) { return rank() >= min; }
     function identified() { return !!orbit.state.account(); }
+    var SKIP_KEY = 'register-skip';
+    var joinBurstUntil = Date.now() + 8000;
+    var offerTimers = {};
+    var offered = {};
+    function skipMap() {
+      try { return orbit.storage.get(SKIP_KEY, {}) || {}; } catch (e) { return {}; }
+    }
+    function isSkipped(chan) {
+      return !!skipMap()[foldText(chan)];
+    }
+    function setSkipped(chan, on) {
+      var m = skipMap();
+      var k = foldText(chan);
+      if (on) m[k] = 1;
+      else delete m[k];
+      try { orbit.storage.set(SKIP_KEY, m); } catch (e) { /* ignore */ }
+      notifyUi();
+    }
+    function iAmOperator(chan) {
+      try {
+        var st = orbit.state.get();
+        var buf = findBuffer(chan);
+        var mem = buf && buf.members && buf.members[st.nick];
+        if (!mem) {
+          var want = foldText(st.nick || '');
+          var members = (buf && buf.members) || {};
+          Object.keys(members).forEach(function (n) {
+            if (!mem && foldText(n) === want) mem = members[n];
+          });
+        }
+        return /[~&@]/.test((mem && (mem.prefixes || mem.prefix)) || '');
+      } catch (e) { return false; }
+    }
+    function scheduleRegisterOffer(chan, delay) {
+      if (!isChannel(chan) || !identified()) return;
+      var key = foldText(chan);
+      if (offerTimers[key]) clearTimeout(offerTimers[key]);
+      offerTimers[key] = setTimeout(function () {
+        delete offerTimers[key];
+        maybeOfferRegister(chan);
+      }, delay || 900);
+    }
+    function maybeOfferRegister(chan) {
+      if (!identified() || !isChannel(chan)) return;
+      if (Date.now() < joinBurstUntil) return;
+      if (ui.registerAsk) return;
+      if (offered[foldText(chan)]) return;
+      if (foldText(orbit.state.active()) !== foldText(chan)) return;
+      if (!iAmOperator(chan)) return;
+      function decide(registered) {
+        if (registered !== false) return;
+        if (!iAmOperator(chan)) return;
+        if (foldText(orbit.state.active()) !== foldText(chan)) return;
+        if (isSkipped(chan)) { notifyUi(); return; }
+        offered[foldText(chan)] = true;
+        patchUi({ registerAsk: { chan: chan } });
+      }
+      if (foldText(ui.chan) === foldText(chan) && ui.registered !== null && !ui.loading) {
+        decide(ui.registered);
+        return;
+      }
+      rpcCall('probe', chan).then(function (data) {
+        if (!data || !data.ok) return;
+        var info = parseInfo(data.info || '');
+        if (isUnregisteredText(data.status || '')) info.registered = false;
+        if (ui.host !== 'chanadmin' && !ui.open) {
+          patchUi({
+            chan: chan,
+            registered: info.registered,
+            founder: info.founder,
+            bot: info.bot,
+            infoText: info.infoText || ui.infoText,
+            loading: false,
+          });
+        }
+        decide(info.registered);
+      });
+    }
     function findBuffer(chan) {
       try {
         var st = orbit.state.get();
@@ -451,6 +530,7 @@
       });
       rememberCache(chan);
       expectKind = '';
+      if (info.registered && isSkipped(chan)) setSkipped(chan, false);
     }
 
     function queryInfo(chan, opts) {
@@ -1243,6 +1323,17 @@
         }
         var raw = stripIrc(text).replace(/\s+/g, ' ').trim().slice(0, 400);
         var err = looksLikeServError(raw);
+        var isReg = /REGISTER/i.test(ui.lastCmd || '');
+        if (isReg && !err) {
+          var regChan = ui.chan;
+          if (isSkipped(regChan)) setSkipped(regChan, false);
+          offered[foldText(regChan)] = true;
+          patchUi({ registerAsk: null, registered: true, loading: false, flash: raw, flashErr: false });
+          expectKind = '';
+          cache = {};
+          if (regChan) setTimeout(function () { queryInfo(regChan, { keepFlash: true }); }, 400);
+          return;
+        }
         if (!ui.open && !err) {
           patchUi({ loading: false });
           expectKind = '';
@@ -1280,6 +1371,36 @@
       pending = [];
       var kind = expectKind || 'cmd';
       applyKind(kind, text);
+    }
+
+    function onPresenceRaw(msg) {
+      if (!msg) return;
+      var cmd = String(msg.command || '').toUpperCase();
+      var me = foldText(orbit.state.nick() || '');
+      if (!me) return;
+      var params = msg.params || [];
+      if (cmd === 'JOIN') {
+        if (foldText(msg.nick || '') !== me) return;
+        var joined = String(params[0] || '').replace(/^:/, '').trim();
+        if (isChannel(joined)) scheduleRegisterOffer(joined, 900);
+        return;
+      }
+      if (cmd !== 'MODE') return;
+      var chan = String(params[0] || '').replace(/^:/, '').trim();
+      if (!isChannel(chan)) return;
+      var modes = String(params[1] || '');
+      var adding = true;
+      var pi = 2;
+      for (var i = 0; i < modes.length; i++) {
+        var c = modes[i];
+        if (c === '+') { adding = true; continue; }
+        if (c === '-') { adding = false; continue; }
+        if ('qaohv'.indexOf(c) < 0) continue;
+        var nick = String(params[pi++] || '');
+        if (adding && 'qao'.indexOf(c) >= 0 && foldText(nick) === me) {
+          scheduleRegisterOffer(chan, 250);
+        }
+      }
     }
 
     function onRaw(msg) {
@@ -1520,6 +1641,18 @@
         '.topbar__search.ocs-tb--ok{color:var(--accent)}',
         '.topbar__search.ocs-tb--free,.topbar__search.ocs-tb--none,.topbar__search.ocs-tb--wait{color:var(--muted)}',
         '.nmenu__ic .ocs-ic--ok{color:var(--accent)}',
+        '.settings__navic .ocs-ic,.settings__top-ic .ocs-ic{display:block}',
+        '.settings__navitem.is-on .ocs-ic,.settings__top-ic .ocs-ic{color:inherit}',
+        '.settings--chanadmin .settings__navitem.is-on .ocs-ic{--ocs-ic-mark:var(--accent)}',
+        '.ocs-manage-hint{position:absolute;top:3px;right:3px;width:11px;height:11px;border-radius:50%;',
+        'background:var(--accent);color:#fff;font-size:8px;font-weight:800;line-height:11px;text-align:center;',
+        'pointer-events:none;box-shadow:0 0 0 2px var(--bg,#fff)}',
+        '.nmenu__ic--badge .ocs-manage-hint{top:-1px;right:-2px}',
+        '.memberrsn.ocs-ask{width:min(420px,100%)}',
+        '.ocs-ask__body{margin:0;padding:.9rem 1rem .35rem;font-size:.88rem;line-height:1.45;color:var(--ink)}',
+        '.ocs-ask__check{display:flex;align-items:flex-start;gap:.5rem;padding:.15rem 1rem .85rem;',
+        'font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none}',
+        '.ocs-ask__check input{margin:.2rem 0 0;flex:none}',
         '.nmenu__ic .ocs-ic--free,.nmenu__ic .ocs-ic--none,.nmenu__ic .ocs-ic--wait{color:var(--muted)}',
         '@media (max-width:880px){',
         '.ocs-panel{top:max(8px,env(safe-area-inset-top,0px));bottom:auto;right:8px;left:8px;width:auto;min-height:0;',
@@ -1554,6 +1687,7 @@
 
     function ChanIcon(props) {
       var kind = props.kind || 'wait';
+      var size = props.size || 19;
       var dash = kind === 'free' ? '3 2.5' : undefined;
       var hash = [
         h('line', { key: 'a', x1: '3.5', y1: '9', x2: '18', y2: '9', strokeDasharray: dash }),
@@ -1576,11 +1710,11 @@
       } else if (kind === 'ok') {
         badge = h('g', { key: 'badge', transform: 'translate(12.2,12.2)' },
           h('circle', { cx: '5.6', cy: '5.6', r: '5.5', fill: 'currentColor', stroke: 'none' }),
-          h('path', { d: 'M3.3 5.7l1.6 1.7 3.1-3.3', fill: 'none', stroke: 'var(--bg,#fff)', strokeWidth: '1.8' })
+          h('path', { d: 'M3.3 5.7l1.6 1.7 3.1-3.3', fill: 'none', stroke: 'var(--ocs-ic-mark, var(--bg,#fff))', strokeWidth: '1.8' })
         );
       }
       return h('svg', {
-        viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
+        viewBox: '0 0 24 24', width: size, height: size, fill: 'none',
         stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
         'aria-hidden': 'true',
         className: 'ocs-ic ocs-ic--' + kind,
@@ -1842,6 +1976,18 @@
         h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(ChanIcon, { kind: kind })),
         h('span', { className: 'nmenu__txt' }, h('b', null, on ? pick('Fermer les services', 'Close services') : label))
       );
+    }
+
+    function ServicesNavIcon() {
+      var chan = useActiveBuffer();
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      useEffect(function () {
+        if (!isChannel(chan) || !identified()) return undefined;
+        if (s.chan === chan && s.registered !== null) return undefined;
+        queryInfo(chan);
+        return undefined;
+      }, [chan]);
+      return h(ChanIcon, { kind: iconKind(s, chan), size: 20 });
     }
 
     function ServicesNavText() {
@@ -2400,6 +2546,95 @@
           )
         )
       );
+    }
+
+    function dismissRegisterAsk(skip) {
+      var ask = ui.registerAsk;
+      if (skip && ask && ask.chan) setSkipped(ask.chan, true);
+      patchUi({ registerAsk: null });
+    }
+
+    function RegisterAsk() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      var skipSt = useState(false);
+      var skip = skipSt[0];
+      var setSkip = skipSt[1];
+      var ask = s.registerAsk;
+      useEffect(function () { setSkip(false); }, [ask && ask.chan]);
+      if (!ask || !ask.chan) return null;
+      var ch = ask.chan;
+      var title = pick('Enregistrer ce salon ?', 'Register this channel?');
+      function later() { dismissRegisterAsk(skip); }
+      function go() {
+        var d = pick('Salon EntreNous', 'EntreNous channel');
+        patchUi({ chan: ch, registerAsk: null });
+        if (isSkipped(ch)) setSkipped(ch, false);
+        runCmd('ChanServ', 'REGISTER ' + ch + ' ' + d, true);
+      }
+      return h('div', {
+        className: 'memberrsn-scrim',
+        onMouseDown: function (e) { if (e.target === e.currentTarget) later(); },
+      },
+        h('div', { className: 'memberrsn ocs-ask', role: 'dialog', 'aria-label': title },
+          h('div', { className: 'memberrsn__head' }, title),
+          h('p', { className: 'ocs-ask__body' },
+            pick(
+              ch + ' n’appartient à personne. Tu es opérateur : enregistre-le avec ChanServ pour en rester fondateur.',
+              ch + ' has no owner. You’re an operator — register it with ChanServ to stay founder.'
+            )
+          ),
+          h('label', { className: 'ocs-ask__check' },
+            h('input', {
+              type: 'checkbox',
+              checked: skip,
+              onChange: function (e) { setSkip(!!e.target.checked); },
+            }),
+            pick('Ne plus me le demander', 'Don’t ask again')
+          ),
+          h('div', { className: 'memberrsn__row' },
+            h('button', { type: 'button', className: 'memberrsn__btn', onClick: later }, pick('Plus tard', 'Later')),
+            h('button', { type: 'button', className: 'memberrsn__btn memberrsn__btn--go', onClick: go },
+              pick('Enregistrer', 'Register'))
+          )
+        )
+      );
+    }
+
+    function ManageBadge() {
+      var chan = useActiveBuffer();
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      if (!isChannel(chan) || !identified()) return null;
+      if (!isSkipped(chan)) return null;
+      if (foldText(s.chan) === foldText(chan) && s.registered === true) return null;
+      return h('span', {
+        className: 'ocs-manage-hint',
+        title: pick('Salon non enregistré — ouvrir les services pour l’enregistrer', 'Unregistered channel — open services to register it'),
+      }, '+');
+    }
+
+    function RegisterWatch() {
+      var chan = useActiveBuffer();
+      var acc = useSyncExternalStore(
+        function (cb) {
+          var off = orbit.on('status', cb);
+          var id = window.setInterval(cb, 800);
+          return function () { if (typeof off === 'function') off(); window.clearInterval(id); };
+        },
+        function () { return orbit.state.account() || ''; },
+        function () { return orbit.state.account() || ''; }
+      );
+      useEffect(function () {
+        if (!isChannel(chan) || !identified()) return undefined;
+        queryInfo(chan);
+        return undefined;
+      }, [chan, acc]);
+      useEffect(function () {
+        if (!acc || !isChannel(chan)) return undefined;
+        if (Date.now() < joinBurstUntil) return undefined;
+        scheduleRegisterOffer(chan, 700);
+        return undefined;
+      }, [acc]);
+      return null;
     }
 
     function Panel(props) {
@@ -3466,6 +3701,7 @@
     }
 
     orbit.on('raw', onRaw);
+    orbit.on('raw', onPresenceRaw);
     orbit.on('buffer.active', function (name) {
       if (ui.host === 'chanadmin') return;
       if (!ui.open) return;
@@ -3476,12 +3712,16 @@
       if (id !== 'orbit-chanserv' && ui.open) closePanel();
     });
     orbit.on('status', function (st) {
-      if (st === 'registered') return;
+      if (st === 'registered') {
+        joinBurstUntil = Date.now() + (orbit.state.viaBouncer && orbit.state.viaBouncer() ? 12000 : 6000);
+        return;
+      }
       cache = {};
       pending = [];
+      offered = {};
       expectKind = '';
       if (expectTimer) { clearTimeout(expectTimer); expectTimer = 0; }
-      patchUi({ open: false, host: '', registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null });
+      patchUi({ open: false, host: '', registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null, registerAsk: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
@@ -3489,8 +3729,9 @@
     if (typeof orbit.addChanAdminSection === 'function') {
       orbit.addChanAdminSection({
         label: pick('Gestion depuis les services', 'Service management'),
-        icon: '🛡️',
+        iconNav: function () { return h(ServicesNavIcon); },
         nav: function () { return h(ServicesNavText); },
+        attention: function () { return ui.registered === false; },
         render: function () { return h(PanelHost); },
       });
     } else {
@@ -3500,6 +3741,9 @@
     orbit.addUi('overlay', function () { return h(OverlayPanel); });
     orbit.addUi('overlay', function () { return h(ReasonAsk); });
     orbit.addUi('overlay', function () { return h(DropAsk); });
+    orbit.addUi('overlay', function () { return h(RegisterAsk); });
+    orbit.addUi('overlay', function () { return h(RegisterWatch); });
+    orbit.addUi('chanadmin_badge', function () { return h(ManageBadge); });
     if (typeof orbit.addMemberMenu === 'function') {
       orbit.addMemberMenu(function (ctx) {
         return h(MemberServMenu, { nick: ctx.nick, close: ctx.close });

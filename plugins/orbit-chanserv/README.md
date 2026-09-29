@@ -2,7 +2,7 @@
 
 Panneau **ChanServ / BotServ** pour le salon actif (Anope).
 
-L’icône **curseurs** (paramètres du salon) ouvre un panneau unique, comme les Paramètres Orbit : **Gestion personnelle** (modes IRC, bans, image) et **Gestion depuis les services** (ChanServ / Gaya / Operateur). Le plugin reste séparé de l’app.
+L’icône **curseurs** (paramètres du salon) ouvre un panneau unique, comme les Paramètres Orbit : **Gestion personnelle** (modes IRC, bans, image) et **Gestion depuis les services** (ChanServ / Gaya / Operateur). Le plugin reste séparé de l’app. Un salon libre où tu deviens opérateur propose l’enregistrement ChanServ (case « ne plus demander » : un **+** reste sur l’icône curseurs).
 
 Le panneau services : **Info**, **Topic**, **Modes**, **Bans**, **Accès**, **SET**, **Divers**.
 Kick, ban, op, voix, etc. sont dans le **menu de la liste** (clic droit) :
@@ -44,7 +44,7 @@ Hors v1 : FLAGS.
 ## Config
 
 ```json
-"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=86"],
+"plugins": ["/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=88"],
 "chanserv": {
   "kickReason": "Vous n'êtes pas le bienvenu sur ce salon"
 }
