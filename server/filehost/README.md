@@ -193,5 +193,5 @@ can write into it.
   removes expired files. Cron (every 15 minutes):
   `php /path/to/webroot/filehost-purge.php`
   Default keep-time is **24 hours** (`$RETENTION_HOURS`); the composer can
-  send `ttl_hours` (capped by `$RETENTION_MAX_HOURS`, default 7 days).
+  send `ttl_hours` (capped by `$RETENTION_MAX_HOURS`, default 31 days).
   Legacy files without a `.expires` sidecar are aged from their mtime.

@@ -74,7 +74,7 @@ $PUBLIC_URL_PATH  = '/files';              // <-- the ONLY thing to change if yo
 $PUBLIC_ORIGIN    = '';
 $MAX_UPLOAD_BYTES = 16 * 1024 * 1024;      // matches Orbit's own client-side cap (src/core/store/upload.ts)
 $RETENTION_HOURS = 24;                     // default keep-time when the client omits ttl_hours
-$RETENTION_MAX_HOURS = 168;                // hard cap (7 days) even if the client asks for more
+$RETENTION_MAX_HOURS = 744;                // hard cap (31 days) so the client can offer 1 month (720 h)
 $ALLOWED_UPLOAD_MIME = [
   // Images — Orbit's composer button accepts any `image/*`.
   'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
@@ -154,6 +154,18 @@ if ($JWT_SECRET === '' || str_starts_with($JWT_SECRET, 'CHANGE_ME')) {
 $claims = verify_filehost_jwt($token, $JWT_SECRET, $JWT_ISSUER);
 if (!$claims) {
   http_response_code(401); echo json_encode(['detail' => 'invalid_token']); exit;
+}
+
+if (($_POST['action'] ?? '') === 'delete') {
+  $file = basename((string)($_POST['file'] ?? ''));
+  if (!preg_match('/^[a-f0-9]{32}\.[A-Za-z0-9]+$/', $file)) {
+    http_response_code(400); echo json_encode(['detail' => 'bad_file']); exit;
+  }
+  $path = $UPLOAD_DIR . '/' . $file;
+  if (is_file($path)) @unlink($path);
+  if (is_file($path . '.expires')) @unlink($path . '.expires');
+  echo json_encode(['ok' => true]);
+  exit;
 }
 
 // When the SPA lives under /app (Apache Alias), uploaded files are usually

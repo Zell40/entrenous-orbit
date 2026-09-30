@@ -12,7 +12,7 @@ $JWT_ISSUER = 'FILEHOST';
 $PUBLIC_URL_PATH = '/app/files';
 // Auto-delete after this many hours when the client omits ttl_hours (default 24).
 // $RETENTION_HOURS = 24;
-// Hard cap for the user's picker (7 days).
-// $RETENTION_MAX_HOURS = 168;
+// Hard cap for the user's picker (31 days — allows the 1-month / 720 h chip).
+// $RETENTION_MAX_HOURS = 744;
 // Optional absolute origin if auto-detect is wrong behind a reverse proxy:
 // $PUBLIC_ORIGIN = 'https://webchat.entrenous.chat';

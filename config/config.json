@@ -73,7 +73,7 @@
   },
   "filehost": {
     "retentionHours": 24,
-    "retentionChoices": [1, 6, 24, 72]
+    "retentionChoices": [1, 6, 24, 72, 720]
   },
   "roomGallery": {
     "writers": ["Founder", "Admin"]
