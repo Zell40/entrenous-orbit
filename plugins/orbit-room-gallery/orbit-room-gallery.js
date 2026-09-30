@@ -603,7 +603,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     function setViewMode(v) { setView(v); orbit.storage.set('view', v); setPage(0); }
     function setSortMode(v) { setSort(v); setPage(0); }
     function onSearch(v) { setQ(v); setPage(0); }
-    function join(name) { orbit.irc.join(name); close(); }
+    function join(name) { orbit.irc.join(name); }
     function submitSearch() {
       const needle = q.trim();
       if (!needle) return;
