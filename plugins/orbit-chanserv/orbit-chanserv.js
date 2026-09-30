@@ -90,19 +90,21 @@
       publishChanInfo();
     }
     function isOfficial(text) {
-      if (parseChanOptions(text).OFFICIAL) return true;
-      var on = false;
+      var blob = '';
       infoRows(text).forEach(function (row) {
-        if (!row.k) return;
-        var k = foldText(row.k);
-        if (!/^(officiel|official|cs_official|salon officiel)$/.test(k)) return;
-        if (row.flag) on = !!row.flagOn;
-        else {
-          var v = foldText(row.v);
-          on = !!v && !/^(desactive|inactif|disabled|off|non|aucun|none|n\/a|-)$/.test(v);
-        }
+        if (row.k && /^options?$/.test(foldText(row.k))) blob = String(row.v || '');
       });
-      return on;
+      if (!blob) {
+        String(text || '').split(/\n/).forEach(function (line) {
+          var m = stripIrc(line).trim().match(/^options?\s*:\s*(.+)$/i);
+          if (m) blob += (blob ? ', ' : '') + m[1];
+        });
+      }
+      return String(blob || '').split(/\s*,\s*/).some(function (part) {
+        var t = foldText(part).trim();
+        return t === 'official' || t === 'officiel' || t === 'cs_official' || t === 'salon officiel'
+          || /\bsalon officiel\b/.test(t) || /(^|\s)official(\s|$)/.test(t);
+      });
     }
     function publishChanInfo() {
       if (!isChannel(ui.chan)) return;
@@ -944,8 +946,8 @@
         else if (/topichistory|historique des sujets/.test(t)) on.TOPICHISTORY = true;
         else if (/peace|paix/.test(t)) on.PEACE = true;
         else if (/persist|persistant/.test(t)) on.PERSIST = true;
+        else if (/\bsalon officiel\b|\bofficial\b|\bofficiel\b|cs_official/.test(t)) on.OFFICIAL = true;
         else if (/private|prive/.test(t)) on.PRIVATE = true;
-        else if (/^official$|^officiel$|cs_official|salon officiel/.test(t)) on.OFFICIAL = true;
       });
       return on;
     }
