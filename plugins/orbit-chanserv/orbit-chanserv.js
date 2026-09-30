@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=89"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=91"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -87,6 +87,51 @@
     function notifyUi() {
       snap = copyUi();
       ui.listeners.forEach(function (l) { l(); });
+      publishChanInfo();
+    }
+    function isOfficial(text) {
+      if (parseChanOptions(text).OFFICIAL) return true;
+      var on = false;
+      infoRows(text).forEach(function (row) {
+        if (!row.k) return;
+        var k = foldText(row.k);
+        if (!/^(officiel|official|cs_official|salon officiel)$/.test(k)) return;
+        if (row.flag) on = !!row.flagOn;
+        else {
+          var v = foldText(row.v);
+          on = !!v && !/^(desactive|inactif|disabled|off|non|aucun|none|n\/a|-)$/.test(v);
+        }
+      });
+      return on;
+    }
+    function publishChanInfo() {
+      if (!isChannel(ui.chan)) return;
+      try {
+        orbit.emit('chanserv:chaninfo', {
+          chan: ui.chan,
+          founder: ui.founder || '',
+          description: chanSetInfoValue(ui.infoText, 'DESC'),
+          official: isOfficial(ui.infoText),
+          registered: ui.registered,
+        });
+      } catch (e) { /* ignore */ }
+    }
+    function queryPublicInfo(chan) {
+      if (!isChannel(chan)) return;
+      if (foldText(ui.chan) === foldText(chan) && (ui.founder || ui.infoText) && !ui.loading) {
+        publishChanInfo();
+      }
+      if (identified()) {
+        queryInfo(chan);
+        return;
+      }
+      if (applyCache(chan)) {
+        publishChanInfo();
+        return;
+      }
+      patchUi({ chan: chan, loading: true, flash: '' });
+      beginExpect('info', chan);
+      cs('INFO ' + chan);
     }
     function patchUi(partial) {
       Object.keys(partial).forEach(function (k) { ui[k] = partial[k]; });
@@ -305,6 +350,29 @@
     }
     function xopLevelsICanManage() {
       return ['VOP', 'HOP', 'AOP', 'SOP', 'QOP'].filter(function (lv) { return canManageXop(lv); });
+    }
+    function xopCmdOf(lv) {
+      var u = String(lv || '').toUpperCase();
+      return u === 'FOUNDER' ? 'QOP' : u;
+    }
+    function accRowKey(row) {
+      return String((row && row.nick) || '') + '\n' + String((row && row.level) || '');
+    }
+    function accessRowIsFlags(row) {
+      var sys = String((row && row.system) || '').toUpperCase();
+      return sys === 'FLAGS' || isFlagToken(row && row.level);
+    }
+    function accessRowIsXop(row) {
+      var sys = String((row && row.system) || '').toUpperCase();
+      return sys === 'XOP' || isXopName(row && row.level);
+    }
+    function canEditAccessRow(row) {
+      if (!canManageAccessRow(row) || accessRowIsFlags(row)) return false;
+      if (accessRowIsXop(row)) {
+        var cur = xopCmdOf(row && row.level);
+        return xopLevelsICanManage().some(function (lv) { return lv !== cur; });
+      }
+      return /^\d+$/.test(String((row && row.level) || ''));
     }
     function amChannelOp(chan) {
       try {
@@ -877,6 +945,7 @@
         else if (/peace|paix/.test(t)) on.PEACE = true;
         else if (/persist|persistant/.test(t)) on.PERSIST = true;
         else if (/private|prive/.test(t)) on.PRIVATE = true;
+        else if (/^official$|^officiel$|cs_official|salon officiel/.test(t)) on.OFFICIAL = true;
       });
       return on;
     }
@@ -1167,14 +1236,14 @@
       if (kind === 'info') {
         var info = parseInfo(text);
         patchUi({
-          loading: info.registered === true,
+          loading: info.registered === true && identified(),
           registered: info.registered,
           founder: info.founder,
           bot: info.bot,
           infoText: info.infoText,
           access: info.registered ? ui.access : 'none',
         });
-        if (info.registered) queryStatus(chan);
+        if (info.registered && identified()) queryStatus(chan);
         else {
           rememberCache(chan);
           expectKind = '';
@@ -1541,6 +1610,9 @@
         '.ocs-btn:hover{background:var(--bg-soft-2,var(--bg))}',
         '.ocs-btn--primary{background:var(--accent);color:#fff;border:0}',
         '.ocs-btn--warn{color:var(--danger,#b91c1c);border-color:color-mix(in srgb,var(--danger,#dc2626) 40%,var(--border))}',
+        '.ocs-btn:disabled{opacity:.45;cursor:not-allowed}',
+        '.ocs-btn:disabled:hover{background:var(--bg-soft)}',
+        '.ocs-btn--primary:disabled:hover{background:var(--accent)}',
         '.ocs-flash{font-size:.88rem;line-height:1.45;padding:.6rem .75rem;border-radius:12px;font-weight:650;',
         'color:var(--accent);background:var(--accent-soft);',
         'border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border))}',
@@ -1641,10 +1713,14 @@
         'padding:.35rem .6rem;color:var(--accent);background:var(--accent-soft)}',
         '.ocs-acc__pad{display:flex;flex-direction:column;gap:.5rem;padding:.55rem .65rem}',
         '.ocs-acc__pad .ocs-input,.ocs-acc__pad .ocs-select,.ocs-acc__pad .ocs-textarea{background:var(--bg)}',
-        '.ocs-acc__row{display:flex;align-items:center;gap:.45rem;',
+        '.ocs-acc__row{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;',
         'padding:.35rem .6rem;border-top:1px solid var(--border);font-size:.84rem}',
+        '.ocs-acc__row.is-edit{background:var(--accent-soft)}',
         '.ocs-acc__nick{font-weight:700;word-break:break-all;min-width:0;flex:1}',
         '.ocs-acc__type{flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-acc__acts{display:flex;align-items:center;gap:.3rem;flex:none;margin-left:auto}',
+        '.ocs-acc__edit{display:flex;align-items:center;gap:.35rem;flex:1 1 100%;min-width:0}',
+        '.ocs-acc__edit .ocs-select,.ocs-acc__edit .ocs-input{flex:1;min-width:0;max-width:none}',
         '.ocs-acc__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none}',
         '.ocs-th__row{display:flex;flex-direction:column;align-items:stretch;gap:.22rem;',
         'padding:.5rem .65rem;border-top:1px solid var(--border)}',
@@ -1783,6 +1859,7 @@
       else if (name === 'unlock') kids = [h('rect', { key: 'r', x: 5, y: 11, width: 14, height: 10, rx: 2 }), p('M8 11V7.5a4 4 0 0 1 8 0')];
       else if (name === 'users') kids = [p('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'), c(9, 7, 4), p('M22 21v-2a4 4 0 0 0-3-3.87'), p('M16 3.13a4 4 0 0 1 0 7.75')];
       else if (name === 'cog') kids = [c(12, 12, 3), p('M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1')];
+      else if (name === 'edit') kids = [p('M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z')];
       else if (name === 'more') kids = [c(5, 12, 1.4, 'currentColor'), c(12, 12, 1.4, 'currentColor'), c(19, 12, 1.4, 'currentColor')];
       else kids = [p('M12 5v14'), p('M5 12h14')];
       return h('svg', {
@@ -2682,6 +2759,12 @@
       var accLvlSt = useState('AOP');
       var accLvl = accLvlSt[0];
       var setAccLvl = accLvlSt[1];
+      var accEditKeySt = useState('');
+      var accEditKey = accEditKeySt[0];
+      var setAccEditKey = accEditKeySt[1];
+      var accEditLvlSt = useState('');
+      var accEditLvl = accEditLvlSt[0];
+      var setAccEditLvl = accEditLvlSt[1];
       var setTextSt = useState('');
       var setText = setTextSt[0];
       var setSetText = setTextSt[1];
@@ -2758,6 +2841,7 @@
         queryAccess(s.chan || chan);
         return undefined;
       }, [s.open, s.tab, s.chan, s.registered, s.access]);
+      useEffect(function () { setAccEditKey(''); }, [s.chan, s.tab]);
       useEffect(function () {
         if (!s.open || s.registered !== true) return undefined;
         if (s.tab === 'set') queryBotInfo(s.chan || chan);
@@ -2883,6 +2967,29 @@
       if (tab === 'divers' && !showDivers) tab = 'info';
       function goCs(line) { runCmd('ChanServ', line, true); }
       function goBs(line) { runCmd('BotServ', line, true); }
+      function applyAccessChange(row, newLv) {
+        var nick = String((row && row.nick) || '').trim();
+        var rlv = String((row && row.level) || '').toUpperCase();
+        newLv = String(newLv || '').trim().toUpperCase();
+        if (!nick || !newLv) return;
+        if (accessRowIsXop(row)) {
+          var fromLv = xopCmdOf(rlv);
+          var toLv = xopCmdOf(newLv);
+          if (!canManageXop(toLv) || fromLv === toLv) return;
+          goCs(fromLv + ' ' + ch + ' DEL ' + nick);
+          setTimeout(function () { goCs(toLv + ' ' + ch + ' ADD ' + nick); }, 400);
+          setAccEditKey('');
+          return;
+        }
+        if (/^\d+$/.test(String(row.level)) && /^\d+$/.test(newLv)) {
+          var mine = rank();
+          var n = parseInt(newLv, 10);
+          if (n < 1 || (mine < ACCESS_RANK.founder && n >= mine)) return;
+          if (n === parseInt(row.level, 10)) return;
+          goCs('ACCESS ' + ch + ' ADD ' + nick + ' ' + n);
+          setAccEditKey('');
+        }
+      }
       function csSet(opt, val) {
         goCs('SET ' + opt + ' ' + ch + (val != null && String(val) !== '' ? ' ' + val : ''));
       }
@@ -3373,24 +3480,87 @@
             } else {
               accList.push(h('div', { className: 'ocs-acclip' }, rows.map(function (row) {
                 var canDrop = canManageAccessRow(row);
-                return h('div', { key: (row.n || '') + row.nick + row.level, className: 'ocs-acc__row' },
-                  h('span', { className: 'ocs-acc__nick' }, row.nick),
-                  h('span', { className: 'ocs-pill ocs-acc__type', title: String(row.system || '') }, accessTypeLabel(row)),
-                  canDrop ? h('button', {
-                    type: 'button', className: 'ocs-btn',
-                    onClick: function () {
-                      var sys = String(row.system || '').toUpperCase();
-                      var rlv = String(row.level || '').toUpperCase();
-                      if (sys === 'FLAGS' || isFlagToken(row.level)) {
-                        goCs('FLAGS ' + ch + ' ' + row.nick + ' -*');
-                      } else if (sys === 'XOP' || isXopName(rlv)) {
-                        goCs((rlv === 'FOUNDER' ? 'QOP' : rlv) + ' ' + ch + ' DEL ' + row.nick);
-                      } else {
-                        goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
-                      }
-                    },
-                  }, pick('Retirer', 'Remove')) : null
-                );
+                var canEdit = canEditAccessRow(row);
+                var rowKey = accRowKey(row);
+                var editing = accEditKey === rowKey;
+                var rowKids = [h('span', { key: 'n', className: 'ocs-acc__nick' }, row.nick)];
+                if (editing) {
+                  var isNum = /^\d+$/.test(String(row.level || ''));
+                  var editCtrl = isNum
+                    ? h('input', {
+                      key: 'lv',
+                      className: 'ocs-input',
+                      type: 'number',
+                      min: 1,
+                      max: rank() >= ACCESS_RANK.founder ? 9999 : Math.max(1, rank() - 1),
+                      value: accEditLvl,
+                      onChange: function (e) { setAccEditLvl(e.target.value); },
+                    })
+                    : h('select', {
+                      key: 'lv',
+                      className: 'ocs-select',
+                      value: accEditLvl,
+                      onChange: function (e) { setAccEditLvl(e.target.value); },
+                    }, xopLevelsICanManage().map(function (lv) {
+                      return h('option', { key: lv, value: lv }, accLabels[lv] || lv);
+                    }));
+                  rowKids.push(h('div', { key: 'e', className: 'ocs-acc__edit' },
+                    editCtrl,
+                    h('button', {
+                      type: 'button',
+                      className: 'ocs-btn ocs-btn--primary',
+                      disabled: !accEditLvl || xopCmdOf(accEditLvl) === xopCmdOf(row.level),
+                      onClick: function () { applyAccessChange(row, accEditLvl); },
+                    }, pick('Enregistrer', 'Save')),
+                    h('button', {
+                      type: 'button', className: 'ocs-btn',
+                      onClick: function () { setAccEditKey(''); },
+                    }, pick('Annuler', 'Cancel'))
+                  ));
+                } else {
+                  rowKids.push(h('span', {
+                    key: 't',
+                    className: 'ocs-pill ocs-acc__type',
+                    title: String(row.system || ''),
+                  }, accessTypeLabel(row)));
+                  if (canEdit || canDrop) {
+                    var acts = [];
+                    if (canEdit) {
+                      acts.push(h('button', {
+                        key: 'mod',
+                        type: 'button',
+                        className: 'ocs-btn',
+                        onClick: function () {
+                          setAccEditKey(rowKey);
+                          setAccEditLvl(accessRowIsXop(row) ? xopCmdOf(row.level) : String(row.level || ''));
+                        },
+                      }, pick('Modifier', 'Edit')));
+                    }
+                    if (canDrop) {
+                      acts.push(h('button', {
+                        key: 'del',
+                        type: 'button',
+                        className: 'ocs-btn',
+                        onClick: function () {
+                          var sys = String(row.system || '').toUpperCase();
+                          var rlv = String(row.level || '').toUpperCase();
+                          if (sys === 'FLAGS' || isFlagToken(row.level)) {
+                            goCs('FLAGS ' + ch + ' ' + row.nick + ' -*');
+                          } else if (sys === 'XOP' || isXopName(rlv)) {
+                            goCs((rlv === 'FOUNDER' ? 'QOP' : rlv) + ' ' + ch + ' DEL ' + row.nick);
+                          } else {
+                            goCs('ACCESS ' + ch + ' DEL ' + (row.n || row.nick));
+                          }
+                        },
+                      }, pick('Retirer', 'Remove')));
+                    }
+                    rowKids.push(h('div', { key: 'a', className: 'ocs-acc__acts' }, acts));
+                  }
+                }
+                return h('div', {
+                  key: (row.n || '') + row.nick + row.level,
+                  className: 'ocs-acc__row' + (editing ? ' is-edit' : ''),
+                }, rowKids);
               })));
             }
           }
@@ -3734,6 +3904,11 @@
       if (foldText(name) !== foldText(ui.chan)) closePanel();
     });
     orbit.on('orbit:panel', function (id) {
+      if (id === 'chaninfo') {
+        var chan = orbit.state.active();
+        if (isChannel(chan)) queryPublicInfo(chan);
+        return;
+      }
       if (ui.host === 'chanadmin') return;
       if (id !== 'orbit-chanserv' && ui.open) closePanel();
     });
