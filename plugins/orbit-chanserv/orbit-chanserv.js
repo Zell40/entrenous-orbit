@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=91"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=92"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -195,7 +195,7 @@
       try { orbit.storage.set(SKIP_KEY, m); } catch (e) { /* ignore */ }
       notifyUi();
     }
-    function iAmOperator(chan) {
+    function myMember(chan) {
       try {
         var st = orbit.state.get();
         var buf = findBuffer(chan);
@@ -207,8 +207,21 @@
             if (!mem && foldText(n) === want) mem = members[n];
           });
         }
-        return /[~&@]/.test((mem && (mem.prefixes || mem.prefix)) || '');
-      } catch (e) { return false; }
+        return mem || null;
+      } catch (e) { return null; }
+    }
+    function myPrefixes(chan) {
+      var mem = myMember(chan);
+      return (mem && (mem.prefixes || mem.prefix)) || '';
+    }
+    function iAmOperator(chan) {
+      return /[~&@]/.test(myPrefixes(chan));
+    }
+    function accessFromPrefix(chan) {
+      var p = myPrefixes(chan);
+      if (p.indexOf('~') >= 0) return 'founder';
+      if (p.indexOf('&') >= 0) return 'sop';
+      return '';
     }
     function scheduleRegisterOffer(chan, delay) {
       if (!isChannel(chan) || !identified()) return;
@@ -292,9 +305,10 @@
       var keys = nickKeys(nick);
       var best = '';
       var bestR = 0;
+      var selfAcc = foldText(nick) === foldText(orbit.state.nick() || '') ? orbit.state.account() : '';
       (ui.accessList || []).forEach(function (row) {
         var k = foldText(row.nick);
-        if (keys.indexOf(k) < 0) return;
+        if (keys.indexOf(k) < 0 && !entryMatchesUser(row.nick, nick, selfAcc)) return;
         var lv = String(row.level || '');
         var r = ACCESS_RANK[lv.toLowerCase()] || 0;
         if (!r && /^\d+$/.test(lv)) {
@@ -573,9 +587,11 @@
     function applyCache(chan) {
       var c = cache[chan.toLowerCase()];
       if (!c || Date.now() - c.ts > CACHE_MS) return false;
+      if (c.registered == null) return false;
+      var acc = c.registered ? betterAccess(chan, '', c.founder, ui.accessList) : (c.access || 'none');
       patchUi({
         chan: chan, loading: false, registered: c.registered, founder: c.founder,
-        bot: c.bot, access: c.access, infoText: c.infoText, flash: '',
+        bot: c.bot, access: acc, infoText: c.infoText, flash: '',
         botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [],
       });
       return true;
@@ -591,8 +607,13 @@
       expectTimer = setTimeout(function () {
         expectTimer = 0;
         if (!expectKind) return;
+        var kind = expectKind;
         expectKind = '';
-        patchUi({ loading: false });
+        var extra = { loading: false };
+        if ((kind === 'status' || kind === 'info') && ui.registered !== false) {
+          extra.access = betterAccess(ui.chan, '', ui.founder, ui.accessList);
+        }
+        patchUi(extra);
       }, HIDE_MS);
     }
     function endExpect() {
@@ -601,11 +622,76 @@
     }
 
     function founderMatch(founder) {
-      var f = foldText(founder);
-      if (!f) return false;
-      var me = foldText(orbit.state.nick() || '');
-      var acc = foldText(orbit.state.account() || '');
-      return (me && f === me) || (acc && f === acc);
+      return entryMatchesUser(founder, orbit.state.nick(), orbit.state.account());
+    }
+    function accessEntryNick(entry) {
+      var s = String(entry || '');
+      var bang = s.indexOf('!');
+      return bang > 0 ? s.slice(0, bang) : s;
+    }
+    function globToRe(glob) {
+      var g = String(glob || '');
+      var out = '';
+      for (var i = 0; i < g.length; i++) {
+        var ch = g.charAt(i);
+        if (ch === '*') out += '.*';
+        else if (ch === '?') out += '.';
+        else out += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      }
+      return new RegExp('^' + out + '$', 'i');
+    }
+    function entryMatchesUser(entry, nick, account) {
+      var raw = String(entry || '').trim();
+      if (!raw) return false;
+      var me = foldText(nick);
+      var acc = foldText(account);
+      var nf = foldText(accessEntryNick(raw));
+      if (!nf || nf === '*') return false;
+      if (nf.indexOf('*') < 0 && nf.indexOf('?') < 0) {
+        return (me && nf === me) || (acc && nf === acc);
+      }
+      try {
+        var re = globToRe(nf);
+        return (me && re.test(String(nick || ''))) || (acc && re.test(String(account || '')));
+      } catch (e) { return false; }
+    }
+    function accessFromList(list) {
+      var nick = orbit.state.nick();
+      var account = orbit.state.account();
+      var best = '';
+      var bestR = 0;
+      (list || []).forEach(function (row) {
+        if (!entryMatchesUser(row && row.nick, nick, account)) return;
+        var r = accessRankOf(row.level);
+        if (r > bestR) {
+          bestR = r;
+          best = r >= ACCESS_RANK.founder ? 'founder' : String(xopCmdOf(row.level) || '').toLowerCase();
+        }
+      });
+      return best;
+    }
+    function accessLabelOfRank(r) {
+      if (r >= ACCESS_RANK.founder) return 'founder';
+      if (r >= ACCESS_RANK.sop) return 'sop';
+      if (r >= ACCESS_RANK.aop) return 'aop';
+      if (r >= ACCESS_RANK.hop) return 'hop';
+      if (r >= ACCESS_RANK.vop) return 'vop';
+      return 'none';
+    }
+    function betterAccess(chan, statusText, founder, list) {
+      var acc = parseAccess(statusText || '') || '';
+      if (acc === 'qop') acc = 'founder';
+      var r = ACCESS_RANK[acc] || 0;
+      if (founderMatch(founder || ui.founder)) r = Math.max(r, ACCESS_RANK.founder);
+      var fromList = accessFromList(list || ui.accessList);
+      if (fromList) r = Math.max(r, ACCESS_RANK[fromList] || 0);
+      var px = accessFromPrefix(chan || ui.chan);
+      if (px) r = Math.max(r, ACCESS_RANK[px] || 0);
+      return r ? accessLabelOfRank(r) : (acc || 'none');
+    }
+    function commitAccessList(rows) {
+      var acc = betterAccess(ui.chan, '', ui.founder, rows);
+      patchUi({ accessList: rows || [], accessLoading: false, loading: false, access: acc });
     }
 
     function applyProbeTexts(chan, infoText, statusText) {
@@ -613,11 +699,10 @@
       if (isUnregisteredText(statusText || '')) info.registered = false;
       var acc = 'none';
       if (info.registered) {
-        acc = parseAccess(statusText || '') || 'none';
-        if (founderMatch(info.founder)) acc = 'founder';
+        acc = betterAccess(chan, statusText || '', info.founder, ui.accessList);
       }
       patchUi({
-        loading: false,
+        loading: info.registered && (ACCESS_RANK[acc] || 0) < ACCESS_RANK.founder,
         registered: info.registered,
         founder: info.founder,
         bot: info.bot,
@@ -627,10 +712,11 @@
       rememberCache(chan);
       expectKind = '';
       if (info.registered && isSkipped(chan)) setSkipped(chan, false);
+      if (info.registered && (ACCESS_RANK[acc] || 0) < ACCESS_RANK.founder) queryStatus(chan);
     }
 
     function queryInfo(chan, opts) {
-      if (!isChannel(chan) || !identified()) {
+      if (!isChannel(chan)) {
         patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [] });
         return;
       }
@@ -638,6 +724,11 @@
       var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [] };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
+      if (!identified()) {
+        beginExpect('info', chan);
+        cs('INFO ' + chan);
+        return;
+      }
       rpcCall('probe', chan).then(function (data) {
         if (ui.chan !== chan) return;
         if (data && data.ok && (data.info || data.status)) {
@@ -706,7 +797,7 @@
       return /syntaxe:\s*access|\bsyntax:\s*access|unknown command|commande inconnue|no such command/.test(t);
     }
     function queryAccess(chan, force) {
-      if (!isChannel(chan) || !identified()) return;
+      if (!isChannel(chan)) return;
       var key = String(chan).toLowerCase();
       if (!force && accessFetched === key && ui.accessList.length) return;
       accessFetched = key;
@@ -714,18 +805,23 @@
       rpcCall('access', chan).then(function (data) {
         if (ui.chan && String(ui.chan).toLowerCase() !== key) return;
         if (data && data.ok && data.list != null && String(data.list) !== '' && !looksLikeAccessHelp(data.list)) {
-          patchUi({ accessList: parseAccessList(data.list), accessLoading: false });
-          expectKind = '';
-          return;
+          var parsed = parseAccessList(data.list);
+          if (parsed.length) {
+            commitAccessList(parsed);
+            expectKind = '';
+            return;
+          }
         }
         if (data && data.ok && data.lists) {
           var rows = [];
           ['QOP', 'SOP', 'AOP', 'HOP', 'VOP'].forEach(function (lv) {
             rows = rows.concat(parseXopList(data.lists[lv], lv));
           });
-          patchUi({ accessList: rows, accessLoading: false });
-          expectKind = '';
-          return;
+          if (rows.length) {
+            commitAccessList(rows);
+            expectKind = '';
+            return;
+          }
         }
         beginExpect('accesslist', chan);
         cs('ACCESS ' + chan + ' LIST * ALL');
@@ -754,10 +850,10 @@
     function parseAccess(text) {
       var t = foldText(text);
       if (/pas (d[' ]?)?acces|no(t)? (have )?access|don't have access|dont have access|aucun acces/.test(t)
-        && !/fondateur|founder|sop|aop|hop|vop|niveau|level/.test(t)) {
+        && !/fondateur|founder|qop|sop|aop|hop|vop|niveau|level/.test(t)) {
         return 'none';
       }
-      if (/fondateur|founder/.test(t)) return 'founder';
+      if (/fondateur|founder|\bqop\b/.test(t)) return 'founder';
       if (/\bsop\b/.test(t)) return 'sop';
       if (/\baop\b/.test(t)) return 'aop';
       if (/\bhop\b/.test(t) || /halfop/.test(t)) return 'hop';
@@ -1238,14 +1334,14 @@
       if (kind === 'info') {
         var info = parseInfo(text);
         patchUi({
-          loading: info.registered === true && identified(),
+          loading: info.registered === true,
           registered: info.registered,
           founder: info.founder,
           bot: info.bot,
           infoText: info.infoText,
-          access: info.registered ? ui.access : 'none',
+          access: info.registered ? betterAccess(chan, '', info.founder, ui.accessList) : 'none',
         });
-        if (info.registered && identified()) queryStatus(chan);
+        if (info.registered) queryStatus(chan);
         else {
           rememberCache(chan);
           expectKind = '';
@@ -1253,10 +1349,7 @@
         return;
       }
       if (kind === 'status') {
-        var acc = parseAccess(text) || 'none';
-        var me = foldText(orbit.state.nick() || '');
-        var founder = foldText(ui.founder);
-        if (founder && me && founder === me) acc = 'founder';
+        var acc = betterAccess(chan, text, ui.founder, ui.accessList);
         patchUi({ access: acc, loading: false });
         rememberCache(chan);
         expectKind = '';
@@ -1356,7 +1449,7 @@
           cs(xopQueue[0] + ' ' + chan + ' LIST');
           return;
         }
-        patchUi({ accessList: accRows, accessLoading: false, loading: false });
+        commitAccessList(accRows);
         expectKind = '';
         return;
       }
@@ -1368,7 +1461,7 @@
           cs(xopQueue[0] + ' ' + chan + ' LIST');
           return;
         }
-        patchUi({ accessList: xopRows.slice(), accessLoading: false });
+        commitAccessList(xopRows.slice());
         expectKind = '';
         return;
       }
@@ -2119,17 +2212,25 @@
 
     function PanelHost() {
       var chan = useActiveBuffer();
+      var acc = useSyncExternalStore(
+        function (cb) {
+          var off = orbit.on('status', cb);
+          return function () { if (typeof off === 'function') off(); };
+        },
+        function () { return orbit.state.account() || ''; },
+        function () { return orbit.state.account() || ''; }
+      );
       useEffect(function () {
         patchUi({ open: true, host: 'chanadmin' });
-        if (isChannel(chan) && identified()) queryInfo(chan);
+        if (isChannel(chan)) queryInfo(chan);
         return function () {
           if (ui.host === 'chanadmin') patchUi({ open: false, host: '' });
         };
       }, []);
       useEffect(function () {
         if (ui.host !== 'chanadmin') return;
-        if (isChannel(chan) && identified()) queryInfo(chan);
-      }, [chan]);
+        if (isChannel(chan)) queryInfo(chan);
+      }, [chan, acc]);
       return h(Panel, { embedded: true });
     }
 
@@ -2331,7 +2432,7 @@
       var me = foldText(orbit.state.nick() || '');
       var serv = s.registered === true && can(ACCESS_RANK.vop);
       var ircOp = amChannelOp(chan);
-      if (!isChannel(chan) || !identified()) return null;
+      if (!isChannel(chan) || !(identified() || accessFromPrefix(chan) || rank())) return null;
       if (me && foldText(nick) === me) return null;
       if (!serv && !ircOp) return null;
       var ch = s.chan || chan;
@@ -2838,11 +2939,11 @@
         return undefined;
       }, [s.open, s.tab, s.chan, chan]);
       useEffect(function () {
-        if (!s.open || s.tab !== 'access' || s.registered !== true) return undefined;
+        if (!s.open || s.registered !== true) return undefined;
         if ((ACCESS_RANK[s.access] || 0) < ACCESS_RANK.sop) return undefined;
         queryAccess(s.chan || chan);
         return undefined;
-      }, [s.open, s.tab, s.chan, s.registered, s.access]);
+      }, [s.open, s.chan, s.registered, s.access]);
       useEffect(function () { setAccEditKey(''); }, [s.chan, s.tab]);
       useEffect(function () {
         if (!s.open || s.registered !== true) return undefined;
@@ -3036,6 +3137,13 @@
           : pick('Interrogation de ChanServ…', 'Asking ChanServ…')
       ));
       var body = [];
+      if (s.registered == null && !s.loading) {
+        body.push(h('p', { className: 'ocs-sub' }, pick(
+          'ChanServ n’a pas encore répondu pour ce salon. Actualisez pour charger l’accès (y compris un masque du type nick!*@*).',
+          'ChanServ has not replied for this channel yet. Refresh to load access (including nick!*@* masks).'
+        )));
+        pushBtn(body, 'primary', function () { queryInfo(ch); }, 'info', pick('Actualiser', 'Refresh'));
+      }
       if (s.registered === false) {
         body.push(h(Field, { label: pick('Description (optionnel)', 'Description (optional)') },
           h('input', {

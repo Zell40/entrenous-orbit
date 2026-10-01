@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 22;
+  var ORX_VER = 23;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -425,8 +425,10 @@
         '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .28rem 0 0;visibility:hidden}',
         '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set,.ohp-head__actions > .orx.orx--set,.oec-head__actions > .orx.orx--set,.opbac-head__actions > .orx.orx--set{visibility:visible}',
         '.orx--game .orx__stack,.orx--game .orx__arch{display:none}',
-        '.orx-arch-layer{position:fixed;z-index:400;width:min(360px,92vw);max-height:min(70vh,520px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0;pointer-events:auto}',
+        '.orx-arch-layer{position:fixed;z-index:400;box-sizing:border-box;width:min(360px,92vw);max-height:min(70vh,520px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:.45rem;pointer-events:auto;border-radius:16px;background:color-mix(in srgb,#0b1220 88%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 18px 40px rgba(0,0,0,.45)}',
+        '.orx-arch-layer .orx__arch{width:100%;max-height:none;overflow:visible;padding:0}',
         '.orx-arch-layer[hidden]{display:none!important}',
+        '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none}.ohp-head__actions>.orx .orx__chip,.oec-head__actions>.orx .orx__chip,.opbac-head__actions>.orx .orx__chip,.ohp-head>.orx .orx__chip,.oec-head>.orx .orx__chip,.opbac-head>.orx .orx__chip{padding:.22rem .5rem;font-size:.66rem;max-width:36vw}.main>.orx{width:min(280px,86vw);right:.45rem}}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
         '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
         '.orx__stack{display:flex;flex-direction:column;align-items:flex-end;width:100%}',
@@ -767,12 +769,13 @@
       var badge = n ? '<span class="orx__n">' + (n > 9 ? '9+' : String(n)) + '</span>' : '';
       var close = ui.archive ? '<span class="orx__chip-x" aria-hidden="true">×</span>' : '';
       var game = root.classList.contains('orx--game');
+      var portal = game || isNarrow();
       root.innerHTML =
         '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '">' +
           esc(pick({ fr: 'Actualités', en: 'News' })) + badge + close +
         '</button>' +
         (ui.archive || game ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
-        (game ? '' : archiveHtml(chan));
+        (portal ? '' : archiveHtml(chan));
     }
 
     function onRootClick(ev) {
