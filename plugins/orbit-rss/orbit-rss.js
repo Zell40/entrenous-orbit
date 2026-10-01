@@ -831,10 +831,19 @@
       return box;
     }
 
+    function isNarrow() {
+      return window.innerWidth < 880;
+    }
+
     function hideArchLayer() {
       if (!archLayer) return;
       archLayer.hidden = true;
       archLayer.innerHTML = '';
+      archLayer.removeAttribute('data-orx');
+    }
+
+    function useArchLayer() {
+      return !!(root && root.classList.contains('orx--set') && (root.classList.contains('orx--game') || isNarrow()));
     }
 
     function pinArchLayer(chan) {
@@ -846,7 +855,7 @@
         archLayer.addEventListener('click', onRootClick);
         document.body.appendChild(archLayer);
       }
-      if (!ui.archive || !root || !root.classList.contains('orx--game') || !root.classList.contains('orx--set')) {
+      if (!ui.archive || !root || !useArchLayer()) {
         hideArchLayer();
         return;
       }
@@ -863,10 +872,29 @@
         archLayer.setAttribute('data-orx', key);
         archLayer.scrollTop = keep;
       }
+      var vv = window.visualViewport;
+      var vw = Math.round((vv && vv.width) || window.innerWidth);
+      var vh = Math.round((vv && vv.height) || window.innerHeight);
+      var topOff = vv ? Math.round(vv.offsetTop || 0) : 0;
+      var head = root.closest('.ohp-head, .oec-head, .opbac-head');
+      var headBox = shownBox(head);
+      var top = Math.round((headBox ? headBox.bottom : box.bottom) + 8);
+      var maxH = Math.max(140, vh + topOff - top - 16);
       archLayer.hidden = false;
-      archLayer.style.top = Math.round(box.bottom + 8) + 'px';
-      archLayer.style.right = Math.max(8, Math.round(window.innerWidth - box.right)) + 'px';
-      archLayer.style.left = 'auto';
+      archLayer.style.top = top + 'px';
+      archLayer.style.maxHeight = maxH + 'px';
+      if (isNarrow()) {
+        archLayer.style.left = '8px';
+        archLayer.style.right = '8px';
+        archLayer.style.width = 'auto';
+      } else {
+        var width = Math.min(360, vw - 16);
+        var right = Math.max(8, Math.round(vw - box.right));
+        if (vw - right - width < 8) right = Math.max(8, vw - width - 8);
+        archLayer.style.left = 'auto';
+        archLayer.style.right = right + 'px';
+        archLayer.style.width = width + 'px';
+      }
     }
 
     function conceal() {
