@@ -425,17 +425,21 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__grid::-webkit-scrollbar-thumb,.rg__list::-webkit-scrollbar-thumb{background:var(--border,#333);border-radius:6px;background-clip:padding-box}
     .rg__grid::-webkit-scrollbar-thumb:hover,.rg__list::-webkit-scrollbar-thumb:hover{background:var(--muted,#9aa);background-clip:padding-box}
     .rg__tile{position:relative;height:128px;min-width:0;border-radius:13px;border:1px solid var(--border,#333);background-size:cover;background-position:center;cursor:pointer;overflow:hidden;padding:0;display:flex;flex-direction:column;justify-content:flex-end;color:#fff;text-align:left}
+    .rg__tile.is-open{border-color:var(--accent,#1452cc);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#1452cc) 42%,transparent)}
     .rg__tile-shade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 28%,rgba(0,0,0,.8));pointer-events:none}
+    .rg__open{position:absolute;top:.4rem;right:.4rem;z-index:1;font-size:.62rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:.2rem .5rem;border-radius:999px;background:var(--accent,#1452cc);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
     .rg__tile-foot{position:relative;display:flex;align-items:flex-end;justify-content:space-between;gap:.35rem;width:100%;box-sizing:border-box;padding:.45rem .5rem}
     .rg__tile-name{flex:1;min-width:0;font-weight:800;font-size:.85rem;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.7);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
     .rg__tile-users{flex:none;display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;opacity:.95;text-shadow:0 1px 3px rgba(0,0,0,.6)}
     .rg__list{max-height:min(58vh,540px);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:.15rem;padding:.05rem .4rem .05rem .05rem}
     .rg__row{display:flex;align-items:center;gap:.7rem;padding:.55rem;border-radius:11px;border:1px solid transparent;background:transparent;color:var(--ink,inherit);cursor:pointer;text-align:left;width:100%;box-sizing:border-box}
     .rg__row:hover{background:var(--bg-soft,#0e0e12);border-color:var(--border,#333)}
+    .rg__row.is-open{background:color-mix(in srgb,var(--accent,#1452cc) 12%,var(--bg,transparent));border-color:color-mix(in srgb,var(--accent,#1452cc) 40%,var(--border,#333))}
     .rg__row-av{flex:none;width:38px;height:38px;border-radius:11px;background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff}
     .rg__row-main{flex:1;min-width:0}
     .rg__row-name{font-weight:700;font-size:.92rem}
     .rg__row-topic{font-size:.78rem;color:var(--muted,#9aa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rg__row-open{flex:none;font-size:.65rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:.2rem .5rem;border-radius:999px;background:var(--accent,#1452cc);color:#fff}
     .rg__row-users{flex:none;display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;font-weight:700;color:var(--muted,#9aa)}
     .rg__create{margin-top:.1rem;display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;border:1px dashed var(--border,#333);background:var(--bg-soft,#0e0e12);color:var(--muted,#9aa);border-radius:11px;padding:.65rem;cursor:pointer;font:inherit;font-size:.85rem}
     .rg__pager{display:flex;align-items:center;justify-content:center;gap:.9rem;padding-top:.15rem}
@@ -489,9 +493,36 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   document.head.appendChild(css);
 
   // ---- the gallery itself: a drop-in replacement for the core Explore window ----
-  function GridTile({ c, img, onJoin }) {
+  const pendingOpen = new Map();
+  function openLabel() {
+    return orbit.i18n.pick({ fr: 'Ouvert', en: 'Open' });
+  }
+  function findRoomBuffer(name) {
+    const st = orbit.state.get();
+    const buffers = (st && st.buffers) || {};
+    const key = normChan(name);
+    if (buffers[key]) return buffers[key];
+    const names = Object.keys(buffers);
+    for (let i = 0; i < names.length; i++) {
+      if (normChan(names[i]) === key || normChan(buffers[names[i]].name) === key) return buffers[names[i]];
+    }
+    return null;
+  }
+  function isRoomOpen(name) {
+    const key = normChan(name);
+    const b = findRoomBuffer(name);
+    if (b && b.isChannel && b.joined) { pendingOpen.delete(key); return true; }
+    const since = pendingOpen.get(key);
+    if (since && Date.now() - since < 15000) return true;
+    if (since) pendingOpen.delete(key);
+    return false;
+  }
+  function markOpening(name) { pendingOpen.set(normChan(name), Date.now()); }
+
+  function GridTile({ c, img, onJoin, open }) {
     const bg = img ? { backgroundImage: `url(${img})` } : { background: avatarBg(c.name || '?') };
-    return html`<button class="rg__tile" style=${bg} onClick=${onJoin}>
+    return html`<button class=${'rg__tile' + (open ? ' is-open' : '')} style=${bg} onClick=${onJoin} aria-pressed=${open}>
+      ${open ? html`<span class="rg__open">${openLabel()}</span>` : null}
       <span class="rg__tile-shade"></span>
       <span class="rg__tile-foot">
         <span class="rg__tile-name">${c.name || '?'}</span>
@@ -499,13 +530,14 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       </span>
     </button>`;
   }
-  function ListRow({ c, img, onJoin }) {
-    return html`<button class="rg__row" onClick=${onJoin}>
+  function ListRow({ c, img, onJoin, open }) {
+    return html`<button class=${'rg__row' + (open ? ' is-open' : '')} onClick=${onJoin} aria-pressed=${open}>
       <span class="rg__row-av" style=${img ? { backgroundImage: `url(${img})` } : { background: avatarBg(c.name || '?') }}>${img ? '' : '#'}</span>
       <span class="rg__row-main">
         <div class="rg__row-name">${c.name || '?'}</div>
         <div class="rg__row-topic">${stripMirc(c.topic) || t('modals.join.noTopic')}</div>
       </span>
+      ${open ? html`<span class="rg__row-open">${openLabel()}</span>` : null}
       <span class="rg__row-users"><span class="rg__dot"></span>${c.users ?? 0}</span>
     </button>`;
   }
@@ -576,7 +608,17 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       if (!s0.listLoading && !s0.channels.length) requestRefresh();
       const offRaw = orbit.on('raw', (msg) => {
         if (msg.command === '321' || msg.command === '322' || msg.command === '323') force((x) => x + 1);
+        const me = (orbit.state.nick() || '').toLowerCase();
+        if ((msg.command === 'JOIN' || msg.command === 'PART') && (msg.nick || '').toLowerCase() === me) {
+          if (msg.command === 'PART') pendingOpen.delete(normChan(msg.params[0] || ''));
+          force((x) => x + 1);
+        }
+        if (msg.command === 'KICK' && (msg.params[1] || '').toLowerCase() === me) {
+          pendingOpen.delete(normChan(msg.params[0] || ''));
+          force((x) => x + 1);
+        }
       });
+      const offActive = orbit.on('buffer.active', () => force((x) => x + 1));
       // Watchdog: if a LIST never resolves (dropped by the server, flood
       // protection, network hiccup — no 323 ever arrives), listLoading would
       // otherwise spin forever with no way out. Only ticks while genuinely
@@ -586,7 +628,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
         const s = orbit.state.get();
         if (s.listLoading && !s.channels.length) force((x) => x + 1);
       }, 2000);
-      return () => { offRaw(); clearInterval(id); };
+      return () => { offRaw(); offActive(); clearInterval(id); };
     }, []);
 
     useEffect(() => {
@@ -603,7 +645,11 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     function setViewMode(v) { setView(v); orbit.storage.set('view', v); setPage(0); }
     function setSortMode(v) { setSort(v); setPage(0); }
     function onSearch(v) { setQ(v); setPage(0); }
-    function join(name) { orbit.irc.join(name); }
+    function join(name) {
+      markOpening(name);
+      force((x) => x + 1);
+      orbit.irc.join(name);
+    }
     function submitSearch() {
       const needle = q.trim();
       if (!needle) return;
@@ -693,8 +739,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       ${!st.listLoading && !rows.length && !canCreate ? html`<div class="rg__empty">${query ? t('modals.join.emptyFound') : t('modals.join.emptyNone')}</div>` : null}
       ${pageRows.length
         ? (view === 'grid'
-          ? html`<div class="rg__grid">${pageRows.map((c, i) => html`<${GridTile} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} onJoin=${() => join(c.name)} />`)}</div>`
-          : html`<div class="rg__list">${pageRows.map((c, i) => html`<${ListRow} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} onJoin=${() => join(c.name)} />`)}</div>`)
+          ? html`<div class="rg__grid">${pageRows.map((c, i) => html`<${GridTile} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`
+          : html`<div class="rg__list">${pageRows.map((c, i) => html`<${ListRow} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`)
         : null}
 
       ${totalPages > 1 ? html`<div class="rg__pager">
