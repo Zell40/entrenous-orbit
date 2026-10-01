@@ -642,6 +642,21 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       return () => ro.disconnect();
     }, [q]);
 
+    // Older Orbit shells autofocus the first field; on Android that opens the
+    // keyboard over the room grid. Drop focus after the shell's own effect.
+    useEffect(() => {
+      const hideKb = () => {
+        const el = searchRef.current;
+        if (!el) return;
+        if (document.activeElement === el) el.blur();
+        const card = el.closest('.modal');
+        if (card && typeof card.focus === 'function') card.focus();
+      };
+      hideKb();
+      const t = window.setTimeout(hideKb, 0);
+      return () => clearTimeout(t);
+    }, []);
+
     function setViewMode(v) { setView(v); orbit.storage.set('view', v); setPage(0); }
     function setSortMode(v) { setSort(v); setPage(0); }
     function onSearch(v) { setQ(v); setPage(0); }
@@ -764,7 +779,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   function openGallery() {
     let close;
     close = orbit.modal(() => html`<${GalleryBody} close=${() => close()} />`,
-      { title: t('modals.join.title'), wide: true });
+      { title: t('modals.join.title'), wide: true, autoFocus: false });
   }
 
   // ---- intercept the two DOM entry points, before the core's own handler ----
@@ -798,6 +813,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        const ae = document.activeElement;
+        if (ae && ae !== btn && typeof ae.blur === 'function') ae.blur();
         openGallery();
       });
     }
