@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 86;
+  var PBAC_VER = 84;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -28,10 +28,10 @@
   var lobbyWaiting = false;
   var lobbyRetryTimer = 0;
   var lobbyRetryCount = 0;
-  var lobbyRetryTab = '';
-  var LOBBY_RETRY_MAX = 10;
-  var LOBBY_RETRY_MS = 1600;
+  var lobbyRetryFailed = false;
+  var LOBBY_RETRY_MAX = 12;
   var STORAGE_TOP_N = 'opbacTopN';
+  var statLookupNick = '';
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1473,7 +1473,7 @@
       lobbySummary: '',
       lobbyRanking: [],
       lobbyHistory: [],
-      lobbyLoaded: false,
+      scoresLoaded: false,
       endNotes: [],
       starter: '',
       statCard: null,
@@ -2369,6 +2369,25 @@
       '.opbac-idle__stats-card{margin:0 0 .35rem;padding:.4rem .5rem;border-radius:10px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
       '.opbac-idle__stats-sum{margin:0;font-size:.84rem;font-weight:700;color:var(--ink,#222);line-height:1.4}',
       '.opbac-idle__stats-empty{margin:0;font-size:.8rem;color:var(--muted,#666);font-weight:600}',
+      '.opbac-recap-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.55rem;min-height:12rem;flex:1 1 auto;padding:1.1rem .6rem;text-align:center;font-size:.82rem;font-weight:700;color:var(--muted,#666);line-height:1.4}',
+      '.opbac-recap-wait .opbac-refresh{width:1.85rem;height:1.85rem}',
+      '.opbac-recap-wait__retry{border:0;border-radius:999px;padding:.4rem .9rem;font-size:.76rem;font-weight:800;cursor:pointer;background:#4f46e5;color:#fff;min-height:34px}',
+      '.opbac-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin:0 0 .55rem}',
+      '.opbac-stat-grid .opbac-sum__chip{padding:.55rem .4rem}',
+      '.opbac-stat-grid .opbac-sum__n{font-size:1.28rem}',
+      '.opbac-idle__stats-meta{margin:.1rem 0 .55rem;font-size:.68rem;font-weight:700;color:var(--muted,#666)}',
+      '.opbac-lookup{display:flex;gap:.3rem;margin:.15rem 0 .35rem;align-items:stretch}',
+      '.opbac-lookup input{flex:1;min-width:0;border:1px solid var(--border,#ccc);border-radius:9px;padding:.4rem .5rem;font-size:.8rem;font-weight:700;min-height:36px;background:var(--bg,#fff);color:var(--ink,#111)}',
+      '.opbac-lookup button,.opbac-top-n button,.opbac-lookup__back{border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:9px;padding:.35rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:36px}',
+      '.opbac-lookup button{background:#4f46e5;color:#fff;border-color:#4f46e5}',
+      '.opbac-lookup__back{width:100%;margin:.15rem 0 .45rem}',
+      '.opbac-top-n{display:flex;flex-wrap:wrap;gap:.25rem;margin:0 0 .5rem}',
+      '.opbac-top-n button.opbac-top-n--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
+      '.opbac-rank__nick[data-act]{border:0;background:none;padding:0;font:inherit;font-weight:800;cursor:pointer;text-align:left;color:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.opbac-rank__nick[data-act]:hover{color:#4f46e5;text-decoration:underline}',
+      '.opbac-recap__body .opbac-rank{gap:.28rem}',
+      '.opbac-recap__body .opbac-rank__row{padding:.5rem .55rem}',
+      '.opbac-recap__body .opbac-hist{flex:1 1 auto}',
       '.opbac-sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:0 0 .45rem}',
       '.opbac-sum__chip{padding:.4rem .45rem;border-radius:12px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));text-align:center}',
       '.opbac-sum__n{display:block;font-size:1.2rem;font-weight:900;color:#4338ca;font-variant-numeric:tabular-nums}',
@@ -3561,51 +3580,10 @@
     return escHandler;
   }
 
-  function buildStatCardHtml(card) {
-    if (!card) {
-      return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
-        fr: 'Chargement des statistiques…',
-        en: 'Loading stats…',
-      })) + '</p>';
-    }
-    if (card.kind === 'player' && card.ok === false) {
-      return '<p class="opbac-idle__stats-empty">' + escHtml(pick({
-        fr: 'Aucun historique pour ce joueur.',
-        en: 'No history for this player.',
-      })) + '</p>';
-    }
-    var title = card.kind === 'player' && card.nick
-      ? pick({ fr: 'Stats de ', en: 'Stats for ' }) + card.nick
-      : pick({ fr: 'Statistiques globales', en: 'Global stats' });
-    return '<p class="opbac-idle__stats-h">' + escHtml(title) + '</p>' +
-      '<div class="opbac-idle__stats-card"><p class="opbac-dock-stat">' +
-        escHtml(pick({ fr: 'Parties', en: 'Games' }) + ' : ' + (card.games || '0')) + '<br>' +
-        escHtml(pick({ fr: 'Manches', en: 'Rounds' }) + ' : ' + (card.rounds || '0')) + '<br>' +
-        escHtml(pick({ fr: 'Mots validés', en: 'Words' }) + ' : ' + (card.words || '0')) + '<br>' +
-        escHtml(pick({ fr: 'Full combos', en: 'Full combos' }) + ' : ' + (card.combos || '0')) + '<br>' +
-        escHtml(pick({ fr: 'Points', en: 'Points' }) + ' : ' + (card.pts || '0')) +
-      '</p></div>';
-  }
-
   function buildDockBodyHtml(kind, game, myNick) {
     if (kind === 'scores') return buildIdleStatsHtml(game || defaultState(), myNick);
     if (kind === 'stats') return buildStatCardHtml(game && game.statCard);
-    if (kind === 'top') {
-      var rows = (game && game.topGlobal) || [];
-      if (!rows.length) {
-        if (game && game.topLoaded) {
-          return '<p class="opbac-end__empty">' + escHtml(pick({
-            fr: 'Aucun classement pour le moment.',
-            en: 'No ranking yet.',
-          })) + '</p>';
-        }
-        return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
-          fr: 'Chargement du classement…',
-          en: 'Loading ranking…',
-        })) + '</p>';
-      }
-      return buildRankingTableHtml(capTopGlobal(rows), myNick);
-    }
+    if (kind === 'top') return buildTopRecapHtml(game, myNick);
     return '';
   }
 
@@ -4063,6 +4041,95 @@
     sendPbCmd(orbit, buffer, 'jeu', 'liste');
   }
 
+  function currentTopLimit() {
+    var n = 10;
+    try {
+      if (pluginOrbit) n = Number(pluginOrbit.storage.get(STORAGE_TOP_N, 10)) || 10;
+    } catch (e) { /* ignore */ }
+    return Math.max(5, Math.min(TOP_GLOBAL_MAX, Math.round(n)));
+  }
+
+  function setTopLimit(n) {
+    n = Math.max(5, Math.min(TOP_GLOBAL_MAX, Math.round(Number(n) || 10)));
+    try { if (pluginOrbit) pluginOrbit.storage.set(STORAGE_TOP_N, String(n)); } catch (e) { /* ignore */ }
+    return n;
+  }
+
+  function recapWaitHtml(label, failed) {
+    return '<div class="opbac-recap-wait">' +
+      (failed ? '' : refreshSpinnerHtml()) +
+      '<p>' + escHtml(label) + '</p>' +
+      (failed
+        ? ('<button type="button" class="opbac-recap-wait__retry" data-act="lobby-retry">' +
+            escHtml(pick({ fr: 'Réessayer', en: 'Retry' })) + '</button>')
+        : '') +
+      '</div>';
+  }
+
+  function lobbyDataReady(game, tab) {
+    tab = tab || currentLobbyTab();
+    if (!game) return false;
+    if (tab === 'stats') return !!game.statCard;
+    if (tab === 'top') return !!game.topLoaded;
+    return !!game.scoresLoaded || !!(game.lobbySummary) ||
+      !!(game.lobbyRanking && game.lobbyRanking.length) ||
+      !!(game.lobbyHistory && game.lobbyHistory.length);
+  }
+
+  function stopLobbyRetry() {
+    if (lobbyRetryTimer) {
+      clearTimeout(lobbyRetryTimer);
+      lobbyRetryTimer = 0;
+    }
+  }
+
+  function scheduleLobbyRetry(orbit, buffer) {
+    stopLobbyRetry();
+    if (!orbit || !buffer) return;
+    lobbyRetryTimer = setTimeout(function () {
+      lobbyRetryTimer = 0;
+      var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
+        ? pluginOrbit.state.active()
+        : buffer;
+      if (!buf || !pluginOrbit || !isBacChannel(pluginOrbit, buf)) return;
+      var g = getChannelState(buf) || defaultState();
+      var tab = currentLobbyTab();
+      if (lobbyDataReady(g, tab)) {
+        lobbyRetryCount = 0;
+        lobbyRetryFailed = false;
+        return;
+      }
+      lobbyRetryCount += 1;
+      if (lobbyRetryCount > LOBBY_RETRY_MAX) {
+        lobbyRetryFailed = true;
+        bumpStore();
+        return;
+      }
+      requestLobbyTabData(pluginOrbit, buf, tab, true);
+      scheduleLobbyRetry(pluginOrbit, buf);
+    }, Math.min(4200, 900 + lobbyRetryCount * 280));
+  }
+
+  function ensureLobbyData(orbit, buffer, tab, force) {
+    if (!orbit || !buffer) return;
+    tab = tab || currentLobbyTab();
+    var game = getChannelState(buffer) || defaultState();
+    if (!force && lobbyDataReady(game, tab)) {
+      lobbyRetryCount = 0;
+      lobbyRetryFailed = false;
+      stopLobbyRetry();
+      return;
+    }
+    lobbyRetryFailed = false;
+    requestLobbyTabData(orbit, buffer, tab, !!force);
+    if (!lobbyDataReady(getChannelState(buffer) || defaultState(), tab)) {
+      if (!lobbyRetryTimer) {
+        lobbyRetryCount = 0;
+        scheduleLobbyRetry(orbit, buffer);
+      }
+    }
+  }
+
   function requestLobbyStats(orbit, buffer, force) {
     if (!orbit || !buffer) return;
     var now = Date.now();
@@ -4092,15 +4159,87 @@
     if (!orbit || !buffer) return;
     tab = tab || currentLobbyTab();
     if (tab === 'stats') {
-      sendPbCmd(orbit, buffer, 'stat');
+      sendPbCmd(orbit, buffer, 'stat', statLookupNick || '');
       return;
     }
     if (tab === 'top') {
-      if (force) patchChannel(buffer, { topGlobal: [], topLoaded: false });
-      sendPbCmd(orbit, buffer, 'top', '10');
+      sendPbCmd(orbit, buffer, 'top', String(currentTopLimit()));
       return;
     }
     requestLobbyStats(orbit, buffer, force);
+  }
+
+  function lookupPlayerStat(orbit, buffer, nick) {
+    nick = String(nick || '').replace(/^[@+%~&]/, '').trim();
+    statLookupNick = nick;
+    if (orbit && buffer) {
+      patchChannel(buffer, { statCard: null });
+      sendPbCmd(orbit, buffer, 'stat', nick);
+      ensureLobbyData(orbit, buffer, 'stats', true);
+    }
+    bumpStore();
+  }
+
+  function buildStatLookupHtml(card) {
+    var value = (card && card.kind === 'player' && card.nick) ? card.nick : (statLookupNick || '');
+    return '<p class="opbac-idle__stats-h">' +
+      escHtml(pick({ fr: 'Stats d’un joueur', en: 'Player stats' })) + '</p>' +
+      '<div class="opbac-lookup">' +
+        '<input type="text" data-stat-nick maxlength="32" placeholder="' +
+          escHtml(pick({ fr: 'Pseudo (ex. zell)', en: 'Nick (e.g. zell)' })) +
+          '" value="' + escHtml(value) + '">' +
+        '<button type="button" data-act="stat-lookup">' +
+          escHtml(pick({ fr: 'Voir', en: 'View' })) + '</button>' +
+      '</div>' +
+      (card && card.kind === 'player'
+        ? ('<button type="button" class="opbac-lookup__back" data-act="stat-global">' +
+            escHtml(pick({ fr: '↩ Statistiques globales', en: '↩ Global stats' })) +
+          '</button>')
+        : '');
+  }
+
+  function buildStatCardHtml(card) {
+    if (!card) {
+      if (lobbyRetryFailed) {
+        return recapWaitHtml(pick({
+          fr: 'Les statistiques n’ont pas pu être chargées.',
+          en: 'Stats could not be loaded.',
+        }), true) + buildStatLookupHtml(null);
+      }
+      return recapWaitHtml(pick({
+        fr: 'Chargement des statistiques…',
+        en: 'Loading stats…',
+      })) + buildStatLookupHtml(null);
+    }
+    if (card.kind === 'player' && card.ok === false) {
+      return buildStatLookupHtml(card) +
+        '<p class="opbac-idle__stats-empty">' + escHtml(pick({
+          fr: 'Aucun historique pour « ' + (card.nick || statLookupNick || '') + ' ».',
+          en: 'No history for “' + (card.nick || statLookupNick || '') + '”.',
+        })) + '</p>';
+    }
+    var title = card.kind === 'player' && card.nick
+      ? pick({ fr: 'Stats de ', en: 'Stats for ' }) + card.nick
+      : pick({ fr: 'Statistiques globales', en: 'Global stats' });
+    var metrics = [
+      [card.games || '0', pick({ fr: 'parties', en: 'games' })],
+      [card.rounds || '0', pick({ fr: 'manches', en: 'rounds' })],
+      [card.words || '0', pick({ fr: 'mots validés', en: 'words' })],
+      [card.combos || '0', pick({ fr: 'full combos', en: 'full combos' })],
+      [card.pts || '0', pick({ fr: 'points', en: 'points' })],
+    ];
+    var html = '<p class="opbac-idle__stats-h">' + escHtml(title) + '</p>' +
+      '<div class="opbac-stat-grid">';
+    metrics.forEach(function (m) {
+      html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(String(m[0])) +
+        '</span><span class="opbac-sum__l">' + escHtml(m[1]) + '</span></div>';
+    });
+    html += '</div>';
+    if (card.last) {
+      html += '<p class="opbac-idle__stats-meta">' +
+        escHtml(pick({ fr: 'Dernière activité : ', en: 'Last activity: ' }) + card.last) + '</p>';
+    }
+    return html + buildStatLookupHtml(card);
   }
 
   function buildScoresRecapHtml(game, myNick) {
@@ -4109,17 +4248,31 @@
       : (game.finalRanking && game.finalRanking.length
         ? game.finalRanking
         : rankingForDisplay(game, true));
+    var hasData = !!(game.lobbySummary) || !!(ranking && ranking.length) ||
+      !!(game.lobbyHistory && game.lobbyHistory.length);
+    if (!game.scoresLoaded && !hasData) {
+      if (lobbyRetryFailed) {
+        return recapWaitHtml(pick({
+          fr: 'Les scores n’ont pas pu être chargés.',
+          en: 'Scores could not be loaded.',
+        }), true);
+      }
+      return recapWaitHtml(pick({
+        fr: 'Chargement des scores…',
+        en: 'Loading scores…',
+      }));
+    }
     var html = '';
     if (game.lobbySummary) html += buildSummaryChipsHtml(game.lobbySummary);
     if (ranking && ranking.length) {
       html += '<p class="opbac-idle__stats-h">' +
-        escHtml(pick({ fr: 'Classement / scores', en: 'Ranking / scores' })) + '</p>' +
-        '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(ranking.slice(0, 5), myNick) + '</div>';
+        escHtml(pick({ fr: 'Classement du salon', en: 'Channel ranking' })) + '</p>' +
+        buildRankingTableHtml(ranking, myNick, { clickable: true });
     }
     if (game.lobbyHistory && game.lobbyHistory.length) {
       html += '<p class="opbac-idle__stats-h">' +
         escHtml(pick({ fr: 'Dernières parties', en: 'Recent games' })) + '</p>' +
-        buildHistoryHtml(game.lobbyHistory.slice(0, 8), myNick);
+        buildHistoryHtml(game.lobbyHistory, myNick);
     }
     if (!html) {
       html = '<p class="opbac-idle__stats-empty">' + escHtml(pick({
@@ -4130,23 +4283,48 @@
     return html;
   }
 
+  function buildTopLimitHtml() {
+    var cur = currentTopLimit();
+    var html = '<div class="opbac-top-n" role="group" aria-label="' +
+      escHtml(pick({ fr: 'Nombre de joueurs', en: 'Number of players' })) + '">';
+    [10, 15, 20, 25].forEach(function (n) {
+      html += '<button type="button" data-act="top-n" data-n="' + n + '"' +
+        (n === cur ? ' class="opbac-top-n--on" aria-pressed="true"' : ' aria-pressed="false"') +
+        '>' + escHtml(pick({ fr: 'Top ' + n, en: 'Top ' + n })) + '</button>';
+    });
+    return html + '</div>';
+  }
+
   function buildTopRecapHtml(game, myNick) {
     var rows = (game && game.topGlobal) || [];
+    var limit = currentTopLimit();
     if (!rows.length) {
       if (game && game.topLoaded) {
-        return '<p class="opbac-end__empty">' + escHtml(pick({
+        return buildTopLimitHtml() + '<p class="opbac-end__empty">' + escHtml(pick({
           fr: 'Aucun classement pour le moment.',
           en: 'No ranking yet.',
         })) + '</p>';
       }
-      return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
-        fr: 'Chargement du classement…',
-        en: 'Loading ranking…',
-      })) + '</p>';
+      if (lobbyRetryFailed) {
+        return recapWaitHtml(pick({
+          fr: 'Le classement n’a pas pu être chargé.',
+          en: 'Ranking could not be loaded.',
+        }), true);
+      }
+      return recapWaitHtml(pick({
+        fr: 'Chargement du top ' + limit + '…',
+        en: 'Loading top ' + limit + '…',
+      }));
     }
-    return '<p class="opbac-idle__stats-h">' +
-      escHtml(pick({ fr: 'Top 10 joueurs', en: 'Top 10 players' })) + '</p>' +
-      '<div class="opbac-idle__stats-card">' + buildRankingTableHtml(rows.slice(0, 10), myNick) + '</div>';
+    return buildTopLimitHtml() +
+      '<p class="opbac-idle__stats-h">' +
+        escHtml(pick({ fr: 'Top ' + rows.length + ' joueurs', en: 'Top ' + rows.length + ' players' })) +
+      '</p>' +
+      buildRankingTableHtml(rows, myNick, { clickable: true, combos: true }) +
+      (game && !game.topLoaded
+        ? ('<p class="opbac-idle__stats-meta">' + refreshSpinnerHtml() + ' ' +
+            escHtml(pick({ fr: 'Suite du classement…', en: 'Loading more…' })) + '</p>')
+        : '');
   }
 
   function buildRecapBodyHtml(game, myNick, tab) {
@@ -4575,13 +4753,16 @@
     } else if (list.indexOf(line) < 0) {
       list.push(line);
     }
-    patchChannel(channel, { lobbyHistory: list.filter(Boolean).slice(0, 10) });
+    patchChannel(channel, { lobbyHistory: list.filter(Boolean).slice(0, 10), scoresLoaded: true });
     refreshDockOverlay();
+    stopLobbyRetryIfReady(channel);
   }
 
   function applyLobbyStats(channel, tags) {
     lobbyWaiting = false;
+    lobbyRetryFailed = false;
     var next = {
+      scoresLoaded: true,
       lobbySummary: tagVal(tags, '+summary'),
       lobbyRanking: rankingFromPairs(tagVal(tags, '+ranking')),
     };
@@ -4590,6 +4771,7 @@
     else if (tagVal(tags, '+hist_count')) next.lobbyHistory = [];
     patchChannel(channel, next);
     refreshDockOverlay();
+    stopLobbyRetryIfReady(channel);
   }
 
   function applyInfoResult(channel, tags) {
@@ -4634,11 +4816,34 @@
     };
     patchChannel(channel, { statCard: card });
     refreshDockOverlay();
+    stopLobbyRetryIfReady(channel);
   }
 
   function applyTopResult(channel, tags) {
-    patchChannel(channel, { topGlobal: capTopGlobal(rankingFromTop(tagVal(tags, '+ranking'))), topLoaded: true });
+    var rows = rankingFromTop(tagVal(tags, '+ranking'));
+    var offset = Number(tagVal(tags, '+offset')) || 0;
+    var more = tagVal(tags, '+more') === '1';
+    var game = getChannelState(channel) || defaultState();
+    var list = offset > 0 ? (game.topGlobal || []).slice() : [];
+    rows.forEach(function (row, i) { list[offset + i] = row; });
+    patchChannel(channel, {
+      topGlobal: capTopGlobal(list.filter(Boolean)),
+      topLoaded: !more,
+    });
     refreshDockOverlay();
+    if (!more) stopLobbyRetryIfReady(channel);
+  }
+
+  function stopLobbyRetryIfReady(channel) {
+    var buf = pluginOrbit && pluginOrbit.state && pluginOrbit.state.active
+      ? pluginOrbit.state.active()
+      : channel;
+    var g = getChannelState(buf || channel) || defaultState();
+    if (lobbyDataReady(g, currentLobbyTab())) {
+      lobbyRetryCount = 0;
+      lobbyRetryFailed = false;
+      stopLobbyRetry();
+    }
   }
 
   function buildCustomModesHtml(selectedMode) {
@@ -5288,7 +5493,7 @@
 
   function closePetitBacTour(orbit, done) {
     tourActive = false;
-    if (done) tourForced = false;
+    tourForced = false;
     if (tourEscHandler) {
       document.removeEventListener('keydown', tourEscHandler);
       tourEscHandler = null;
@@ -5297,37 +5502,6 @@
     var overlay = document.getElementById('opbac-tour');
     if (overlay) overlay.remove();
     if (done) markTourDone(orbit || pluginOrbit);
-  }
-
-  function cancelPetitBacTourTimer() {
-    if (tourTimer) {
-      clearTimeout(tourTimer);
-      tourTimer = 0;
-    }
-  }
-
-  function blockingShellOpen(orbit) {
-    try {
-      var st = orbit && orbit.state && orbit.state.get && orbit.state.get();
-      if (st && st.modal) return true;
-    } catch (e) { /* ignore */ }
-    var backs = document.querySelectorAll('.modal-backdrop');
-    for (var i = 0; i < backs.length; i++) {
-      if (tourForced && backs[i].querySelector('.opbac-help-wrap')) continue;
-      return true;
-    }
-    if (!tourForced && document.getElementById('opbac-help-overlay')) return true;
-    return false;
-  }
-
-  function salonPageVisible(orbit, root) {
-    var panel = root || document.getElementById('opbac-dom-panel');
-    if (!panel || panel.style.display === 'none') return false;
-    if (!panel.querySelector || !panel.querySelector('.opbac-idle')) return false;
-    var buf = orbit && orbit.state && orbit.state.active && orbit.state.active();
-    if (!buf || !isBacChannel(orbit, buf)) return false;
-    if (blockingShellOpen(orbit)) return false;
-    return true;
   }
 
   function layoutTourStep() {
@@ -5395,18 +5569,11 @@
   }
 
   function startPetitBacTour(orbit, root, forced) {
-    var panel = root || document.getElementById('opbac-dom-panel');
-    if (!salonPageVisible(orbit, panel)) {
-      if (tourActive) closePetitBacTour(orbit, false);
+    if (tourActive) {
+      layoutTourStep();
       return;
     }
-    if (tourActive) {
-      if (!forced) {
-        layoutTourStep();
-        return;
-      }
-      closePetitBacTour(orbit, false);
-    }
+    var panel = root || document.getElementById('opbac-dom-panel');
     if (!panel || !panel.querySelector('.opbac-idle')) return;
     if (getViewMode(orbit, panel) === VIEW_CHAT) {
       setViewMode(orbit, panel, VIEW_FULL);
@@ -5446,51 +5613,17 @@
   }
 
   function schedulePetitBacTour(orbit, root) {
-    var panel = (root && root.isConnected) ? root : document.getElementById('opbac-dom-panel');
     if (tourActive) {
-      if (!salonPageVisible(orbit, panel)) {
-        closePetitBacTour(orbit, false);
-      } else {
-        requestAnimationFrame(layoutTourStep);
-        return;
-      }
-    }
-    if (!panel || !panel.querySelector || !panel.querySelector('.opbac-idle')) return;
-    if (!tourForced && tourDone(orbit)) return;
-    if (tourTimer) return;
-    tourTimer = setTimeout(function () {
-      tourTimer = 0;
-      var next = (panel && panel.isConnected) ? panel : document.getElementById('opbac-dom-panel');
-      if (!salonPageVisible(orbit, next)) {
-        if (next && next.querySelector && next.querySelector('.opbac-idle')
-            && isBacChannel(orbit, orbit.state.active())
-            && (tourForced || !tourDone(orbit))) {
-          schedulePetitBacTour(orbit, next);
-        }
-        return;
-      }
-      startPetitBacTour(orbit, next, tourForced);
-    }, 400);
-  }
-
-  function requestPetitBacTour(orbit) {
-    tourForced = true;
-    cancelPetitBacTourTimer();
-    closeHelpModal();
-    var panel = document.getElementById('opbac-dom-panel');
-    if (!panel) return;
-    if (!panel.querySelector('.opbac-idle')) {
-      tourForced = false;
-      try {
-        orbit.notify('Petit Bac', pick({
-          fr: 'Le guide s’affiche à l’accueil du salon, une fois la partie terminée.',
-          en: 'The guide shows on the room lobby, once the game is over.',
-        }));
-      } catch (e) { /* ignore */ }
+      requestAnimationFrame(layoutTourStep);
       return;
     }
-    if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
-    schedulePetitBacTour(orbit, panel);
+    if (!root || !root.querySelector || !root.querySelector('.opbac-idle')) return;
+    if (!tourForced && tourDone(orbit)) return;
+    if (tourTimer) clearTimeout(tourTimer);
+    tourTimer = setTimeout(function () {
+      tourTimer = 0;
+      startPetitBacTour(orbit, root, tourForced);
+    }, 500);
   }
 
   function closeHelpModal() {
@@ -5516,12 +5649,6 @@
         return h('div', {
           className: 'opbac-help-wrap',
           dangerouslySetInnerHTML: { __html: bodyHtml },
-          onClick: function (ev) {
-            var btn = ev.target && ev.target.closest && ev.target.closest('[data-act="tour-start"]');
-            if (!btn) return;
-            ev.preventDefault();
-            requestPetitBacTour(orbit);
-          },
         });
       }, { title: title, wide: true });
       return;
@@ -5543,11 +5670,6 @@
       if (ev.target === overlay) closeHelpModal();
       var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-help"]') : null;
       if (closeBtn) closeHelpModal();
-      var tourBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="tour-start"]') : null;
-      if (tourBtn) {
-        ev.preventDefault();
-        requestPetitBacTour(orbit);
-      }
     });
     helpEscHandler = function (ev) {
       if (ev.key === 'Escape') closeHelpModal();
@@ -5856,7 +5978,8 @@
     return html + '</div>';
   }
 
-  function buildRankingTableHtml(rows, myNick) {
+  function buildRankingTableHtml(rows, myNick, opts) {
+    opts = opts || {};
     if (!rows || !rows.length) {
       return '<p class="opbac-end__empty">' + refreshSpinnerHtml() + escHtml(pick({
         fr: 'Scores en cours de publication…',
@@ -5869,12 +5992,18 @@
       var medal = i < 3
         ? '<span class="opbac-rank__medal">' + rankMedal(i) + '</span>'
         : '<span class="opbac-rank__n">' + escHtml(String(i + 1)) + '</span>';
+      var nickInner = escHtml(row.nick) +
+        (isMe ? '<span class="opbac-rank__you">' + escHtml(pick({ fr: '(vous)', en: '(you)' })) + '</span>' : '');
+      var nickHtml = opts.clickable
+        ? ('<button type="button" class="opbac-rank__nick" data-act="stat-nick" data-nick="' +
+            escHtml(row.nick) + '">' + nickInner + '</button>')
+        : ('<span class="opbac-rank__nick">' + nickInner + '</span>');
+      var extra = (opts.combos && row.fc)
+        ? '<small>' + escHtml(String(row.fc)) + ' fc</small>'
+        : '';
       return '<div class="opbac-rank__row' + place + (isMe ? ' opbac-rank__row--me' : '') + '">' +
-        medal +
-        '<span class="opbac-rank__nick">' + escHtml(row.nick) +
-          (isMe ? '<span class="opbac-rank__you">' + escHtml(pick({ fr: '(vous)', en: '(you)' })) + '</span>' : '') +
-        '</span>' +
-        '<span class="opbac-rank__pts">' + ptsHtml(row.pts) + '</span></div>';
+        medal + nickHtml +
+        '<span class="opbac-rank__pts">' + ptsHtml(row.pts) + extra + '</span></div>';
     }).join('');
     return '<div class="opbac-rank">' + body + '</div>';
   }
@@ -6412,7 +6541,49 @@
         }
         if (!isIdleDesk(root)) recapSheetOpen = true;
         updateLobbyTabUi(root, tab, gameTab, myNickTab);
-        requestLobbyTabData(orbit, buffer, tab, true);
+        if (tab === 'stats' && !statLookupNick) {
+          patchChannel(buffer, { statCard: (getChannelState(buffer) || {}).statCard && (getChannelState(buffer) || {}).statCard.kind === 'global' ? (getChannelState(buffer) || {}).statCard : null });
+        }
+        ensureLobbyData(orbit, buffer, tab, true);
+        return;
+      }
+      if (act === 'stat-lookup') {
+        var wrap = btn.closest('.opbac-lookup') || root;
+        var inp = wrap.querySelector('[data-stat-nick]');
+        setLobbyTab('stats');
+        lookupPlayerStat(orbit, buffer, inp ? inp.value : '');
+        updateLobbyTabUi(root, 'stats', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
+        return;
+      }
+      if (act === 'stat-nick') {
+        setLobbyTab('stats');
+        if (!isIdleDesk(root)) recapSheetOpen = true;
+        lookupPlayerStat(orbit, buffer, btn.getAttribute('data-nick'));
+        updateLobbyTabUi(root, 'stats', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
+        return;
+      }
+      if (act === 'stat-global') {
+        statLookupNick = '';
+        setLobbyTab('stats');
+        patchChannel(buffer, { statCard: null });
+        sendPbCmd(orbit, buffer, 'stat');
+        ensureLobbyData(orbit, buffer, 'stats', true);
+        updateLobbyTabUi(root, 'stats', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
+        return;
+      }
+      if (act === 'top-n') {
+        setTopLimit(btn.getAttribute('data-n'));
+        setLobbyTab('top');
+        patchChannel(buffer, { topGlobal: [], topLoaded: false });
+        ensureLobbyData(orbit, buffer, 'top', true);
+        updateLobbyTabUi(root, 'top', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
+        return;
+      }
+      if (act === 'lobby-retry') {
+        lobbyRetryCount = 0;
+        lobbyRetryFailed = false;
+        ensureLobbyData(orbit, buffer, currentLobbyTab(), true);
+        updateLobbyTabUi(root, currentLobbyTab(), getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
         return;
       }
       if (act === 'recap-close') {
@@ -6506,8 +6677,6 @@
     if (!onBac) {
       document.body.classList.remove('opbac-full', 'opbac-split');
       root.style.display = 'none';
-      cancelPetitBacTourTimer();
-      if (tourActive) closePetitBacTour(orbit, false);
       return;
     }
     root.style.display = '';
@@ -6615,6 +6784,8 @@
       applyViewMode(root, orbit, viewMode);
 
       root.__opbacDraftSig = draftSignature(buffer, game);
+      if (isIdle) schedulePetitBacTour(orbit, root);
+      else if (tourActive) closePetitBacTour(orbit, true);
 
       if (isLive && !isEnd && viewMode !== VIEW_CHAT) {
         requestAnimationFrame(function () {
@@ -6709,15 +6880,10 @@
     if (!rebuild && isPrep && !isEnd) updatePrepDom(root, remaining, game);
     if (isRoundEnd) updateRoundBreakDom(root, game);
     if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
-
-    if (isIdle) schedulePetitBacTour(orbit, root);
-    else if (tourActive) closePetitBacTour(orbit, true);
   }
 
   function hideBacPanel(root) {
     document.body.classList.remove('opbac-active', 'opbac-full', 'opbac-split');
-    cancelPetitBacTourTimer();
-    if (tourActive) closePetitBacTour(pluginOrbit, false);
     if (!root) return;
     root.style.display = 'none';
     root.classList.remove('opbac-panel--full', 'opbac-panel--split', 'opbac-panel--playing');
@@ -6815,8 +6981,13 @@
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act="tour-start"]') : null;
       if (!btn) return;
       ev.preventDefault();
-      requestPetitBacTour(orbit);
-    }, true);
+      closeHelpModal();
+      tourForced = true;
+      var panel = document.getElementById('opbac-dom-panel');
+      if (!panel) return;
+      if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
+      schedulePetitBacTour(orbit, panel);
+    });
 
     orbit.addCommand('jouer', {
       help: pick({ fr: 'Choisir un niveau et lancer une partie', en: 'Choose a level and start a game' }),

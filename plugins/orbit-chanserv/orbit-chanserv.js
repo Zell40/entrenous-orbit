@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=94"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=96"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1022,6 +1022,7 @@
         URL: /^(url|site(\s+internet)?)$/,
         EMAIL: /^(e-?mails?|courriels?|adresse\s+e-?mail)$/,
         SUCCESSOR: /^(successeurs?|successors?)$/,
+        FOUNDER: /^(fondateurs?|founders?)$/,
         BANTYPE: /^(bantype|type\s+de\s+bans?|type\s+de\s+bannissement)$/,
       }[String(kind || '').toUpperCase()];
       if (!re) return '';
@@ -1070,6 +1071,7 @@
         else if (/persist|persistant/.test(t)) on.PERSIST = true;
         else if (/\bsalon officiel\b|\bofficial\b|\bofficiel\b|cs_official/.test(t)) on.OFFICIAL = true;
         else if (/private|prive/.test(t)) on.PRIVATE = true;
+        else if (/noexpire|pas d['']expir|n['']expire pas|ne pas expirer/.test(t)) on.NOEXPIRE = true;
       });
       return on;
     }
@@ -3347,7 +3349,7 @@
         tabBtn('modes', 'cog', pick('Modes', 'Modes'), showModes);
         tabBtn('bans', 'ban', pick('Bans', 'Bans'), showBans);
         tabBtn('access', 'users', pick('Accès', 'Access'), showAccess);
-        tabBtn('set', 'lock', pick('Set', 'Set'), showSet);
+        tabBtn('set', 'lock', pick('SET', 'SET'), showSet);
         tabBtn('divers', 'more', pick('Divers', 'Other'), showDivers);
         chrome.push(h('div', { className: 'ocs-tabs', role: 'tablist' }, tabs));
         var accLvl = String(s.access || 'none').toLowerCase();
@@ -3894,6 +3896,10 @@
           if (!setGroups.some(function (g) { return g.id === sg; })) sg = 'sec';
           var setKids = [
             h('p', { className: 'ocs-h' }, pick('Paramètres du salon', 'Channel settings')),
+            h('p', { className: 'ocs-sub' }, pick(
+              'Options ChanServ SET (SOP ou fondateur). Topic, historique et type de ban sont dans Topic et Bans.',
+              'ChanServ SET options (SOP or founder). Topic, history and ban type are under Topic and Bans.'
+            )),
             subTabs(sg, setSetGroup, setGroups.map(function (g) {
               return { id: g.id, label: g.label };
             })),
@@ -3989,7 +3995,18 @@
             { id: 'EMAIL', label: pick('Adresse email', 'Email address') },
             { id: 'SUCCESSOR', label: pick('Successeur', 'Successor') },
           ];
+          if (can(ACCESS_RANK.founder)) {
+            infoKinds.push({ id: 'FOUNDER', label: pick('Fondateur', 'Founder') });
+          }
           var infoKind = setInfoKind === 'BANTYPE' ? 'DESC' : setInfoKind;
+          if (!infoKinds.some(function (it) { return it.id === infoKind; })) infoKind = 'DESC';
+          var infoPh = infoKind === 'URL'
+            ? 'https://…'
+            : infoKind === 'EMAIL'
+              ? pick('adresse@email…', 'email@address…')
+              : infoKind === 'FOUNDER'
+                ? pick('Pseudo du nouveau fondateur…', 'New founder nick…')
+                : pick('Pseudo du successeur…', 'Successor nick…');
           body.push(h('div', { className: 'ocs-block' }, [
             h('p', { className: 'ocs-h' }, pick('Information du salon', 'Channel information')),
             h('div', { className: 'ocs-frame' },
@@ -4007,11 +4024,7 @@
                 : h('input', {
                   className: 'ocs-input',
                   value: setText,
-                  placeholder: infoKind === 'URL'
-                    ? 'https://…'
-                    : infoKind === 'EMAIL'
-                      ? pick('adresse@email…', 'email@address…')
-                      : pick('Pseudo du successeur…', 'Successor nick…'),
+                  placeholder: infoPh,
                   onChange: function (e) { setSetText(e.target.value); },
                 }),
               h('button', {
@@ -4020,7 +4033,7 @@
                 onClick: function () {
                   var v = setText.trim();
                   if (infoKind === 'DESC') v = v.replace(/\s+/g, ' ');
-                  if (v) csSet(infoKind, v);
+                  if (v) csSet(infoKind === 'DESC' ? 'DESCRIPTION' : infoKind, v);
                 },
               }, labeled('check', pick('Enregistrer', 'Save')))
             ),
