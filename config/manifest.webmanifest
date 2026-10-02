@@ -1,5 +1,5 @@
 {
-  "name": "EntreNous — Tchat",
+  "name": "EntreNous",
   "short_name": "EntreNous",
   "id": "/app/",
   "description": "Tchat des Electricien(ne)s et Gazier(e)s Français(es). Salons publics, messages privés, sans installation Play Store.",
@@ -10,7 +10,7 @@
   "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
   "background_color": "#0d1b3e",
-  "theme_color": "#1452cc",
+  "theme_color": "#0d1b3e",
   "prefer_related_applications": false,
   "related_applications": [],
   "categories": ["social", "communication"],

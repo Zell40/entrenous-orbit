@@ -29,7 +29,7 @@
   },
   "branding": {
     "name": "EntreNous",
-    "icon": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/icone_ren.png",
+    "icon": "/app/icon-192.png",
     "logo": "https://www.reseau-entrenous.fr/wp-content/uploads/2021/11/logo_ren_grand.png",
     "url": "https://www.entrenous.chat",
     "tagline": "Tchat des Electricien(ne)s et Gazier(e)s Français(es),",
@@ -39,7 +39,9 @@
     "registerUrl": "https://www.reseau-entrenous.fr/register/",
     "loginUrl": "https://www.reseau-entrenous.fr/login/",
     "links": [],
-    "accent": ""
+    "accent": "",
+    "splashBg": "#0d1b3e",
+    "splashInk": "#ffffff"
   },
   "turnstile": {
     "enabled": true,
