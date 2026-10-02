@@ -3562,7 +3562,55 @@
     overlay.addEventListener('click', function (ev) {
       if (ev.target === overlay) closeOverlayModal(onCloseKind);
       var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-overlay"]') : null;
-      if (closeBtn) closeOverlayModal(onCloseKind);
+      if (closeBtn) {
+        closeOverlayModal(onCloseKind);
+        return;
+      }
+      var actBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+      if (!actBtn || !pluginOrbit) return;
+      var act = actBtn.getAttribute('data-act');
+      var buf = pluginOrbit.state && pluginOrbit.state.active ? pluginOrbit.state.active() : '';
+      if (!buf) return;
+      if (act === 'stat-lookup') {
+        var wrap = actBtn.closest('.opbac-lookup') || overlay;
+        var inp = wrap.querySelector('[data-stat-nick]');
+        lookupPlayerStat(pluginOrbit, buf, inp ? inp.value : '');
+        refreshDockOverlay();
+        return;
+      }
+      if (act === 'stat-nick') {
+        lookupPlayerStat(pluginOrbit, buf, actBtn.getAttribute('data-nick'));
+        dockKind = 'stats';
+        overlay.setAttribute('data-dock-kind', 'stats');
+        var titleEl = overlay.querySelector('.opbac-help-dialog__head h3');
+        if (titleEl) {
+          var logo = titleEl.querySelector('img');
+          titleEl.innerHTML = (logo ? logo.outerHTML : '') + escHtml(pick({ fr: 'Statistiques', en: 'Stats' }));
+        }
+        refreshDockOverlay();
+        return;
+      }
+      if (act === 'stat-global') {
+        statLookupNick = '';
+        patchChannel(buf, { statCard: null });
+        sendPbCmd(pluginOrbit, buf, 'stat');
+        ensureLobbyData(pluginOrbit, buf, 'stats', true);
+        refreshDockOverlay();
+        return;
+      }
+      if (act === 'top-n') {
+        setTopLimit(actBtn.getAttribute('data-n'));
+        patchChannel(buf, { topGlobal: [], topLoaded: false });
+        ensureLobbyData(pluginOrbit, buf, 'top', true);
+        refreshDockOverlay();
+        return;
+      }
+      if (act === 'lobby-retry') {
+        lobbyRetryCount = 0;
+        lobbyRetryFailed = false;
+        ensureLobbyData(pluginOrbit, buf, overlay.getAttribute('data-dock-kind') || currentLobbyTab(), true);
+        refreshDockOverlay();
+      }
     });
     var escHandler = function (ev) {
       if (ev.key === 'Escape') closeOverlayModal(onCloseKind);
@@ -6541,9 +6589,6 @@
         }
         if (!isIdleDesk(root)) recapSheetOpen = true;
         updateLobbyTabUi(root, tab, gameTab, myNickTab);
-        if (tab === 'stats' && !statLookupNick) {
-          patchChannel(buffer, { statCard: (getChannelState(buffer) || {}).statCard && (getChannelState(buffer) || {}).statCard.kind === 'global' ? (getChannelState(buffer) || {}).statCard : null });
-        }
         ensureLobbyData(orbit, buffer, tab, true);
         return;
       }
@@ -6605,26 +6650,20 @@
       if (act === 'aide') openHelpModal(orbit);
       if (act === 'rules' || act === 'dock-rules') openRulesModal(orbit);
       if (act === 'dock-scores') {
-        requestLobbyStats(orbit, buffer, true);
+        ensureLobbyData(orbit, buffer, 'scores', true);
         openDockModal('scores', pick({ fr: 'Scores', en: 'Scores' }));
         return;
       }
       if (act === 'dock-stats') {
-        sendPbCmd(orbit, buffer, 'stat');
+        statLookupNick = '';
+        ensureLobbyData(orbit, buffer, 'stats', true);
         openDockModal('stats', pick({ fr: 'Statistiques', en: 'Stats' }));
         return;
       }
       if (act === 'dock-top') {
         patchChannel(buffer, { topGlobal: [], topLoaded: false });
-        sendPbCmd(orbit, buffer, 'top', '5');
+        ensureLobbyData(orbit, buffer, 'top', true);
         openDockModal('top', pick({ fr: 'Top joueurs', en: 'Top players' }));
-        setTimeout(function () {
-          var g = getChannelState(buffer) || defaultState();
-          if (!g.topLoaded) {
-            patchChannel(buffer, { topLoaded: true });
-            refreshDockOverlay();
-          }
-        }, 7000);
         return;
       }
       if (act === 'dock-pause') { sendPbCmd(orbit, buffer, 'pause'); return; }
@@ -6661,6 +6700,15 @@
     root.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter') return;
       var inp = ev.target;
+      if (inp && inp.getAttribute && inp.getAttribute('data-stat-nick') != null) {
+        ev.preventDefault();
+        var buffer = orbit.state.active();
+        if (!buffer) return;
+        setLobbyTab('stats');
+        lookupPlayerStat(orbit, buffer, inp.value);
+        updateLobbyTabUi(root, 'stats', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
+        return;
+      }
       if (!inp || !inp.getAttribute || !inp.getAttribute('data-cat-input')) return;
       ev.preventDefault();
       var buffer = orbit.state.active();
@@ -6676,6 +6724,7 @@
     document.body.classList.toggle('opbac-active', !!onBac);
     if (!onBac) {
       document.body.classList.remove('opbac-full', 'opbac-split');
+      stopLobbyRetry();
       root.style.display = 'none';
       return;
     }
@@ -6755,7 +6804,7 @@
       if (isIdle) {
         if (canTalkToBac(orbit, buffer)) {
           requestModeList(orbit, buffer);
-          if (recapVisible(root)) requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
+          if (recapVisible(root)) ensureLobbyData(orbit, buffer, currentLobbyTab(), false);
         }
         replayMode = defaultReplayMode(game, root, orbit);
         bodyHtml = buildIdleHtml(game, replayMode, myNick);
@@ -6819,7 +6868,10 @@
       if (isIdle) updateReplayModeUi(root, replayMode);
       var idleStats = root.querySelector('[data-opbac-idle-stats]');
       if (idleStats && isIdle && recapVisible(root)) {
-        idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
+        var typing = document.activeElement && idleStats.contains(document.activeElement)
+          && document.activeElement.getAttribute
+          && document.activeElement.getAttribute('data-stat-nick') != null;
+        if (!typing) idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
       }
       if (isIdle) syncCreatedNotice(root);
       var scoresWrap = root.querySelector('[data-opbac-scores]');
