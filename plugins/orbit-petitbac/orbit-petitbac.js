@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 80;
+  var PBAC_VER = 81;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2326,7 +2326,7 @@
       '.opbac-idle__cta{display:flex;width:100%;max-width:28rem;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:999px;padding:.7rem 1.1rem;font-size:1rem;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;min-height:46px;box-shadow:0 10px 24px -10px rgba(99,102,241,.65)}',
       '.opbac-idle__cta:hover{filter:brightness(1.06)}',
       '.opbac-idle__launch .opbac-skip-rules{margin:0 auto;max-width:28rem;padding:.32rem .5rem;font-size:.72rem}',
-      '@media(min-width:880px){.opbac-idle{padding:.55rem 1rem 0}.opbac-idle__stage{gap:.55rem;padding:.15rem 0 .35rem}.opbac-idle__hero-art{width:min(320px,52%)}.opbac-idle__tag{font-size:.92rem}.opbac-playpick--home{max-width:40rem}.opbac-idle__cta{min-height:52px;font-size:1.05rem;padding:.8rem 1.2rem}}',
+      '@media(min-width:880px){.opbac-idle{padding:.55rem 1.1rem 0}.opbac-idle__tag{font-size:.9rem}.opbac-idle__cta{min-height:50px;font-size:1.02rem;padding:.75rem 1.15rem}.opbac-playpick--home{max-width:none}}',
       '.opbac-idle__help{margin-top:0;border:0;background:none;color:var(--accent,#6366f1);font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:underline}',
       '.opbac-idle__stopped{margin:0 auto;max-width:26rem;padding:.32rem .6rem;border-radius:10px;font-size:.76rem;font-weight:800;color:#9a3412;background:color-mix(in srgb,#f97316 12%,var(--bg,#fff));border:1px solid color-mix(in srgb,#f97316 28%,var(--border,#ddd));flex:0 0 auto}',
       '.opbac-offline{padding:1.15rem .95rem 1.25rem;text-align:center}',
@@ -2605,6 +2605,8 @@
       '.opbac-recap__tab--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
       '.opbac-recap__body{display:none;order:1;max-height:0;overflow:hidden;padding:0}',
       '.opbac-recap--open .opbac-recap__body{display:block;position:absolute;left:0;right:0;bottom:100%;z-index:6;max-height:min(48vh,22rem);overflow:auto;padding:.45rem .7rem .7rem;background:var(--bg,#fff);border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));border-radius:16px 16px 0 0;box-shadow:0 -16px 36px rgba(15,23,42,.16);animation:opbacSheetUp .22s ease}',
+      '@container opbac (min-width:700px){.opbac-idle{padding:.65rem 1.15rem .15rem}.opbac-idle__stage{display:grid;grid-template-columns:minmax(15rem,20rem) minmax(0,1fr);align-items:stretch;justify-content:stretch;gap:.85rem 1.25rem;width:100%;max-width:76rem;margin:0 auto;padding:0}.opbac-idle__hero{grid-column:1;grid-row:1/span 4;height:100%;justify-content:center;padding:.2rem}.opbac-idle__hero-art{width:min(100%,300px)}.opbac-idle__stopped{grid-column:2;max-width:none;margin:0}.opbac-playpick--home{grid-column:2;max-width:none;margin:0;width:100%}.opbac-playpick--home .opbac-setup__modes{padding:.65rem .7rem .7rem}.opbac-playpick--home .opbac-modes{grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem;margin-bottom:.55rem}.opbac-playpick--home .opbac-mode{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;align-items:center;justify-items:start;text-align:left;column-gap:.65rem;row-gap:.08rem;padding:.7rem .75rem}.opbac-playpick--home .opbac-mode__emoji{grid-row:1/span 2;font-size:1.45rem}.opbac-playpick--home .opbac-mode__label{font-size:.9rem}.opbac-playpick--home .opbac-mode__hint{font-size:.68rem}.opbac-playpick--home .opbac-customs{max-height:none;flex:1 1 auto}.opbac-playpick--home .opbac-idle__cta{max-width:none}.opbac-playpick--home .opbac-idle__launch{width:100%}.opbac-idle__launch .opbac-skip-rules{max-width:none;width:100%;box-sizing:border-box}}',
+      '@container opbac (min-width:980px){.opbac-idle{display:grid;grid-template-columns:minmax(0,1fr) minmax(18rem,22.5rem);grid-template-rows:minmax(0,1fr);gap:.85rem 1.05rem;padding:.7rem 1.15rem .7rem;overflow:hidden}.opbac-idle__stage{grid-column:1;grid-row:1;max-width:none;margin:0;height:100%}.opbac-idle__scrim,.opbac-idle--sheet-open .opbac-idle__scrim{display:none!important}.opbac-recap{grid-column:2;grid-row:1;margin:0;padding:.55rem .65rem .55rem;height:100%;min-height:0;border-radius:16px;border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));box-shadow:none;background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff));display:flex;flex-direction:column}.opbac-recap__tabs{order:0;padding:.1rem 0 .35rem}.opbac-recap__body,.opbac-recap--open .opbac-recap__body{display:block!important;position:static!important;max-height:none!important;flex:1 1 auto;min-height:0;overflow:auto;padding:.15rem 0 0;margin:0;border:0;border-radius:0;box-shadow:none;animation:none;background:transparent}}',
       '@keyframes opbacSheetUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}',
       '.opbac-playpick__sec{margin:.05rem 0 .35rem}',
       '.opbac-playpick__h{margin:0 0 .28rem;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
@@ -4158,9 +4160,24 @@
       buildScoresRecapHtml(game, myNick) + '</div>';
   }
 
+  function isIdleDesk(root) {
+    var el = null;
+    if (root && root.querySelector) el = root.querySelector('.opbac-body') || root;
+    if (!el || !el.clientWidth) {
+      var panel = document.getElementById('opbac-dom-panel');
+      el = (panel && panel.querySelector('.opbac-body')) || panel;
+    }
+    var w = (el && el.clientWidth) || (typeof window !== 'undefined' ? window.innerWidth : 0);
+    return w >= 980;
+  }
+
+  function recapVisible(root) {
+    return recapSheetOpen || isIdleDesk(root);
+  }
+
   function buildRecapHtml(game, myNick) {
     var tab = currentLobbyTab();
-    var open = recapSheetOpen;
+    var open = recapVisible();
     var tabs = [
       ['scores', pick({ fr: 'Scores', en: 'Scores' })],
       ['stats', pick({ fr: 'Stats', en: 'Stats' })],
@@ -4168,7 +4185,7 @@
     ];
     var html = '<div class="opbac-recap' + (open ? ' opbac-recap--open' : '') + '" data-opbac-recap>' +
       '<div class="opbac-recap__body" data-opbac-idle-stats>' +
-        (open ? buildRecapBodyHtml(game, myNick, tab) : '') +
+        buildRecapBodyHtml(game, myNick, tab) +
       '</div>' +
       '<div class="opbac-recap__tabs" role="tablist">';
     tabs.forEach(function (item) {
@@ -4186,16 +4203,16 @@
     var recap = root.querySelector('[data-opbac-recap]');
     var body = root.querySelector('[data-opbac-idle-stats]');
     var tab = currentLobbyTab();
-    if (idle) idle.classList.toggle('opbac-idle--sheet-open', recapSheetOpen);
-    if (recap) recap.classList.toggle('opbac-recap--open', recapSheetOpen);
+    var desk = isIdleDesk(root);
+    var open = recapSheetOpen || desk;
+    if (idle) idle.classList.toggle('opbac-idle--sheet-open', recapSheetOpen && !desk);
+    if (recap) recap.classList.toggle('opbac-recap--open', open);
     root.querySelectorAll('[data-act="lobby-tab"]').forEach(function (btn) {
-      var on = recapSheetOpen && btn.getAttribute('data-tab') === tab;
+      var on = open && btn.getAttribute('data-tab') === tab;
       btn.classList.toggle('opbac-recap__tab--on', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    if (body) {
-      if (recapSheetOpen) body.innerHTML = buildRecapBodyHtml(game || defaultState(), myNick || '', tab);
-    }
+    if (body && open) body.innerHTML = buildRecapBodyHtml(game || defaultState(), myNick || '', tab);
   }
 
   function closeRecapSheet(root) {
@@ -6305,11 +6322,11 @@
         var tab = btn.getAttribute('data-tab') || 'scores';
         var gameTab = getChannelState(buffer) || defaultState();
         var myNickTab = orbit.state.nick() || '';
-        if (recapSheetOpen && tab === currentLobbyTab()) {
+        if (!isIdleDesk(root) && recapSheetOpen && tab === currentLobbyTab()) {
           closeRecapSheet(root);
           return;
         }
-        recapSheetOpen = true;
+        if (!isIdleDesk(root)) recapSheetOpen = true;
         updateLobbyTabUi(root, tab, gameTab, myNickTab);
         requestLobbyTabData(orbit, buffer, tab, true);
         return;
@@ -6483,7 +6500,7 @@
       if (isIdle) {
         if (canTalkToBac(orbit, buffer)) {
           requestModeList(orbit, buffer);
-          if (recapSheetOpen) requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
+          if (recapVisible(root)) requestLobbyTabData(orbit, buffer, currentLobbyTab(), false);
         }
         replayMode = defaultReplayMode(game, root, orbit);
         bodyHtml = buildIdleHtml(game, replayMode, myNick);
@@ -6546,7 +6563,7 @@
       }
       if (isIdle) updateReplayModeUi(root, replayMode);
       var idleStats = root.querySelector('[data-opbac-idle-stats]');
-      if (idleStats && isIdle && recapSheetOpen) {
+      if (idleStats && isIdle && recapVisible(root)) {
         idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
       }
       if (isIdle) syncCreatedNotice(root);
