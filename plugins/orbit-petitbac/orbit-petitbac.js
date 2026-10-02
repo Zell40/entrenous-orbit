@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 85;
+  var PBAC_VER = 86;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -5311,8 +5311,12 @@
       var st = orbit && orbit.state && orbit.state.get && orbit.state.get();
       if (st && st.modal) return true;
     } catch (e) { /* ignore */ }
-    if (document.querySelector('.modal-backdrop')) return true;
-    if (document.getElementById('opbac-help-overlay')) return true;
+    var backs = document.querySelectorAll('.modal-backdrop');
+    for (var i = 0; i < backs.length; i++) {
+      if (tourForced && backs[i].querySelector('.opbac-help-wrap')) continue;
+      return true;
+    }
+    if (!tourForced && document.getElementById('opbac-help-overlay')) return true;
     return false;
   }
 
@@ -5397,8 +5401,11 @@
       return;
     }
     if (tourActive) {
-      layoutTourStep();
-      return;
+      if (!forced) {
+        layoutTourStep();
+        return;
+      }
+      closePetitBacTour(orbit, false);
     }
     if (!panel || !panel.querySelector('.opbac-idle')) return;
     if (getViewMode(orbit, panel) === VIEW_CHAT) {
@@ -5466,6 +5473,26 @@
     }, 400);
   }
 
+  function requestPetitBacTour(orbit) {
+    tourForced = true;
+    cancelPetitBacTourTimer();
+    closeHelpModal();
+    var panel = document.getElementById('opbac-dom-panel');
+    if (!panel) return;
+    if (!panel.querySelector('.opbac-idle')) {
+      tourForced = false;
+      try {
+        orbit.notify('Petit Bac', pick({
+          fr: 'Le guide s’affiche à l’accueil du salon, une fois la partie terminée.',
+          en: 'The guide shows on the room lobby, once the game is over.',
+        }));
+      } catch (e) { /* ignore */ }
+      return;
+    }
+    if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
+    schedulePetitBacTour(orbit, panel);
+  }
+
   function closeHelpModal() {
     if (helpModalClose) {
       try { helpModalClose(); } catch (e) { /* ignore */ }
@@ -5489,6 +5516,12 @@
         return h('div', {
           className: 'opbac-help-wrap',
           dangerouslySetInnerHTML: { __html: bodyHtml },
+          onClick: function (ev) {
+            var btn = ev.target && ev.target.closest && ev.target.closest('[data-act="tour-start"]');
+            if (!btn) return;
+            ev.preventDefault();
+            requestPetitBacTour(orbit);
+          },
         });
       }, { title: title, wide: true });
       return;
@@ -5510,6 +5543,11 @@
       if (ev.target === overlay) closeHelpModal();
       var closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="close-help"]') : null;
       if (closeBtn) closeHelpModal();
+      var tourBtn = ev.target && ev.target.closest ? ev.target.closest('[data-act="tour-start"]') : null;
+      if (tourBtn) {
+        ev.preventDefault();
+        requestPetitBacTour(orbit);
+      }
     });
     helpEscHandler = function (ev) {
       if (ev.key === 'Escape') closeHelpModal();
@@ -6777,14 +6815,8 @@
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act="tour-start"]') : null;
       if (!btn) return;
       ev.preventDefault();
-      closeHelpModal();
-      tourForced = true;
-      cancelPetitBacTourTimer();
-      var panel = document.getElementById('opbac-dom-panel');
-      if (!panel) return;
-      if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
-      schedulePetitBacTour(orbit, panel);
-    });
+      requestPetitBacTour(orbit);
+    }, true);
 
     orbit.addCommand('jouer', {
       help: pick({ fr: 'Choisir un niveau et lancer une partie', en: 'Choose a level and start a game' }),
