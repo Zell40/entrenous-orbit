@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 84;
+  var PBAC_VER = 85;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -1481,6 +1481,7 @@
       mancheHistory: [],
       vote: null,
       topLoaded: false,
+      topTotal: 0,
       updatedAt: 0,
     };
   }
@@ -3599,9 +3600,13 @@
         return;
       }
       if (act === 'top-n') {
-        setTopLimit(actBtn.getAttribute('data-n'));
-        patchChannel(buf, { topGlobal: [], topLoaded: false });
-        ensureLobbyData(pluginOrbit, buf, 'top', true);
+        var nTopOv = setTopLimit(actBtn.getAttribute('data-n'));
+        patchChannel(buf, { topGlobal: [], topLoaded: false, topTotal: 0 });
+        sendPbCmd(pluginOrbit, buf, 'top', String(nTopOv));
+        lobbyRetryCount = 0;
+        lobbyRetryFailed = false;
+        stopLobbyRetry();
+        scheduleLobbyRetry(pluginOrbit, buf);
         refreshDockOverlay();
         return;
       }
@@ -4118,7 +4123,14 @@
     tab = tab || currentLobbyTab();
     if (!game) return false;
     if (tab === 'stats') return !!game.statCard;
-    if (tab === 'top') return !!game.topLoaded;
+    if (tab === 'top') {
+      var want = currentTopLimit();
+      var have = ((game && game.topGlobal) || []).length;
+      var total = Number(game && game.topTotal) || 0;
+      if (!game || !game.topLoaded) return false;
+      if (total > 0) return have >= Math.min(want, total);
+      return have >= want;
+    }
     return !!game.scoresLoaded || !!(game.lobbySummary) ||
       !!(game.lobbyRanking && game.lobbyRanking.length) ||
       !!(game.lobbyHistory && game.lobbyHistory.length);
@@ -4145,6 +4157,10 @@
       if (lobbyDataReady(g, tab)) {
         lobbyRetryCount = 0;
         lobbyRetryFailed = false;
+        return;
+      }
+      if (tab === 'top' && (g.topGlobal || []).length && !g.topLoaded) {
+        scheduleLobbyRetry(pluginOrbit, buf);
         return;
       }
       lobbyRetryCount += 1;
@@ -4868,14 +4884,21 @@
   }
 
   function applyTopResult(channel, tags) {
+    var wanted = Number(tagVal(tags, '+wanted') || tagVal(tags, '+limit')) || 0;
+    var ask = currentTopLimit();
+    if (wanted && wanted < ask) return;
     var rows = rankingFromTop(tagVal(tags, '+ranking'));
     var offset = Number(tagVal(tags, '+offset')) || 0;
     var more = tagVal(tags, '+more') === '1';
+    var total = Number(tagVal(tags, '+total')) || 0;
     var game = getChannelState(channel) || defaultState();
     var list = offset > 0 ? (game.topGlobal || []).slice() : [];
     rows.forEach(function (row, i) { list[offset + i] = row; });
+    var compact = capTopGlobal(list.filter(Boolean));
+    if (!total) total = more ? 0 : compact.length;
     patchChannel(channel, {
-      topGlobal: capTopGlobal(list.filter(Boolean)),
+      topGlobal: compact,
+      topTotal: total || (game.topTotal || 0),
       topLoaded: !more,
     });
     refreshDockOverlay();
@@ -6617,10 +6640,14 @@
         return;
       }
       if (act === 'top-n') {
-        setTopLimit(btn.getAttribute('data-n'));
+        var nTop = setTopLimit(btn.getAttribute('data-n'));
         setLobbyTab('top');
-        patchChannel(buffer, { topGlobal: [], topLoaded: false });
-        ensureLobbyData(orbit, buffer, 'top', true);
+        patchChannel(buffer, { topGlobal: [], topLoaded: false, topTotal: 0 });
+        sendPbCmd(orbit, buffer, 'top', String(nTop));
+        lobbyRetryCount = 0;
+        lobbyRetryFailed = false;
+        stopLobbyRetry();
+        scheduleLobbyRetry(orbit, buffer);
         updateLobbyTabUi(root, 'top', getChannelState(buffer) || defaultState(), orbit.state.nick() || '');
         return;
       }
