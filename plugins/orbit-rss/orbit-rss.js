@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 24;
+  var ORX_VER = 25;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -31,6 +31,7 @@
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
     var archLayer = null;
+    var drag = { on: false, moved: false, id: 0, x: 0, y: 0, top: 0, right: 0 };
 
     function pick(table) {
       if (pluginOrbit && pluginOrbit.i18n && pluginOrbit.i18n.pick) return pluginOrbit.i18n.pick(table);
@@ -431,6 +432,9 @@
         '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none}.ohp-head__actions>.orx .orx__chip,.oec-head__actions>.orx .orx__chip,.opbac-head__actions>.orx .orx__chip,.ohp-head>.orx .orx__chip,.oec-head>.orx .orx__chip,.opbac-head>.orx .orx__chip{padding:.22rem .5rem;font-size:.66rem;max-width:36vw}.main>.orx{width:min(168px,52vw);right:.4rem;max-height:min(38%,240px)}.main>.orx:has(.is-open){width:min(230px,76vw);max-height:min(52%,320px)}.main>.orx .orx__chip{padding:.2rem .5rem;font-size:.64rem}.main>.orx .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.main>.orx .orx__bubble:first-child{margin-top:0}.main>.orx .orx__bubble.is-open{min-height:44px;margin-top:4px}.main>.orx .orx__row{min-height:40px}.main>.orx .orx__main{padding:.16rem .15rem .16rem .5rem}.main>.orx .orx__title{font-size:.64rem}.main>.orx .orx__date{font-size:.52rem}.main>.orx .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.main>.orx .orx__spin{right:1.45rem;width:.8rem;height:.8rem;margin-top:-.4rem}.main>.orx .orx__full{padding:0 .55rem .45rem;font-size:.7rem}}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
         '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
+        '.main > .orx .orx__chip{touch-action:none;cursor:grab}',
+        '.main > .orx.orx--drag .orx__chip{cursor:grabbing}',
+        '.main > .orx.orx--drag{user-select:none}',
         '.orx__stack{display:flex;flex-direction:column;align-items:flex-end;width:100%}',
         '@keyframes orx-pop{from{transform:translateY(12px) scale(.88);opacity:0}to{transform:none;opacity:1}}',
         '@keyframes orx-glow{0%,100%{box-shadow:0 10px 18px -10px rgba(0,0,0,.55),0 0 0 0 transparent}50%{box-shadow:0 14px 22px -8px rgba(0,0,0,.5),0 0 0 4px color-mix(in srgb,var(--orx-c,#3b82f6) 55%,transparent)}}',
@@ -770,8 +774,9 @@
       var close = ui.archive ? '<span class="orx__chip-x" aria-hidden="true">×</span>' : '';
       var game = root.classList.contains('orx--game');
       var portal = game || isNarrow();
+      var dragHint = game ? '' : ' title="' + esc(pick({ fr: 'Glisser pour déplacer', en: 'Drag to move' })) + '"';
       root.innerHTML =
-        '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '">' +
+        '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '"' + dragHint + '>' +
           esc(pick({ fr: 'Actualités', en: 'News' })) + badge + close +
         '</button>' +
         (ui.archive || game ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
@@ -786,6 +791,10 @@
       var act = el.getAttribute('data-act');
       var id = el.getAttribute('data-id') || '';
       if (act === 'chip') {
+        if (root.__orxSkipClick) {
+          root.__orxSkipClick = false;
+          return;
+        }
         ui.archive = !ui.archive;
         ui.archiveId = '';
         ui.rev++;
@@ -984,6 +993,105 @@
       if (root.parentNode !== main) main.appendChild(root);
     }
 
+    function posMap() {
+      try {
+        var stored = pluginOrbit && pluginOrbit.storage && pluginOrbit.storage.get('rssPos', {});
+        return stored && typeof stored === 'object' ? stored : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function savedPos(chan) {
+      var p = posMap()[chanKey(chan)];
+      if (!p || !isFinite(p.top) || !isFinite(p.right)) return null;
+      return { top: Number(p.top), right: Number(p.right) };
+    }
+
+    function savePos(chan, top, right) {
+      var all = posMap();
+      all[chanKey(chan)] = { top: Math.round(top), right: Math.round(right) };
+      try {
+        if (pluginOrbit && pluginOrbit.storage) pluginOrbit.storage.set('rssPos', all);
+      } catch (e) { /* quota */ }
+    }
+
+    function clampPos(main, top, right) {
+      var mainBox = main.getBoundingClientRect();
+      var box = root.getBoundingClientRect();
+      var w = Math.max(box.width, 72);
+      var h = Math.max(Math.min(box.height, mainBox.height - 16), 28);
+      return {
+        top: Math.min(Math.max(0, top), Math.max(0, mainBox.height - h - 8)),
+        right: Math.min(Math.max(8, right), Math.max(8, mainBox.width - w - 8))
+      };
+    }
+
+    function applyPos(main, top, right) {
+      var p = clampPos(main, top, right);
+      root.style.top = p.top + 'px';
+      root.style.right = p.right + 'px';
+      root.style.left = 'auto';
+      return p;
+    }
+
+    function onDragMove(ev) {
+      if (!drag.on || ev.pointerId !== drag.id || !root) return;
+      var dx = ev.clientX - drag.x;
+      var dy = ev.clientY - drag.y;
+      if (!drag.moved && dx * dx + dy * dy < 36) return;
+      drag.moved = true;
+      var main = root.parentNode;
+      if (!main || !main.classList.contains('main')) return;
+      applyPos(main, drag.top + dy, drag.right - dx);
+      ev.preventDefault();
+    }
+
+    function onDragEnd(ev) {
+      if (!drag.on || ev.pointerId !== drag.id) return;
+      drag.on = false;
+      if (root) root.classList.remove('orx--drag');
+      window.removeEventListener('pointermove', onDragMove, true);
+      window.removeEventListener('pointerup', onDragEnd, true);
+      window.removeEventListener('pointercancel', onDragEnd, true);
+      if (!drag.moved || !root) return;
+      var main = root.parentNode;
+      if (!main || !main.classList.contains('main')) return;
+      var box = root.getBoundingClientRect();
+      var mainBox = main.getBoundingClientRect();
+      var p = applyPos(main, box.top - mainBox.top, mainBox.right - box.right);
+      savePos(root.getAttribute('data-chan') || activeChan(), p.top, p.right);
+      root.__orxSkipClick = true;
+    }
+
+    function onDragStart(ev) {
+      if (!root || root.classList.contains('orx--game')) return;
+      var chip = ev.target && ev.target.closest ? ev.target.closest('.orx__chip') : null;
+      if (!chip || !root.contains(chip)) return;
+      var main = root.parentNode;
+      if (!main || !main.classList.contains('main')) return;
+      var box = root.getBoundingClientRect();
+      var mainBox = main.getBoundingClientRect();
+      drag.on = true;
+      drag.moved = false;
+      drag.id = ev.pointerId;
+      drag.x = ev.clientX;
+      drag.y = ev.clientY;
+      drag.top = box.top - mainBox.top;
+      drag.right = mainBox.right - box.right;
+      root.classList.add('orx--drag');
+      try { chip.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+      window.addEventListener('pointermove', onDragMove, true);
+      window.addEventListener('pointerup', onDragEnd, true);
+      window.addEventListener('pointercancel', onDragEnd, true);
+    }
+
+    function bindDrag() {
+      if (!root || root.__orxDrag) return;
+      root.__orxDrag = true;
+      root.addEventListener('pointerdown', onDragStart);
+    }
+
     function moveTop(viewportTop) {
       root.style.top = '0px';
       var origin = root.getBoundingClientRect().top;
@@ -1016,6 +1124,7 @@
     }
 
     function place(main, hero) {
+      if (drag.on) return;
       var head = visibleGameHead();
       if (!head && visibleFullGamePanel()) {
         dockInMain(main);
@@ -1037,6 +1146,13 @@
         return;
       }
       dockInMain(main);
+      var saved = savedPos(root.__orxChan || (hero && hero.getAttribute('data-chan')) || '');
+      if (saved) {
+        applyPos(main, saved.top, saved.right);
+        root.__orxPlace = 'moved:' + Math.round(saved.top) + ':' + Math.round(saved.right);
+        root.classList.add('orx--set');
+        return;
+      }
       root.style.right = '';
       var banner = topicBottom(hero);
       if (!banner) {
@@ -1069,6 +1185,7 @@
         root.className = 'orx';
         root.addEventListener('click', onRootClick);
       }
+      bindDrag();
       if (root.__orxChan && root.__orxChan !== shown) {
         ui.expanded = '';
         ui.archive = false;
