@@ -411,6 +411,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     .rg__seggroup.push{margin-left:auto}
     .rg__seg{border:0;background:none;color:var(--muted,#9aa);font:inherit;font-size:.78rem;font-weight:700;padding:.28rem .6rem;border-radius:7px;cursor:pointer;line-height:1}
     .rg__seg.on{background:var(--bg,#17171c);color:var(--ink,inherit)}
+    .rg__alert{margin:0;padding:.65rem .75rem;border-radius:10px;border:1px solid color-mix(in srgb,#dc2626 30%,var(--border,#ddd));background:color-mix(in srgb,#dc2626 9%,var(--bg,#fff));color:var(--ink,#111);font-size:.82rem;line-height:1.4;font-weight:700}
     .rg__loading,.rg__empty{padding:1.4rem .5rem;text-align:center;color:var(--muted,#9aa);font-size:.85rem}
     .rg__stuck{display:flex;flex-direction:column;align-items:center;gap:.6rem;margin-top:.7rem}
     /* Fixed column counts (no auto-fill/minmax) on purpose: auto-fill's track
@@ -519,6 +520,72 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   }
   function markOpening(name) { pendingOpen.set(normChan(name), Date.now()); }
 
+  function joinedChannelCount() {
+    const st = orbit.state.get();
+    const buffers = (st && st.buffers) || {};
+    const keys = Object.keys(buffers);
+    let n = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const b = buffers[keys[i]];
+      if (b && b.isChannel && b.joined) n++;
+    }
+    return n;
+  }
+
+  function maxChannelLimit() {
+    try {
+      const iso = (orbit.server && orbit.server.isupport && orbit.server.isupport()) || {};
+      const raw = iso.CHANLIMIT || iso.MAXCHANNELS || '';
+      const m = String(raw).match(/(\d+)/);
+      if (m) return parseInt(m[1], 10) || 0;
+    } catch (e) { /* ignore */ }
+    return 0;
+  }
+
+  function atChannelLimit() {
+    const max = maxChannelLimit();
+    if (!max) return false;
+    return joinedChannelCount() >= max;
+  }
+
+  function isGameSalon(name) {
+    const n = normChan(name);
+    if (!n) return false;
+    try {
+      const cfg = orbit.config() || {};
+      const play = (((cfg.startup || {}).intents) || {}).play;
+      if (Array.isArray(play)) {
+        for (let i = 0; i < play.length; i++) {
+          if (normChan(play[i]) === n) return true;
+        }
+      }
+      const keys = ['petitbac', 'echecs', 'harrypotter'];
+      for (let i = 0; i < keys.length; i++) {
+        const chans = (cfg[keys[i]] || {}).channels;
+        if (!Array.isArray(chans)) continue;
+        for (let j = 0; j < chans.length; j++) {
+          if (normChan(chans[j]) === n) return true;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function channelLimitMessage() {
+    const max = maxChannelLimit();
+    const n = joinedChannelCount();
+    if (max) {
+      return orbit.i18n.pick({
+        fr: `Limite atteinte : ${n} salon${n > 1 ? 's' : ''} ouvert${n > 1 ? 's' : ''} (max ${max}). Ferme-en un pour en rejoindre un autre.`,
+        en: `Limit reached: ${n} open room${n > 1 ? 's' : ''} (max ${max}). Leave one to join another.`,
+      });
+    }
+    return orbit.i18n.pick({
+      fr: 'Tu as rejoint trop de salons. Ferme-en un pour en rejoindre un autre.',
+      en: 'You have joined too many rooms. Leave one to join another.',
+    });
+  }
+
   function GridTile({ c, img, onJoin, open }) {
     const bg = img ? { backgroundImage: `url(${img})` } : { background: avatarBg(c.name || '?') };
     return html`<button class=${'rg__tile' + (open ? ' is-open' : '')} style=${bg} onClick=${onJoin} aria-pressed=${open}>
@@ -584,6 +651,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const [q, setQ] = useState('');
     const [sort, setSort] = useState('pop');
     const [page, setPage] = useState(0);
+    const [limitHit, setLimitHit] = useState(false);
     const [, force] = useState(0);
     const images = useImageMap();
     const loadingSince = useRef(0); // 0 = not currently loading; else Date.now() when it started
@@ -610,11 +678,20 @@ Orbit.plugin('room-gallery', (orbit, log) => {
         if (msg.command === '321' || msg.command === '322' || msg.command === '323') force((x) => x + 1);
         const me = (orbit.state.nick() || '').toLowerCase();
         if ((msg.command === 'JOIN' || msg.command === 'PART') && (msg.nick || '').toLowerCase() === me) {
-          if (msg.command === 'PART') pendingOpen.delete(normChan(msg.params[0] || ''));
+          if (msg.command === 'PART') {
+            pendingOpen.delete(normChan(msg.params[0] || ''));
+            setLimitHit(false);
+          }
           force((x) => x + 1);
         }
         if (msg.command === 'KICK' && (msg.params[1] || '').toLowerCase() === me) {
           pendingOpen.delete(normChan(msg.params[0] || ''));
+          setLimitHit(false);
+          force((x) => x + 1);
+        }
+        if (msg.command === '405') {
+          pendingOpen.delete(normChan(msg.params[1] || ''));
+          setLimitHit(true);
           force((x) => x + 1);
         }
       });
@@ -661,9 +738,16 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     function setSortMode(v) { setSort(v); setPage(0); }
     function onSearch(v) { setQ(v); setPage(0); }
     function join(name) {
+      const already = isRoomOpen(name);
+      if (!already && atChannelLimit()) {
+        setLimitHit(true);
+        force((x) => x + 1);
+        return;
+      }
       markOpening(name);
       force((x) => x + 1);
       orbit.irc.join(name);
+      if (isGameSalon(name) && typeof close === 'function') close();
     }
     function submitSearch() {
       const needle = q.trim();
@@ -698,6 +782,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     if (st.listLoading) { if (!loadingSince.current) loadingSince.current = Date.now(); }
     else loadingSince.current = 0;
     const stuck = st.listLoading && loadingSince.current && (Date.now() - loadingSince.current) > 10000;
+    const showLimit = limitHit || atChannelLimit();
 
     return html`<div class="rg">
       <div class="rg__bar">
@@ -712,6 +797,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
         </button>
       </div>
       ${st.listLoading ? html`<div class="rg__progress" role="progressbar" aria-label=${t('modals.join.loading')}><i></i></div>` : null}
+      ${showLimit ? html`<div class="rg__alert" role="status">${channelLimitMessage()}</div>` : null}
 
       <div class="rg__meta">
         <span class="rg__stat" title=${`${channels.length} ${t('modals.join.rooms')}`}>

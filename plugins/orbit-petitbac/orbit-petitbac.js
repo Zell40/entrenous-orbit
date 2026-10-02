@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 83;
+  var PBAC_VER = 85;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -23,9 +23,15 @@
   var VIEW_CHAT = 'chat';
   var chatUnread = 0;
   var chatBadgeArmed = false;
-  var TOP_GLOBAL_MAX = 10;
+  var TOP_GLOBAL_MAX = 25;
   var lobbyFetchAt = 0;
   var lobbyWaiting = false;
+  var lobbyRetryTimer = 0;
+  var lobbyRetryCount = 0;
+  var lobbyRetryTab = '';
+  var LOBBY_RETRY_MAX = 10;
+  var LOBBY_RETRY_MS = 1600;
+  var STORAGE_TOP_N = 'opbacTopN';
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -1467,6 +1473,7 @@
       lobbySummary: '',
       lobbyRanking: [],
       lobbyHistory: [],
+      lobbyLoaded: false,
       endNotes: [],
       starter: '',
       statCard: null,
@@ -5281,7 +5288,7 @@
 
   function closePetitBacTour(orbit, done) {
     tourActive = false;
-    tourForced = false;
+    if (done) tourForced = false;
     if (tourEscHandler) {
       document.removeEventListener('keydown', tourEscHandler);
       tourEscHandler = null;
@@ -5290,6 +5297,33 @@
     var overlay = document.getElementById('opbac-tour');
     if (overlay) overlay.remove();
     if (done) markTourDone(orbit || pluginOrbit);
+  }
+
+  function cancelPetitBacTourTimer() {
+    if (tourTimer) {
+      clearTimeout(tourTimer);
+      tourTimer = 0;
+    }
+  }
+
+  function blockingShellOpen(orbit) {
+    try {
+      var st = orbit && orbit.state && orbit.state.get && orbit.state.get();
+      if (st && st.modal) return true;
+    } catch (e) { /* ignore */ }
+    if (document.querySelector('.modal-backdrop')) return true;
+    if (document.getElementById('opbac-help-overlay')) return true;
+    return false;
+  }
+
+  function salonPageVisible(orbit, root) {
+    var panel = root || document.getElementById('opbac-dom-panel');
+    if (!panel || panel.style.display === 'none') return false;
+    if (!panel.querySelector || !panel.querySelector('.opbac-idle')) return false;
+    var buf = orbit && orbit.state && orbit.state.active && orbit.state.active();
+    if (!buf || !isBacChannel(orbit, buf)) return false;
+    if (blockingShellOpen(orbit)) return false;
+    return true;
   }
 
   function layoutTourStep() {
@@ -5357,11 +5391,15 @@
   }
 
   function startPetitBacTour(orbit, root, forced) {
+    var panel = root || document.getElementById('opbac-dom-panel');
+    if (!salonPageVisible(orbit, panel)) {
+      if (tourActive) closePetitBacTour(orbit, false);
+      return;
+    }
     if (tourActive) {
       layoutTourStep();
       return;
     }
-    var panel = root || document.getElementById('opbac-dom-panel');
     if (!panel || !panel.querySelector('.opbac-idle')) return;
     if (getViewMode(orbit, panel) === VIEW_CHAT) {
       setViewMode(orbit, panel, VIEW_FULL);
@@ -5401,17 +5439,31 @@
   }
 
   function schedulePetitBacTour(orbit, root) {
+    var panel = (root && root.isConnected) ? root : document.getElementById('opbac-dom-panel');
     if (tourActive) {
-      requestAnimationFrame(layoutTourStep);
-      return;
+      if (!salonPageVisible(orbit, panel)) {
+        closePetitBacTour(orbit, false);
+      } else {
+        requestAnimationFrame(layoutTourStep);
+        return;
+      }
     }
-    if (!root || !root.querySelector || !root.querySelector('.opbac-idle')) return;
+    if (!panel || !panel.querySelector || !panel.querySelector('.opbac-idle')) return;
     if (!tourForced && tourDone(orbit)) return;
-    if (tourTimer) clearTimeout(tourTimer);
+    if (tourTimer) return;
     tourTimer = setTimeout(function () {
       tourTimer = 0;
-      startPetitBacTour(orbit, root, tourForced);
-    }, 500);
+      var next = (panel && panel.isConnected) ? panel : document.getElementById('opbac-dom-panel');
+      if (!salonPageVisible(orbit, next)) {
+        if (next && next.querySelector && next.querySelector('.opbac-idle')
+            && isBacChannel(orbit, orbit.state.active())
+            && (tourForced || !tourDone(orbit))) {
+          schedulePetitBacTour(orbit, next);
+        }
+        return;
+      }
+      startPetitBacTour(orbit, next, tourForced);
+    }, 400);
   }
 
   function closeHelpModal() {
@@ -6416,6 +6468,8 @@
     if (!onBac) {
       document.body.classList.remove('opbac-full', 'opbac-split');
       root.style.display = 'none';
+      cancelPetitBacTourTimer();
+      if (tourActive) closePetitBacTour(orbit, false);
       return;
     }
     root.style.display = '';
@@ -6523,8 +6577,6 @@
       applyViewMode(root, orbit, viewMode);
 
       root.__opbacDraftSig = draftSignature(buffer, game);
-      if (isIdle) schedulePetitBacTour(orbit, root);
-      else if (tourActive) closePetitBacTour(orbit, true);
 
       if (isLive && !isEnd && viewMode !== VIEW_CHAT) {
         requestAnimationFrame(function () {
@@ -6619,10 +6671,15 @@
     if (!rebuild && isPrep && !isEnd) updatePrepDom(root, remaining, game);
     if (isRoundEnd) updateRoundBreakDom(root, game);
     if (!isEnd && root.__opbacEndPhase) root.__opbacEndPhase = '';
+
+    if (isIdle) schedulePetitBacTour(orbit, root);
+    else if (tourActive) closePetitBacTour(orbit, true);
   }
 
   function hideBacPanel(root) {
     document.body.classList.remove('opbac-active', 'opbac-full', 'opbac-split');
+    cancelPetitBacTourTimer();
+    if (tourActive) closePetitBacTour(pluginOrbit, false);
     if (!root) return;
     root.style.display = 'none';
     root.classList.remove('opbac-panel--full', 'opbac-panel--split', 'opbac-panel--playing');
@@ -6722,6 +6779,7 @@
       ev.preventDefault();
       closeHelpModal();
       tourForced = true;
+      cancelPetitBacTourTimer();
       var panel = document.getElementById('opbac-dom-panel');
       if (!panel) return;
       if (getViewMode(orbit, panel) === VIEW_CHAT) setViewMode(orbit, panel, VIEW_FULL);
