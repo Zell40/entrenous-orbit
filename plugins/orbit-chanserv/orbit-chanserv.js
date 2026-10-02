@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=92"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=94"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -70,6 +70,7 @@
       reasonAsk: null,
       dropAsk: null,
       registerAsk: null,
+      registerDone: null,
       listeners: new Set(),
     };
     var snap = copyUi();
@@ -79,7 +80,8 @@
         founder: ui.founder, bot: ui.bot, access: ui.access, bots: ui.bots.slice(),
         infoText: ui.infoText, botInfo: ui.botInfo, ytStats: ui.ytStats, entryMsgs: ui.entryMsgs.slice(), badwords: ui.badwords.slice(), topicHistory: ui.topicHistory.slice(), akickList: ui.akickList.slice(),
         flash: ui.flash, flashErr: ui.flashErr, lastCmd: ui.lastCmd, tab: ui.tab,
-        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk, registerAsk: ui.registerAsk,
+        accessList: ui.accessList.slice(), accessLoading: ui.accessLoading, reasonAsk: ui.reasonAsk, dropAsk: ui.dropAsk,
+        registerAsk: ui.registerAsk, registerDone: ui.registerDone,
       };
     }
     function subscribeUi(cb) { ui.listeners.add(cb); return function () { ui.listeners.delete(cb); }; }
@@ -177,6 +179,7 @@
     function rank() { return ACCESS_RANK[ui.access] || 0; }
     function can(min) { return rank() >= min; }
     function identified() { return !!orbit.state.account(); }
+    function panelOpen() { return !!(ui.open || ui.host === 'chanadmin'); }
     var SKIP_KEY = 'register-skip';
     var joinBurstUntil = Date.now() + 8000;
     var offerTimers = {};
@@ -685,8 +688,10 @@
       if (founderMatch(founder || ui.founder)) r = Math.max(r, ACCESS_RANK.founder);
       var fromList = accessFromList(list || ui.accessList);
       if (fromList) r = Math.max(r, ACCESS_RANK[fromList] || 0);
-      var px = accessFromPrefix(chan || ui.chan);
-      if (px) r = Math.max(r, ACCESS_RANK[px] || 0);
+      if (panelOpen()) {
+        var px = accessFromPrefix(chan || ui.chan);
+        if (px) r = Math.max(r, ACCESS_RANK[px] || 0);
+      }
       return r ? accessLabelOfRank(r) : (acc || 'none');
     }
     function commitAccessList(rows) {
@@ -701,8 +706,9 @@
       if (info.registered) {
         acc = betterAccess(chan, statusText || '', info.founder, ui.accessList);
       }
+      var needLiveStatus = panelOpen() && info.registered && (ACCESS_RANK[acc] || 0) < ACCESS_RANK.founder;
       patchUi({
-        loading: info.registered && (ACCESS_RANK[acc] || 0) < ACCESS_RANK.founder,
+        loading: needLiveStatus,
         registered: info.registered,
         founder: info.founder,
         bot: info.bot,
@@ -712,7 +718,7 @@
       rememberCache(chan);
       expectKind = '';
       if (info.registered && isSkipped(chan)) setSkipped(chan, false);
-      if (info.registered && (ACCESS_RANK[acc] || 0) < ACCESS_RANK.founder) queryStatus(chan);
+      if (needLiveStatus) queryStatus(chan);
     }
 
     function queryInfo(chan, opts) {
@@ -725,6 +731,10 @@
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
       if (!identified()) {
+        if (!panelOpen()) {
+          patchUi({ loading: false });
+          return;
+        }
         beginExpect('info', chan);
         cs('INFO ' + chan);
         return;
@@ -798,6 +808,7 @@
     }
     function queryAccess(chan, force) {
       if (!isChannel(chan)) return;
+      if (!force && !panelOpen()) return;
       var key = String(chan).toLowerCase();
       if (!force && accessFetched === key && ui.accessList.length) return;
       accessFetched = key;
@@ -805,6 +816,11 @@
       rpcCall('access', chan).then(function (data) {
         if (ui.chan && String(ui.chan).toLowerCase() !== key) return;
         if (data && data.ok && data.list != null && String(data.list) !== '' && !looksLikeAccessHelp(data.list)) {
+          if (looksLikeAccessDenied(data.list)) {
+            patchUi({ accessLoading: false });
+            expectKind = '';
+            return;
+          }
           var parsed = parseAccessList(data.list);
           if (parsed.length) {
             commitAccessList(parsed);
@@ -822,6 +838,10 @@
             expectKind = '';
             return;
           }
+        }
+        if (!panelOpen() && !force) {
+          patchUi({ accessLoading: false });
+          return;
         }
         beginExpect('accesslist', chan);
         cs('ACCESS ' + chan + ' LIST * ALL');
@@ -849,6 +869,7 @@
     }
     function parseAccess(text) {
       var t = foldText(text);
+      if (looksLikeAccessDenied(t)) return 'none';
       if (/pas (d[' ]?)?acces|no(t)? (have )?access|don't have access|dont have access|aucun acces/.test(t)
         && !/fondateur|founder|qop|sop|aop|hop|vop|niveau|level/.test(t)) {
         return 'none';
@@ -881,6 +902,11 @@
     function parseInfo(text) {
       var raw = stripIrc(text);
       var out = { registered: true, founder: '', bot: '', infoText: raw.trim() };
+      if (looksLikeAccessDenied(raw) && !/(fondateur|founder)\s*:/i.test(raw)) {
+        out.registered = null;
+        out.infoText = '';
+        return out;
+      }
       if (isUnregisteredText(raw)) {
         out.registered = false;
         return out;
@@ -1332,16 +1358,25 @@
     function applyKind(kind, text) {
       var chan = expectChan || ui.chan;
       if (kind === 'info') {
+        if (looksLikeAccessDenied(text)) {
+          patchUi({
+            loading: false,
+            access: panelOpen() ? betterAccess(chan, '', ui.founder, ui.accessList) : (ui.access || 'none'),
+          });
+          rememberCache(chan);
+          expectKind = '';
+          return;
+        }
         var info = parseInfo(text);
         patchUi({
-          loading: info.registered === true,
+          loading: info.registered === true && panelOpen(),
           registered: info.registered,
           founder: info.founder,
           bot: info.bot,
           infoText: info.infoText,
           access: info.registered ? betterAccess(chan, '', info.founder, ui.accessList) : 'none',
         });
-        if (info.registered) queryStatus(chan);
+        if (info.registered && panelOpen()) queryStatus(chan);
         else {
           rememberCache(chan);
           expectKind = '';
@@ -1349,6 +1384,12 @@
         return;
       }
       if (kind === 'status') {
+        if (looksLikeAccessDenied(text) && !panelOpen()) {
+          patchUi({ loading: false });
+          rememberCache(chan);
+          expectKind = '';
+          return;
+        }
         var acc = betterAccess(chan, text, ui.founder, ui.accessList);
         patchUi({ access: acc, loading: false });
         rememberCache(chan);
@@ -1442,7 +1483,17 @@
       if (kind === 'accesslist') {
         var accRaw = stripIrc(text);
         var accRows = parseAccessList(accRaw);
+        if (!accRows.length && looksLikeAccessDenied(accRaw)) {
+          patchUi({ accessLoading: false, loading: false });
+          expectKind = '';
+          return;
+        }
         if (!accRows.length && looksLikeAccessHelp(accRaw)) {
+          if (!panelOpen()) {
+            patchUi({ accessLoading: false, loading: false });
+            expectKind = '';
+            return;
+          }
           xopRows = [];
           xopQueue = ['QOP', 'SOP', 'AOP', 'HOP', 'VOP'];
           beginExpect('xop', chan);
@@ -1518,18 +1569,36 @@
           var regChan = ui.chan;
           if (isSkipped(regChan)) setSkipped(regChan, false);
           offered[foldText(regChan)] = true;
-          patchUi({ registerAsk: null, registered: true, loading: false, flash: raw, flashErr: false });
+          patchUi({
+            registerAsk: null,
+            registerDone: regChan ? { chan: regChan } : null,
+            registered: true,
+            access: 'founder',
+            founder: orbit.state.nick() || ui.founder,
+            loading: false,
+            flash: raw,
+            flashErr: false,
+          });
           expectKind = '';
           cache = {};
           if (regChan) setTimeout(function () { queryInfo(regChan, { keepFlash: true }); }, 400);
           return;
         }
-        if (!ui.open && !err) {
+        if (looksLikeAccessDenied(raw) && !panelOpen()) {
           patchUi({ loading: false });
           expectKind = '';
           return;
         }
-        patchUi({ flash: raw, flashErr: !!err, loading: false, open: err ? true : ui.open });
+        if (!panelOpen() && !err) {
+          patchUi({ loading: false });
+          expectKind = '';
+          return;
+        }
+        patchUi({
+          flash: panelOpen() ? raw : '',
+          flashErr: panelOpen() && !!err,
+          loading: false,
+        });
         expectKind = '';
         cache = {};
         if (!err && ui.chan) {
@@ -1850,6 +1919,18 @@
         '.ocs-ask__check{display:flex;align-items:flex-start;gap:.5rem;padding:.15rem 1rem .85rem;',
         'font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none}',
         '.ocs-ask__check input{margin:.2rem 0 0;flex:none}',
+        '.ocs-ask__guide{display:flex;flex-direction:column;gap:.55rem;margin:.15rem 1rem .85rem;padding:.75rem .8rem;',
+        'border:1px solid var(--border);border-radius:12px;background:var(--bg-soft)}',
+        '.ocs-ask__step{display:flex;align-items:flex-start;gap:.7rem}',
+        '.ocs-ask__num{flex:none;width:1.35rem;height:1.35rem;border-radius:50%;display:grid;place-items:center;',
+        'font-size:.68rem;font-weight:800;background:var(--accent);color:#fff;line-height:1}',
+        '.ocs-ask__step-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.35rem}',
+        '.ocs-ask__step-txt{margin:0;font-size:.82rem;line-height:1.4;color:var(--ink)}',
+        '.ocs-ask__chip{display:inline-flex;align-items:center;gap:.4rem;align-self:flex-start;',
+        'padding:.35rem .65rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);',
+        'font-size:.78rem;font-weight:700;color:var(--ink);box-shadow:0 1px 0 rgba(15,23,42,.04)}',
+        '.ocs-ask__chip .ocs-ic{display:block;color:var(--accent)}',
+        '.ocs-ask__chip-sliders{width:18px;height:18px;flex:none}',
         '.nmenu__ic .ocs-ic--free,.nmenu__ic .ocs-ic--none,.nmenu__ic .ocs-ic--wait{color:var(--muted)}',
         '@media (max-width:880px){',
         '.ocs-panel{top:max(8px,env(safe-area-inset-top,0px));bottom:auto;right:8px;left:8px;width:auto;min-height:0;',
@@ -2760,6 +2841,31 @@
       patchUi({ registerAsk: null });
     }
 
+    function openChanAdmin() {
+      try {
+        var st = orbit.state.get();
+        if (st && typeof st.setModal === 'function') st.setModal('chanadmin');
+      } catch (e) { /* ignore */ }
+      try { orbit.emit('orbit:panel', 'chanadmin'); } catch (e2) { /* ignore */ }
+    }
+
+    function SlidersGlyph() {
+      return h('svg', {
+        className: 'ocs-ask__chip-sliders', viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true,
+        stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
+      },
+        h('line', { x1: '4', y1: '21', x2: '4', y2: '14' }),
+        h('line', { x1: '4', y1: '10', x2: '4', y2: '3' }),
+        h('line', { x1: '12', y1: '21', x2: '12', y2: '12' }),
+        h('line', { x1: '12', y1: '8', x2: '12', y2: '3' }),
+        h('line', { x1: '20', y1: '21', x2: '20', y2: '16' }),
+        h('line', { x1: '20', y1: '12', x2: '20', y2: '3' }),
+        h('line', { x1: '1', y1: '14', x2: '7', y2: '14' }),
+        h('line', { x1: '9', y1: '8', x2: '15', y2: '8' }),
+        h('line', { x1: '17', y1: '16', x2: '23', y2: '16' })
+      );
+    }
+
     function RegisterAsk() {
       var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
       var skipSt = useState(false);
@@ -2801,6 +2907,70 @@
             h('button', { type: 'button', className: 'memberrsn__btn', onClick: later }, pick('Plus tard', 'Later')),
             h('button', { type: 'button', className: 'memberrsn__btn memberrsn__btn--go', onClick: go },
               pick('Enregistrer', 'Register'))
+          )
+        )
+      );
+    }
+
+    function RegisterDone() {
+      var s = useSyncExternalStore(subscribeUi, uiSnap, uiSnap);
+      var done = s.registerDone;
+      if (!done || !done.chan) return null;
+      var ch = done.chan;
+      var title = pick('Tu es fondateur de ce salon', 'You’re the founder of this channel');
+      function close() { patchUi({ registerDone: null }); }
+      function openSettings() {
+        patchUi({ registerDone: null });
+        openChanAdmin();
+      }
+      return h('div', {
+        className: 'memberrsn-scrim',
+        onMouseDown: function (e) { if (e.target === e.currentTarget) close(); },
+      },
+        h('div', { className: 'memberrsn ocs-ask', role: 'dialog', 'aria-label': title },
+          h('div', { className: 'memberrsn__head' }, title),
+          h('p', { className: 'ocs-ask__body' },
+            pick(
+              ch + ' est maintenant enregistré à ton nom. Configure-le via le panneau « Gérer le salon » : modes, topic, accès et services.',
+              ch + ' is now registered to you. Configure it in “Manage channel”: modes, topic, access and services.'
+            )
+          ),
+          h('div', { className: 'ocs-ask__guide', 'aria-hidden': true },
+            h('div', { className: 'ocs-ask__step' },
+              h('span', { className: 'ocs-ask__num' }, '1'),
+              h('div', { className: 'ocs-ask__step-body' },
+                h('p', { className: 'ocs-ask__step-txt' },
+                  pick(
+                    'Ouvre « Gérer le salon » dans la barre du haut (ou le menu ⋮ sur mobile).',
+                    'Open “Manage channel” in the top bar (or the ⋮ menu on mobile).'
+                  )
+                ),
+                h('span', { className: 'ocs-ask__chip' },
+                  h(SlidersGlyph),
+                  pick('Gérer le salon', 'Manage channel')
+                )
+              )
+            ),
+            h('div', { className: 'ocs-ask__step' },
+              h('span', { className: 'ocs-ask__num' }, '2'),
+              h('div', { className: 'ocs-ask__step-body' },
+                h('p', { className: 'ocs-ask__step-txt' },
+                  pick(
+                    'Dans le panneau, choisis « Gestion depuis les services » pour ChanServ / BotServ.',
+                    'In the panel, open “Service management” for ChanServ / BotServ.'
+                  )
+                ),
+                h('span', { className: 'ocs-ask__chip' },
+                  h(ChanIcon, { kind: 'ok', size: 18 }),
+                  pick('Gestion depuis les services', 'Service management')
+                )
+              )
+            )
+          ),
+          h('div', { className: 'memberrsn__row' },
+            h('button', { type: 'button', className: 'memberrsn__btn', onClick: close }, pick('Compris', 'Got it')),
+            h('button', { type: 'button', className: 'memberrsn__btn memberrsn__btn--go', onClick: openSettings },
+              pick('Ouvrir les paramètres', 'Open settings'))
           )
         )
       );
@@ -4032,7 +4202,7 @@
       offered = {};
       expectKind = '';
       if (expectTimer) { clearTimeout(expectTimer); expectTimer = 0; }
-      patchUi({ open: false, host: '', registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null, registerAsk: null });
+      patchUi({ open: false, host: '', registered: null, access: 'none', bot: '', bots: [], botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [], loading: false, tab: 'info', accessList: [], reasonAsk: null, dropAsk: null, registerAsk: null, registerDone: null });
     });
     orbit.addMessageFilter(function (m) {
       return shouldHideServiceReply(m);
@@ -4053,6 +4223,7 @@
     orbit.addUi('overlay', function () { return h(ReasonAsk); });
     orbit.addUi('overlay', function () { return h(DropAsk); });
     orbit.addUi('overlay', function () { return h(RegisterAsk); });
+    orbit.addUi('overlay', function () { return h(RegisterDone); });
     orbit.addUi('overlay', function () { return h(RegisterWatch); });
     orbit.addUi('chanadmin_badge', function () { return h(ManageBadge); });
     if (typeof orbit.addMemberMenu === 'function') {
