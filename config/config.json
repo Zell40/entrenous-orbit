@@ -39,9 +39,7 @@
     "registerUrl": "https://www.reseau-entrenous.fr/register/",
     "loginUrl": "https://www.reseau-entrenous.fr/login/",
     "links": [],
-    "accent": "",
-    "splashBg": "#0d1b3e",
-    "splashInk": "#ffffff"
+    "accent": ""
   },
   "turnstile": {
     "enabled": true,
