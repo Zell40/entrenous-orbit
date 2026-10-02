@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 25;
+  var ORX_VER = 26;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -1016,14 +1016,27 @@
       } catch (e) { /* quota */ }
     }
 
-    function clampPos(main, top, right) {
+    function salonBounds(main) {
       var mainBox = main.getBoundingClientRect();
+      var minTop = 8;
+      var bar = shownBox(main.querySelector('.topbar'));
+      if (bar) minTop = Math.max(minTop, Math.ceil(bar.bottom - mainBox.top + 6));
+      var maxBottom = mainBox.height - 8;
+      var foot = shownBox(main.querySelector('.composer'));
+      if (foot) maxBottom = Math.min(maxBottom, Math.floor(foot.top - mainBox.top - 8));
+      if (maxBottom < minTop + 28) maxBottom = mainBox.height - 8;
+      return { minTop: minTop, maxBottom: maxBottom, width: mainBox.width };
+    }
+
+    function clampPos(main, top, right) {
+      var room = salonBounds(main);
       var box = root.getBoundingClientRect();
       var w = Math.max(box.width, 72);
-      var h = Math.max(Math.min(box.height, mainBox.height - 16), 28);
+      var h = Math.max(box.height, 28);
+      var maxTop = Math.max(room.minTop, room.maxBottom - h);
       return {
-        top: Math.min(Math.max(0, top), Math.max(0, mainBox.height - h - 8)),
-        right: Math.min(Math.max(8, right), Math.max(8, mainBox.width - w - 8))
+        top: Math.min(Math.max(room.minTop, top), maxTop),
+        right: Math.min(Math.max(8, right), Math.max(8, room.width - w - 8))
       };
     }
 
