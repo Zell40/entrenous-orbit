@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=97"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=99"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -26,15 +26,63 @@
 
   var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, qop: 100, founder: 100 };
 
-  /** Same groups as Orbit ChanAdmin topic picker. */
+  /** Same groups as Orbit ChanAdmin topic picker (Unicode only — no custom images). */
   var TOPIC_SMILEY_GROUPS = [
     { id: 'faces', icon: '😊', smileys: ['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','😉','😍','🥰','😘','😎','🤩','🥳','😏','😢','😭','😡','🤔','😴','🙄','😜','🤗','😶'] },
     { id: 'hands', icon: '👍', smileys: ['👍','👎','👏','🙌','🙏','💪','👋','✌️','🤝','👌','👀'] },
     { id: 'hearts', icon: '❤️', smileys: ['❤️','🧡','💛','💚','💙','💜','💕','🔥','✨','⭐','🌟','🎉','🎊','💯'] },
+    { id: 'chat', icon: '💬', smileys: ['💬','💭','🗣️','📢','📣','🔔','🔕','#️⃣','👥','👤','🧑‍💻','💻','⌨️','📱','🛜','📡','🛰️','🏠','🚪','🔗'] },
+    { id: 'energy', icon: '⚡', smileys: ['⚡','💡','🔌','🔋','🪫','☀️','🔆','🔥','♨️','🌡️','🏭','⚙️','🔧','🛠️','🧯','🛢️','⛽','💨','💧','🌀'] },
+    { id: 'works', icon: '🚚', smileys: ['🚚','🚛','🚜','🚧','🏗️','🧱','🪜','🦺','👷','🔨','🪛','🪓','🪵','🗼','⛑️','🧤','🧰','📏','🔩','🛣️'] },
+    { id: 'social', icon: '🤝', smileys: ['🤝','🫂','❤️‍🩹','💙','🏥','👨‍👩‍👧','🎁','🎉','🏖️','⚽','🎭','📚','🎓','🏕️','🚌','🎟️','🍽️','☕','🥐','🎄'] },
     { id: 'music', icon: '🎵', smileys: ['🎵','🎶','🎤','🎧','🎸','🎹','🥁','🎺','🎷','🎻','📻'] },
     { id: 'nature', icon: '🌍', smileys: ['🌍','☀️','🌙','🌈','⚡','❄️','🌸','🌹'] },
     { id: 'things', icon: '💡', smileys: ['💬','📢','🔔','💡','🏠','☕','🍺','🍷','🍕','🎂','🏆','🎮','⚽','🎯'] },
   ];
+
+  var TOPIC_SMILEY_TAGS = {
+    '😀': 'sourire smile', '😂': 'rire laugh mdr', '🤣': 'rire mdr', '😊': 'joie happy',
+    '😍': 'amour love', '😘': 'bisou kiss', '😎': 'cool', '🥳': 'fete party', '🤔': 'reflechir think',
+    '👍': 'pouce ok', '👎': 'nul', '👏': 'bravo', '🤝': 'accord social entraide', '❤️': 'coeur heart',
+    '💙': 'coeur bleu enedis ccas', '🔥': 'feu energie', '🎉': 'fete party social',
+    '💬': 'tchat chat irc message', '#️⃣': 'salon channel irc', '👥': 'utilisateurs users',
+    '👤': 'utilisateur user', '🧑‍💻': 'dev irc', '💻': 'ordinateur', '📱': 'telephone',
+    '🛜': 'wifi reseau', '📡': 'antenne irc', '🏠': 'maison salon', '🔗': 'lien',
+    '⚡': 'electricite energie edf enedis', '💡': 'ampoule energie', '🔌': 'prise electricite',
+    '🔋': 'batterie', '⛽': 'essence gaz', '💨': 'gaz gas', '🛢️': 'petrole', '🏭': 'usine energie',
+    '🔧': 'outil', '🛠️': 'outils',
+    '🚚': 'camion truck enedis nacelle chantier', '🚛': 'camion', '🚧': 'travaux chantier',
+    '🏗️': 'grue crane nacelle', '🪜': 'echelle nacelle', '👷': 'ouvrier chantier',
+    '🪵': 'bois poteau', '🗼': 'tour poteau', '🦺': 'gilet', '⛑️': 'casque',
+    '🫂': 'calin social', '🏥': 'hopital ccas sante', '👨‍👩‍👧': 'famille', '🎁': 'cadeau',
+    '🏖️': 'plage', '⚽': 'sport', '🎭': 'theatre', '📚': 'livres', '🎓': 'diplome',
+    '🚌': 'bus', '🍽️': 'repas', '☕': 'cafe', '🎄': 'noel',
+    '🎵': 'musique', '🎶': 'musique', '🌍': 'terre', '☀️': 'soleil', '🌹': 'rose',
+  };
+  var TOPIC_GROUP_TAGS = {
+    all: 'tous all', faces: 'visages faces', hands: 'gestes hands', hearts: 'coeurs hearts',
+    chat: 'tchat chat irc salon utilisateurs', energy: 'energie electricite gaz edf enedis',
+    works: 'chantier travaux camion nacelle grue enedis poteau', social: 'social ccas entraide',
+    music: 'musique music', nature: 'nature', things: 'objets things',
+  };
+  function foldSmileyQuery(s) {
+    return String(s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9#\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function filterTopicSmileys(list, query, groupId) {
+    var q = foldSmileyQuery(query);
+    if (!q) return list.slice();
+    var tokens = q.split(' ').filter(Boolean);
+    return list.filter(function (emoji) {
+      var fromGroups = '';
+      TOPIC_SMILEY_GROUPS.forEach(function (g) {
+        if (g.smileys.indexOf(emoji) >= 0) fromGroups += ' ' + (TOPIC_GROUP_TAGS[g.id] || '');
+      });
+      var blob = foldSmileyQuery([emoji, TOPIC_SMILEY_TAGS[emoji] || '', TOPIC_GROUP_TAGS[groupId] || '', fromGroups].join(' '));
+      return tokens.every(function (t) { return blob.indexOf(t) >= 0 || emoji.indexOf(t) >= 0; });
+    });
+  }
 
   Orbit.plugin('orbit-chanserv', function (orbit, log) {
     var React = orbit.React;
@@ -1926,6 +1974,11 @@
         'border:1px solid var(--border);background:var(--bg);font-size:1rem;line-height:1;cursor:pointer}',
         '.ocs-topic-emoji.is-on{background:var(--accent-soft);border-color:var(--accent)}',
         '.ocs-topic-smileys-wrap{display:flex;flex-direction:column;gap:.35rem}',
+        '.ocs-topic-ssearch{width:100%;box-sizing:border-box;min-height:32px;padding:.35rem .6rem;',
+        'border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);',
+        'font:inherit;font-size:.82rem}',
+        '.ocs-topic-ssearch:focus{outline:none;border-color:var(--accent)}',
+        '.ocs-topic-snone{margin:0;padding:.35rem .15rem;font-size:.8rem;color:var(--muted)}',
         '.ocs-topic-sfilters{display:flex;flex-wrap:wrap;gap:.28rem}',
         '.ocs-topic-sfilter{display:inline-flex;align-items:center;gap:.28rem;min-height:26px;padding:.12rem .45rem;',
         'border-radius:8px;border:1px solid var(--border);background:var(--bg);font:inherit;font-size:.72rem;',
@@ -3073,6 +3126,9 @@
       var topicSmileyGroupSt = useState('all');
       var topicSmileyGroup = topicSmileyGroupSt[0];
       var setTopicSmileyGroup = topicSmileyGroupSt[1];
+      var topicSmileyQuerySt = useState('');
+      var topicSmileyQuery = topicSmileyQuerySt[0];
+      var setTopicSmileyQuery = topicSmileyQuerySt[1];
       var topicInputRef = useRef(null);
       var descSt = useState('');
       var desc = descSt[0];
@@ -3163,6 +3219,7 @@
           setTopic(bufferTopic(s.chan || chan));
           setTopicPicker(false);
           setTopicSmileyGroup('all');
+          setTopicSmileyQuery('');
         }
         return undefined;
       }, [s.open, s.tab, s.chan, chan]);
@@ -3444,9 +3501,10 @@
               fitTextarea(el);
             });
           }
-          var smileyList = topicSmileyGroup === 'all'
+          var smileyBase = topicSmileyGroup === 'all'
             ? TOPIC_SMILEY_GROUPS.reduce(function (acc, g) { return acc.concat(g.smileys); }, [])
             : ((TOPIC_SMILEY_GROUPS.find(function (g) { return g.id === topicSmileyGroup; }) || {}).smileys || []);
+          var smileyList = filterTopicSmileys(smileyBase, topicSmileyQuery, topicSmileyGroup);
           var smileyFilters = [
             h('button', {
               key: 'all', type: 'button', role: 'tab',
@@ -3456,8 +3514,8 @@
             }, pick('Tous', 'All')),
           ].concat(TOPIC_SMILEY_GROUPS.map(function (g) {
             var lbl = pick(
-              ({ faces: 'Visages', hands: 'Gestes', hearts: 'Cœurs', music: 'Musique', nature: 'Nature', things: 'Objets' })[g.id] || g.id,
-              ({ faces: 'Faces', hands: 'Hands', hearts: 'Hearts', music: 'Music', nature: 'Nature', things: 'Things' })[g.id] || g.id
+              ({ faces: 'Visages', hands: 'Gestes', hearts: 'Cœurs', chat: 'Tchat', energy: 'Énergie', works: 'Chantier', social: 'Social', music: 'Musique', nature: 'Nature', things: 'Objets' })[g.id] || g.id,
+              ({ faces: 'Faces', hands: 'Hands', hearts: 'Hearts', chat: 'Chat', energy: 'Energy', works: 'Works', social: 'Social', music: 'Music', nature: 'Nature', things: 'Things' })[g.id] || g.id
             );
             return h('button', {
               key: g.id, type: 'button', role: 'tab',
@@ -3485,7 +3543,10 @@
                     title: pick('Smileys', 'Smileys'),
                     'aria-label': pick('Smileys', 'Smileys'),
                     'aria-pressed': topicPicker,
-                    onClick: function () { setTopicPicker(!topicPicker); },
+                    onClick: function () {
+                      if (topicPicker) setTopicSmileyQuery('');
+                      setTopicPicker(!topicPicker);
+                    },
                   }, '😊'),
                   h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
                     var t = topic.trim().replace(/\s+/g, ' ');
@@ -3498,10 +3559,20 @@
                   } }, labeled('novoice', pick('Effacer', 'Clear')))
                 ),
                 topicPicker ? h('div', { className: 'ocs-topic-smileys-wrap' },
+                  h('input', {
+                    type: 'search',
+                    className: 'ocs-topic-ssearch',
+                    value: topicSmileyQuery,
+                    placeholder: pick('Filtrer les smileys…', 'Filter smileys…'),
+                    'aria-label': pick('Filtrer les smileys…', 'Filter smileys…'),
+                    onChange: function (e) { setTopicSmileyQuery(e.target.value); },
+                  }),
                   h('div', { className: 'ocs-topic-sfilters', role: 'tablist' }, smileyFilters),
-                  h('div', { className: 'ocs-topic-smileys', role: 'listbox' }, smileyList.map(function (e) {
-                    return h('button', { key: e, type: 'button', onClick: function () { insertTopicEmoji(e); } }, e);
-                  }))
+                  smileyList.length
+                    ? h('div', { className: 'ocs-topic-smileys', role: 'listbox' }, smileyList.map(function (e) {
+                      return h('button', { key: e, type: 'button', onClick: function () { insertTopicEmoji(e); } }, e);
+                    }))
+                    : h('p', { className: 'ocs-topic-snone' }, pick('Aucun smiley ne correspond.', 'No matching smileys.'))
                 ) : null
               )
             )
