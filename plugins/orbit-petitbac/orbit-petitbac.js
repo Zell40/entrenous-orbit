@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 85;
+  var PBAC_VER = 86;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2365,30 +2365,39 @@
       '.opbac-skip-rules input{margin:.12rem 0 0;flex-shrink:0;width:1.05rem;height:1.05rem;accent-color:#6366f1}',
       '.opbac-idle__stats{margin:0;max-width:none;text-align:left;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif;min-height:0}',
       '.opbac-recap .opbac-idle__stats,.opbac-recap__body .opbac-sum,.opbac-recap__body .opbac-hist{min-height:0}',
-      '.opbac-idle__stats-h{margin:.35rem 0 .25rem;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
+      '.opbac-idle__stats-h{margin:.22rem 0 .12rem;font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#666)}',
       '.opbac-idle__stats-h:first-child{margin-top:0}',
-      '.opbac-idle__stats-card{margin:0 0 .35rem;padding:.4rem .5rem;border-radius:10px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
-      '.opbac-idle__stats-sum{margin:0;font-size:.84rem;font-weight:700;color:var(--ink,#222);line-height:1.4}',
-      '.opbac-idle__stats-empty{margin:0;font-size:.8rem;color:var(--muted,#666);font-weight:600}',
-      '.opbac-recap-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.55rem;min-height:12rem;flex:1 1 auto;padding:1.1rem .6rem;text-align:center;font-size:.82rem;font-weight:700;color:var(--muted,#666);line-height:1.4}',
-      '.opbac-recap-wait .opbac-refresh{width:1.85rem;height:1.85rem}',
-      '.opbac-recap-wait__retry{border:0;border-radius:999px;padding:.4rem .9rem;font-size:.76rem;font-weight:800;cursor:pointer;background:#4f46e5;color:#fff;min-height:34px}',
-      '.opbac-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin:0 0 .55rem}',
-      '.opbac-stat-grid .opbac-sum__chip{padding:.55rem .4rem}',
-      '.opbac-stat-grid .opbac-sum__n{font-size:1.28rem}',
-      '.opbac-idle__stats-meta{margin:.1rem 0 .55rem;font-size:.68rem;font-weight:700;color:var(--muted,#666)}',
-      '.opbac-lookup{display:flex;gap:.3rem;margin:.15rem 0 .35rem;align-items:stretch}',
-      '.opbac-lookup input{flex:1;min-width:0;border:1px solid var(--border,#ccc);border-radius:9px;padding:.4rem .5rem;font-size:.8rem;font-weight:700;min-height:36px;background:var(--bg,#fff);color:var(--ink,#111)}',
-      '.opbac-lookup button,.opbac-top-n button,.opbac-lookup__back{border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:9px;padding:.35rem .55rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:36px}',
+      '.opbac-idle__stats-card{margin:0 0 .25rem;padding:.28rem .4rem;border-radius:8px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
+      '.opbac-idle__stats-sum{margin:0;font-size:.78rem;font-weight:700;color:var(--ink,#222);line-height:1.3}',
+      '.opbac-idle__stats-empty{margin:0;font-size:.76rem;color:var(--muted,#666);font-weight:600}',
+      '.opbac-recap-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:5.5rem;flex:1 1 auto;padding:.7rem .5rem;text-align:center;font-size:.78rem;font-weight:700;color:var(--muted,#666);line-height:1.35}',
+      '.opbac-recap-wait .opbac-refresh{width:1.45rem;height:1.45rem}',
+      '.opbac-recap-wait__retry{border:0;border-radius:999px;padding:.32rem .75rem;font-size:.72rem;font-weight:800;cursor:pointer;background:#4f46e5;color:#fff;min-height:30px}',
+      '.opbac-stat-rows{display:flex;flex-direction:column;margin:0 0 .35rem;border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));border-radius:10px;overflow:hidden;background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff))}',
+      '.opbac-stat-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.22rem .5rem;border-bottom:1px solid color-mix(in srgb,#6366f1 10%,var(--border,#e5e5e5));font-size:.74rem;font-weight:700;color:var(--muted,#555)}',
+      '.opbac-stat-row:last-child{border-bottom:0}',
+      '.opbac-stat-row strong{font-size:.86rem;font-weight:900;color:#4338ca;font-variant-numeric:tabular-nums}',
+      '.opbac-idle__stats-meta{margin:0 0 .3rem;font-size:.64rem;font-weight:700;color:var(--muted,#666)}',
+      '.opbac-lookup{display:flex;gap:.25rem;margin:.08rem 0 .2rem;align-items:stretch}',
+      '.opbac-lookup input{flex:1;min-width:0;border:1px solid var(--border,#ccc);border-radius:8px;padding:.28rem .45rem;font-size:.76rem;font-weight:700;min-height:30px;background:var(--bg,#fff);color:var(--ink,#111)}',
+      '.opbac-lookup button,.opbac-top-n button,.opbac-lookup__back{border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:8px;padding:.2rem .45rem;font-size:.68rem;font-weight:800;cursor:pointer;min-height:30px}',
       '.opbac-lookup button{background:#4f46e5;color:#fff;border-color:#4f46e5}',
-      '.opbac-lookup__back{width:100%;margin:.15rem 0 .45rem}',
-      '.opbac-top-n{display:flex;flex-wrap:wrap;gap:.25rem;margin:0 0 .5rem}',
+      '.opbac-lookup__back{width:100%;margin:.08rem 0 .25rem}',
+      '.opbac-top-n{display:flex;flex-wrap:nowrap;gap:.2rem;margin:0 0 .3rem}',
+      '.opbac-top-n button{flex:1;padding:.18rem .2rem;min-height:28px}',
       '.opbac-top-n button.opbac-top-n--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
       '.opbac-rank__nick[data-act]{border:0;background:none;padding:0;font:inherit;font-weight:800;cursor:pointer;text-align:left;color:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.opbac-rank__nick[data-act]:hover{color:#4f46e5;text-decoration:underline}',
-      '.opbac-recap__body .opbac-rank{gap:.28rem}',
-      '.opbac-recap__body .opbac-rank__row{padding:.5rem .55rem}',
-      '.opbac-recap__body .opbac-hist{flex:1 1 auto}',
+      '.opbac-recap__body .opbac-rank{gap:.12rem}',
+      '.opbac-recap__body .opbac-rank__row{padding:.2rem .38rem;gap:.28rem;grid-template-columns:1.45rem minmax(0,1fr) auto;border-radius:8px}',
+      '.opbac-recap__body .opbac-rank__medal{font-size:.82rem}',
+      '.opbac-recap__body .opbac-rank__n{width:1.2rem;height:1.2rem;font-size:.58rem}',
+      '.opbac-recap__body .opbac-rank__nick{font-size:.78rem}',
+      '.opbac-recap__body .opbac-rank__pts{font-size:.76rem}',
+      '.opbac-recap__body .opbac-hist{flex:0 0 auto}',
+      '.opbac-sum-line{margin:0 0 .3rem;padding:.28rem .45rem;border-radius:8px;background:color-mix(in srgb,#6366f1 7%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));font-size:.76rem;font-weight:700;color:var(--ink,#222);line-height:1.3}',
+      '.opbac-sum-line strong{font-weight:900;color:#4338ca;font-variant-numeric:tabular-nums}',
+      '.opbac-sum-line__sep{margin:0 .35rem;opacity:.45}',
       '.opbac-sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:0 0 .45rem}',
       '.opbac-sum__chip{padding:.4rem .45rem;border-radius:12px;background:color-mix(in srgb,#6366f1 8%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));text-align:center}',
       '.opbac-sum__n{display:block;font-size:1.2rem;font-weight:900;color:#4338ca;font-variant-numeric:tabular-nums}',
@@ -2418,6 +2427,10 @@
       '.opbac-podium__pts{font-size:.82rem;font-weight:900;color:#4f46e5;font-variant-numeric:tabular-nums}',
       '.opbac-hist{display:flex;flex-direction:column;gap:.28rem}',
       '.opbac-hist__card{padding:.32rem .45rem;border-radius:9px;background:var(--bg,#fff);border:1px solid color-mix(in srgb,#6366f1 14%,var(--border,#e5e5e5))}',
+      '.opbac-hist--tight{gap:.16rem}',
+      '.opbac-hist--tight .opbac-hist__card{display:grid;grid-template-columns:5.6rem minmax(0,1fr);gap:.35rem;align-items:baseline;padding:.16rem .4rem;border-radius:7px}',
+      '.opbac-hist--tight .opbac-hist__when{margin:0;font-size:.62rem;white-space:nowrap}',
+      '.opbac-hist--tight .opbac-hist__line{margin:0;font-size:.7rem;font-weight:700;color:var(--ink,#222);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}',
       '.opbac-idle__stats .opbac-rank{gap:.22rem}',
       '.opbac-hist__when{display:block;font-size:.68rem;font-weight:800;color:var(--muted,#666);margin:0 0 .4rem}',
       '.opbac-hist__players{display:flex;flex-wrap:wrap;gap:.3rem}',
@@ -2631,7 +2644,7 @@
       '.opbac-recap__tab{flex:1;border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:10px;padding:.32rem .45rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:36px}',
       '.opbac-recap__tab--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
       '.opbac-recap__body{display:none;order:1;max-height:0;overflow:hidden;padding:0}',
-      '.opbac-recap--open .opbac-recap__body{display:block;position:absolute;left:0;right:0;bottom:100%;z-index:6;max-height:min(48vh,22rem);overflow:auto;padding:.45rem .7rem .7rem;background:var(--bg,#fff);border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));border-radius:16px 16px 0 0;box-shadow:0 -16px 36px rgba(15,23,42,.16);animation:opbacSheetUp .22s ease}',
+      '.opbac-recap--open .opbac-recap__body{display:block;position:absolute;left:0;right:0;bottom:100%;z-index:6;max-height:min(42vh,16.5rem);overflow:auto;padding:.4rem .65rem .55rem;background:var(--bg,#fff);border-top:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));border-radius:16px 16px 0 0;box-shadow:0 -16px 36px rgba(15,23,42,.16);animation:opbacSheetUp .22s ease}',
       '@container opbac (min-width:700px){.opbac-idle{padding:.65rem 1.15rem .15rem;min-height:0}.opbac-idle__stage{display:flex;flex-direction:column;align-items:stretch;justify-content:stretch;gap:.75rem;width:100%;max-width:none;margin:0;padding:0;height:100%;min-height:0}.opbac-idle__hero{flex:1 1 0;min-height:0;width:100%;height:auto;justify-content:center;align-items:center;padding:.2rem}.opbac-idle__hero-art{width:min(380px,70%);max-height:min(100%,260px);height:auto}.opbac-idle__stopped{flex:0 0 auto;width:100%;max-width:none;margin:0}.opbac-playpick--home{flex:1 1 0;min-height:0;width:100%;max-width:none;margin:0;display:flex;flex-direction:column}.opbac-playpick--home .opbac-setup{flex:1 1 auto;min-height:0;width:100%}.opbac-playpick--home .opbac-setup__modes{padding:.65rem .75rem .7rem;width:100%;box-sizing:border-box}.opbac-playpick--home .opbac-modes{grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem;margin-bottom:.55rem}.opbac-playpick--home .opbac-mode{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;align-items:center;justify-items:start;text-align:left;column-gap:.65rem;row-gap:.08rem;padding:.7rem .75rem}.opbac-playpick--home .opbac-mode__emoji{grid-row:1/span 2;font-size:1.45rem}.opbac-playpick--home .opbac-mode__label{font-size:.9rem}.opbac-playpick--home .opbac-mode__hint{font-size:.68rem}.opbac-playpick--home .opbac-customs{max-height:none;flex:1 1 auto}.opbac-playpick--home .opbac-idle__cta{max-width:none}.opbac-playpick--home .opbac-idle__launch{width:100%;flex:0 0 auto}.opbac-idle__launch .opbac-skip-rules{max-width:none;width:100%;box-sizing:border-box}}',
       '@container opbac (min-width:980px){.opbac-idle{display:grid;grid-template-columns:minmax(0,1fr) minmax(18rem,22.5rem);grid-template-rows:minmax(0,1fr);gap:.85rem 1.05rem;padding:.7rem 1.15rem .7rem;overflow:hidden}.opbac-idle__stage{grid-column:1;grid-row:1;max-width:none;margin:0;height:100%;min-height:0}.opbac-idle__scrim,.opbac-idle--sheet-open .opbac-idle__scrim{display:none!important}.opbac-recap{grid-column:2;grid-row:1;margin:0;padding:.55rem .65rem .55rem;height:100%;min-height:0;border-radius:16px;border:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));box-shadow:none;background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff));display:flex;flex-direction:column}.opbac-recap__tabs{order:0;padding:.1rem 0 .35rem}.opbac-recap__body,.opbac-recap--open .opbac-recap__body{display:block!important;position:static!important;max-height:none!important;flex:1 1 auto;min-height:0;overflow:auto;padding:.15rem 0 0;margin:0;border:0;border-radius:0;box-shadow:none;animation:none;background:transparent}.opbac-playpick--home .opbac-modes{grid-template-columns:repeat(4,minmax(0,1fr))}.opbac-idle__hero-art{width:min(420px,56%);max-height:min(100%,280px)}}',
       '@keyframes opbacSheetUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}',
@@ -4246,18 +4259,16 @@
 
   function buildStatLookupHtml(card) {
     var value = (card && card.kind === 'player' && card.nick) ? card.nick : (statLookupNick || '');
-    return '<p class="opbac-idle__stats-h">' +
-      escHtml(pick({ fr: 'Stats d’un joueur', en: 'Player stats' })) + '</p>' +
-      '<div class="opbac-lookup">' +
+    return '<div class="opbac-lookup">' +
         '<input type="text" data-stat-nick maxlength="32" placeholder="' +
-          escHtml(pick({ fr: 'Pseudo (ex. zell)', en: 'Nick (e.g. zell)' })) +
+          escHtml(pick({ fr: 'Stats d’un joueur…', en: 'Player stats…' })) +
           '" value="' + escHtml(value) + '">' +
         '<button type="button" data-act="stat-lookup">' +
           escHtml(pick({ fr: 'Voir', en: 'View' })) + '</button>' +
       '</div>' +
       (card && card.kind === 'player'
         ? ('<button type="button" class="opbac-lookup__back" data-act="stat-global">' +
-            escHtml(pick({ fr: '↩ Statistiques globales', en: '↩ Global stats' })) +
+            escHtml(pick({ fr: '↩ Globales', en: '↩ Global' })) +
           '</button>')
         : '');
   }
@@ -4293,10 +4304,10 @@
       [card.pts || '0', pick({ fr: 'points', en: 'points' })],
     ];
     var html = '<p class="opbac-idle__stats-h">' + escHtml(title) + '</p>' +
-      '<div class="opbac-stat-grid">';
+      '<div class="opbac-stat-rows">';
     metrics.forEach(function (m) {
-      html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(String(m[0])) +
-        '</span><span class="opbac-sum__l">' + escHtml(m[1]) + '</span></div>';
+      html += '<div class="opbac-stat-row"><span>' + escHtml(m[1]) +
+        '</span><strong>' + escHtml(String(m[0])) + '</strong></div>';
     });
     html += '</div>';
     if (card.last) {
@@ -4330,13 +4341,13 @@
     if (game.lobbySummary) html += buildSummaryChipsHtml(game.lobbySummary);
     if (ranking && ranking.length) {
       html += '<p class="opbac-idle__stats-h">' +
-        escHtml(pick({ fr: 'Classement du salon', en: 'Channel ranking' })) + '</p>' +
-        buildRankingTableHtml(ranking, myNick, { clickable: true });
+        escHtml(pick({ fr: 'Dernière partie', en: 'Last game' })) + '</p>' +
+        buildRankingTableHtml(ranking.slice(0, 8), myNick, { clickable: true });
     }
     if (game.lobbyHistory && game.lobbyHistory.length) {
       html += '<p class="opbac-idle__stats-h">' +
         escHtml(pick({ fr: 'Dernières parties', en: 'Recent games' })) + '</p>' +
-        buildHistoryHtml(game.lobbyHistory, myNick);
+        buildHistoryHtml(game.lobbyHistory.slice(0, 5), myNick, { compact: true });
     }
     if (!html) {
       html = '<p class="opbac-idle__stats-empty">' + escHtml(pick({
@@ -4354,7 +4365,8 @@
     [10, 15, 20, 25].forEach(function (n) {
       html += '<button type="button" data-act="top-n" data-n="' + n + '"' +
         (n === cur ? ' class="opbac-top-n--on" aria-pressed="true"' : ' aria-pressed="false"') +
-        '>' + escHtml(pick({ fr: 'Top ' + n, en: 'Top ' + n })) + '</button>';
+        ' aria-label="' + escHtml(pick({ fr: 'Top ' + n, en: 'Top ' + n })) + '">' +
+        escHtml(String(n)) + '</button>';
     });
     return html + '</div>';
   }
@@ -5998,27 +6010,38 @@
   function buildSummaryChipsHtml(text) {
     var info = parseLobbySummary(text);
     if (info.games || info.players) {
-      var html = '<div class="opbac-sum">';
+      var bits = [];
       if (info.games) {
-        html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(info.games) + '</span>' +
-          '<span class="opbac-sum__l">' + escHtml(pick({ fr: 'parties', en: 'games' })) + '</span></div>';
+        bits.push('<strong>' + escHtml(info.games) + '</strong> ' +
+          escHtml(pick({ fr: 'parties', en: 'games' })));
       }
       if (info.players) {
-        html += '<div class="opbac-sum__chip"><span class="opbac-sum__n">' + escHtml(info.players) + '</span>' +
-          '<span class="opbac-sum__l">' + escHtml(pick({ fr: 'joueurs', en: 'players' })) + '</span></div>';
+        bits.push('<strong>' + escHtml(info.players) + '</strong> ' +
+          escHtml(pick({ fr: 'joueurs', en: 'players' })));
       }
-      return html + '</div>';
+      return '<p class="opbac-sum-line">' + bits.join('<span class="opbac-sum-line__sep">·</span>') + '</p>';
     }
     if (!info.raw) return '';
     return '<div class="opbac-idle__stats-card"><p class="opbac-idle__stats-sum">' + escHtml(info.raw) + '</p></div>';
   }
 
-  function buildHistoryHtml(lines, myNick) {
+  function buildHistoryHtml(lines, myNick, opts) {
+    opts = opts || {};
     if (!lines || !lines.length) return '';
-    return '<div class="opbac-hist">' + lines.map(function (line) {
+    return '<div class="opbac-hist' + (opts.compact ? ' opbac-hist--tight' : '') + '">' + lines.map(function (line) {
       var g = parseHistoryLine(line);
       if (!g.players.length) {
         return '<article class="opbac-hist__card"><p class="opbac-hist__raw">' + escHtml(g.raw) + '</p></article>';
+      }
+      if (opts.compact) {
+        var bits = g.players.map(function (p, i) {
+          var isMe = myNick && String(p.nick).toLowerCase() === String(myNick).toLowerCase();
+          return (i === 0 ? '🏆 ' : '') + escHtml(p.nick) + (isMe ? '★' : '') +
+            ' ' + escHtml(formatPtsShort(p.pts));
+        }).join(' · ');
+        return '<article class="opbac-hist__card">' +
+          (g.when ? '<time class="opbac-hist__when">' + escHtml(g.when) + '</time>' : '') +
+          '<p class="opbac-hist__line">' + bits + '</p></article>';
       }
       var players = g.players.map(function (p, i) {
         var isMe = myNick && String(p.nick).toLowerCase() === String(myNick).toLowerCase();
