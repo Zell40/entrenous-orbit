@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=96"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=97"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -25,6 +25,16 @@
   var RPC_PATH = '/app/plugins/third/orbit-chanserv/chanserv-rpc.php';
 
   var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, qop: 100, founder: 100 };
+
+  /** Same groups as Orbit ChanAdmin topic picker. */
+  var TOPIC_SMILEY_GROUPS = [
+    { id: 'faces', icon: '😊', smileys: ['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','😉','😍','🥰','😘','😎','🤩','🥳','😏','😢','😭','😡','🤔','😴','🙄','😜','🤗','😶'] },
+    { id: 'hands', icon: '👍', smileys: ['👍','👎','👏','🙌','🙏','💪','👋','✌️','🤝','👌','👀'] },
+    { id: 'hearts', icon: '❤️', smileys: ['❤️','🧡','💛','💚','💙','💜','💕','🔥','✨','⭐','🌟','🎉','🎊','💯'] },
+    { id: 'music', icon: '🎵', smileys: ['🎵','🎶','🎤','🎧','🎸','🎹','🥁','🎺','🎷','🎻','📻'] },
+    { id: 'nature', icon: '🌍', smileys: ['🌍','☀️','🌙','🌈','⚡','❄️','🌸','🌹'] },
+    { id: 'things', icon: '💡', smileys: ['💬','📢','🔔','💡','🏠','☕','🍺','🍷','🍕','🎂','🏆','🎮','⚽','🎯'] },
+  ];
 
   Orbit.plugin('orbit-chanserv', function (orbit, log) {
     var React = orbit.React;
@@ -699,6 +709,13 @@
       patchUi({ accessList: rows || [], accessLoading: false, loading: false, access: acc });
     }
 
+    function syncOrbitChanServPublic(chan) {
+      try {
+        var st = orbit.state.get();
+        if (st && typeof st.loadChanServPublic === 'function') st.loadChanServPublic(chan);
+      } catch (e) { /* ignore */ }
+    }
+
     function applyProbeTexts(chan, infoText, statusText) {
       var info = parseInfo(infoText || '');
       if (isUnregisteredText(statusText || '')) info.registered = false;
@@ -718,6 +735,7 @@
       rememberCache(chan);
       expectKind = '';
       if (info.registered && isSkipped(chan)) setSkipped(chan, false);
+      if (info.registered) syncOrbitChanServPublic(chan);
       if (needLiveStatus) queryStatus(chan);
     }
 
@@ -1378,6 +1396,7 @@
           infoText: info.infoText,
           access: info.registered ? betterAccess(chan, '', info.founder, ui.accessList) : 'none',
         });
+        if (info.registered) syncOrbitChanServPublic(chan);
         if (info.registered && panelOpen()) queryStatus(chan);
         else {
           rememberCache(chan);
@@ -1901,6 +1920,25 @@
         'overflow:hidden;overflow-wrap:anywhere;word-break:break-word;resize:none}',
         '.ocs-th__edit:focus{outline:none}',
         '.ocs-th__row .ocs-btn{min-height:28px;padding:.18rem .5rem;font-size:.72rem;flex:none;align-self:flex-start}',
+        '.ocs-topic-edit{display:flex;flex-direction:column;gap:.4rem;min-width:0}',
+        '.ocs-topic-edit__bar{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem}',
+        '.ocs-topic-emoji{min-height:28px;min-width:28px;padding:.12rem .4rem;border-radius:8px;',
+        'border:1px solid var(--border);background:var(--bg);font-size:1rem;line-height:1;cursor:pointer}',
+        '.ocs-topic-emoji.is-on{background:var(--accent-soft);border-color:var(--accent)}',
+        '.ocs-topic-smileys-wrap{display:flex;flex-direction:column;gap:.35rem}',
+        '.ocs-topic-sfilters{display:flex;flex-wrap:wrap;gap:.28rem}',
+        '.ocs-topic-sfilter{display:inline-flex;align-items:center;gap:.28rem;min-height:26px;padding:.12rem .45rem;',
+        'border-radius:8px;border:1px solid var(--border);background:var(--bg);font:inherit;font-size:.72rem;',
+        'font-weight:700;color:var(--ink);cursor:pointer}',
+        '.ocs-topic-sfilter:hover{border-color:var(--accent)}',
+        '.ocs-topic-sfilter.is-on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}',
+        '.ocs-topic-sfilter__lbl{white-space:nowrap}',
+        '@media (max-width:520px){.ocs-topic-sfilter__lbl{display:none}}',
+        '.ocs-topic-smileys{display:flex;flex-wrap:wrap;gap:.2rem;padding:.35rem;border-radius:10px;',
+        'border:1px solid var(--border);background:var(--bg)}',
+        '.ocs-topic-smileys button{min-width:2rem;min-height:2rem;padding:0;border:0;border-radius:8px;',
+        'background:transparent;font-size:1.15rem;line-height:1;cursor:pointer}',
+        '.ocs-topic-smileys button:hover{background:var(--bg-soft-2,var(--bg-soft));transform:scale(1.12)}',
         '.ocs-acclip{max-height:calc(5 * 2.55rem);overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft)}',
         '.ocs-acclip .ocs-acc__row:first-child{border-top:0}',
         '.ocs-mm__reason{margin:.2rem .45rem .3rem;min-height:32px;padding:.28rem .5rem;border-radius:8px;',
@@ -2327,8 +2365,15 @@
       var r = useRef(null);
       useLayoutEffect(function () { fitTextarea(r.current); }, [props.value]);
       var p = {};
-      Object.keys(props).forEach(function (k) { if (k !== 'onChange') p[k] = props[k]; });
-      p.ref = r;
+      Object.keys(props).forEach(function (k) {
+        if (k === 'onChange' || k === 'inputRef') return;
+        p[k] = props[k];
+      });
+      p.ref = function (el) {
+        r.current = el;
+        if (typeof props.inputRef === 'function') props.inputRef(el);
+        else if (props.inputRef) props.inputRef.current = el;
+      };
       p.rows = props.rows || 1;
       p.onChange = function (e) {
         fitTextarea(e.target);
@@ -3022,6 +3067,13 @@
       var topicSt = useState('');
       var topic = topicSt[0];
       var setTopic = topicSt[1];
+      var topicPickerSt = useState(false);
+      var topicPicker = topicPickerSt[0];
+      var setTopicPicker = topicPickerSt[1];
+      var topicSmileyGroupSt = useState('all');
+      var topicSmileyGroup = topicSmileyGroupSt[0];
+      var setTopicSmileyGroup = topicSmileyGroupSt[1];
+      var topicInputRef = useRef(null);
       var descSt = useState('');
       var desc = descSt[0];
       var setDesc = descSt[1];
@@ -3107,7 +3159,11 @@
       }, [chan, s.open, s.chan]);
       useEffect(function () {
         if (!s.open) return undefined;
-        if (s.tab === 'topic' || s.tab === 'sujet') setTopic(bufferTopic(s.chan || chan));
+        if (s.tab === 'topic' || s.tab === 'sujet') {
+          setTopic(bufferTopic(s.chan || chan));
+          setTopicPicker(false);
+          setTopicSmileyGroup('all');
+        }
         return undefined;
       }, [s.open, s.tab, s.chan, chan]);
       useEffect(function () {
@@ -3374,24 +3430,79 @@
         }
 
         if (tab === 'topic' && showTopic) {
+          function insertTopicEmoji(emoji) {
+            var el = topicInputRef.current;
+            var start = el && typeof el.selectionStart === 'number' ? el.selectionStart : topic.length;
+            var end = el && typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
+            var next = topic.slice(0, start) + emoji + topic.slice(end);
+            setTopic(next);
+            requestAnimationFrame(function () {
+              if (!el) return;
+              el.focus();
+              var caret = start + emoji.length;
+              try { el.setSelectionRange(caret, caret); } catch (e) { /* ignore */ }
+              fitTextarea(el);
+            });
+          }
+          var smileyList = topicSmileyGroup === 'all'
+            ? TOPIC_SMILEY_GROUPS.reduce(function (acc, g) { return acc.concat(g.smileys); }, [])
+            : ((TOPIC_SMILEY_GROUPS.find(function (g) { return g.id === topicSmileyGroup; }) || {}).smileys || []);
+          var smileyFilters = [
+            h('button', {
+              key: 'all', type: 'button', role: 'tab',
+              className: 'ocs-topic-sfilter' + (topicSmileyGroup === 'all' ? ' is-on' : ''),
+              'aria-selected': topicSmileyGroup === 'all',
+              onClick: function () { setTopicSmileyGroup('all'); },
+            }, pick('Tous', 'All')),
+          ].concat(TOPIC_SMILEY_GROUPS.map(function (g) {
+            var lbl = pick(
+              ({ faces: 'Visages', hands: 'Gestes', hearts: 'Cœurs', music: 'Musique', nature: 'Nature', things: 'Objets' })[g.id] || g.id,
+              ({ faces: 'Faces', hands: 'Hands', hearts: 'Hearts', music: 'Music', nature: 'Nature', things: 'Things' })[g.id] || g.id
+            );
+            return h('button', {
+              key: g.id, type: 'button', role: 'tab',
+              className: 'ocs-topic-sfilter' + (topicSmileyGroup === g.id ? ' is-on' : ''),
+              'aria-selected': topicSmileyGroup === g.id,
+              title: lbl,
+              onClick: function () { setTopicSmileyGroup(g.id); },
+            }, h('span', { 'aria-hidden': 'true' }, g.icon), h('span', { className: 'ocs-topic-sfilter__lbl' }, lbl));
+          }));
           body.push(h('p', { className: 'ocs-h' }, pick('Modifier le topic', 'Edit topic')));
           body.push(h('div', { className: 'ocs-acc' },
             h('div', { className: 'ocs-acc__g' },
               h('div', { className: 'ocs-acc__h' }, pick('Topic actuel', 'Current topic')),
-              h('div', { className: 'ocs-th__row' },
+              h('div', { className: 'ocs-th__row ocs-topic-edit' },
                 h(AutoTextarea, {
                   className: 'ocs-th__edit',
                   value: topic,
+                  inputRef: topicInputRef,
                   onChange: function (e) { setTopic(e.target.value); },
                 }),
-                h('div', { className: 'ocs-row' },
+                h('div', { className: 'ocs-topic-edit__bar' },
+                  h('button', {
+                    type: 'button',
+                    className: 'ocs-topic-emoji' + (topicPicker ? ' is-on' : ''),
+                    title: pick('Smileys', 'Smileys'),
+                    'aria-label': pick('Smileys', 'Smileys'),
+                    'aria-pressed': topicPicker,
+                    onClick: function () { setTopicPicker(!topicPicker); },
+                  }, '😊'),
                   h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
                     var t = topic.trim().replace(/\s+/g, ' ');
                     goCs('TOPIC ' + ch + ' SET' + (t ? ' ' + t : ''));
+                    setTopicPicker(false);
                   } }, labeled('check', pick('Définir', 'Set'))),
-                  h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('TOPIC ' + ch + ' SET'); } },
-                    labeled('novoice', pick('Effacer', 'Clear')))
-                )
+                  h('button', { type: 'button', className: 'ocs-btn', onClick: function () {
+                    goCs('TOPIC ' + ch + ' SET');
+                    setTopicPicker(false);
+                  } }, labeled('novoice', pick('Effacer', 'Clear')))
+                ),
+                topicPicker ? h('div', { className: 'ocs-topic-smileys-wrap' },
+                  h('div', { className: 'ocs-topic-sfilters', role: 'tablist' }, smileyFilters),
+                  h('div', { className: 'ocs-topic-smileys', role: 'listbox' }, smileyList.map(function (e) {
+                    return h('button', { key: e, type: 'button', onClick: function () { insertTopicEmoji(e); } }, e);
+                  }))
+                ) : null
               )
             )
           ));
