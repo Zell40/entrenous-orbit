@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=99"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=100"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -26,18 +26,18 @@
 
   var ACCESS_RANK = { none: 0, vop: 3, hop: 4, aop: 5, sop: 10, qop: 100, founder: 100 };
 
-  /** Same groups as Orbit ChanAdmin topic picker (Unicode only — no custom images). */
+  /** Same groups as Orbit ChanAdmin — each emoji in exactly one group. */
   var TOPIC_SMILEY_GROUPS = [
     { id: 'faces', icon: '😊', smileys: ['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','😉','😍','🥰','😘','😎','🤩','🥳','😏','😢','😭','😡','🤔','😴','🙄','😜','🤗','😶'] },
-    { id: 'hands', icon: '👍', smileys: ['👍','👎','👏','🙌','🙏','💪','👋','✌️','🤝','👌','👀'] },
-    { id: 'hearts', icon: '❤️', smileys: ['❤️','🧡','💛','💚','💙','💜','💕','🔥','✨','⭐','🌟','🎉','🎊','💯'] },
+    { id: 'hands', icon: '👍', smileys: ['👍','👎','👏','🙌','🙏','💪','👋','✌️','👌','👀','🤞','🤟','🤘','☝️','✋'] },
+    { id: 'hearts', icon: '❤️', smileys: ['❤️','🧡','💛','💚','💙','💜','💕','💖','💗','💘','💝','💞','❣️','💔','✨','⭐','🌟','💯'] },
     { id: 'chat', icon: '💬', smileys: ['💬','💭','🗣️','📢','📣','🔔','🔕','#️⃣','👥','👤','🧑‍💻','💻','⌨️','📱','🛜','📡','🛰️','🏠','🚪','🔗'] },
-    { id: 'energy', icon: '⚡', smileys: ['⚡','💡','🔌','🔋','🪫','☀️','🔆','🔥','♨️','🌡️','🏭','⚙️','🔧','🛠️','🧯','🛢️','⛽','💨','💧','🌀'] },
+    { id: 'energy', icon: '⚡', smileys: ['⚡','💡','🔌','🔋','🪫','🔆','🔥','♨️','🌡️','🏭','⚙️','🔧','🛠️','🧯','🛢️','⛽','💨','💧','🌀','☢️'] },
     { id: 'works', icon: '🚚', smileys: ['🚚','🚛','🚜','🚧','🏗️','🧱','🪜','🦺','👷','🔨','🪛','🪓','🪵','🗼','⛑️','🧤','🧰','📏','🔩','🛣️'] },
-    { id: 'social', icon: '🤝', smileys: ['🤝','🫂','❤️‍🩹','💙','🏥','👨‍👩‍👧','🎁','🎉','🏖️','⚽','🎭','📚','🎓','🏕️','🚌','🎟️','🍽️','☕','🥐','🎄'] },
+    { id: 'social', icon: '🤝', smileys: ['🤝','🫂','❤️‍🩹','🏥','👨‍👩‍👧','🎁','🎉','🎊','🏖️','⚽','🎭','📚','🎓','🏕️','🚌','🎟️','🍽️','☕','🥐','🎄'] },
     { id: 'music', icon: '🎵', smileys: ['🎵','🎶','🎤','🎧','🎸','🎹','🥁','🎺','🎷','🎻','📻'] },
-    { id: 'nature', icon: '🌍', smileys: ['🌍','☀️','🌙','🌈','⚡','❄️','🌸','🌹'] },
-    { id: 'things', icon: '💡', smileys: ['💬','📢','🔔','💡','🏠','☕','🍺','🍷','🍕','🎂','🏆','🎮','⚽','🎯'] },
+    { id: 'nature', icon: '🌍', smileys: ['🌍','☀️','🌙','🌈','❄️','🌸','🌹','🌲','🌊','⛰️','🍀','🌾'] },
+    { id: 'things', icon: '🎯', smileys: ['🍺','🍷','🍕','🎂','🏆','🎮','🎯','⌚','📦','🛒','🔑','📷'] },
   ];
 
   var TOPIC_SMILEY_TAGS = {
@@ -3501,9 +3501,20 @@
               fitTextarea(el);
             });
           }
-          var smileyBase = topicSmileyGroup === 'all'
-            ? TOPIC_SMILEY_GROUPS.reduce(function (acc, g) { return acc.concat(g.smileys); }, [])
-            : ((TOPIC_SMILEY_GROUPS.find(function (g) { return g.id === topicSmileyGroup; }) || {}).smileys || []);
+          var smileyBase;
+          if (topicSmileyGroup === 'all') {
+            var seen = {};
+            smileyBase = [];
+            TOPIC_SMILEY_GROUPS.forEach(function (g) {
+              g.smileys.forEach(function (e) {
+                if (seen[e]) return;
+                seen[e] = true;
+                smileyBase.push(e);
+              });
+            });
+          } else {
+            smileyBase = ((TOPIC_SMILEY_GROUPS.find(function (g) { return g.id === topicSmileyGroup; }) || {}).smileys || []).slice();
+          }
           var smileyList = filterTopicSmileys(smileyBase, topicSmileyQuery, topicSmileyGroup);
           var smileyFilters = [
             h('button', {
