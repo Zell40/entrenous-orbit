@@ -7,7 +7,7 @@
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
  * Read-only: ChanServ INFO / STATUS / BOTLIST / ACCESS LIST * ALL,
- * NickServ INFO ALL / ALIST.
+ * NickServ INFO ALL / ALIST / HELP.
  * REGISTER stays on IRC so Anope maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
@@ -177,10 +177,11 @@ $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
 if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
-if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access' && $action !== 'nsinfo' && $action !== 'nsalist') {
+if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
+  && $action !== 'nsinfo' && $action !== 'nsalist' && $action !== 'nshelp') {
   fail(400, 'bad_action');
 }
-if ($action !== 'nsinfo' && $action !== 'nsalist' && !valid_channel($channel)) {
+if ($action !== 'nsinfo' && $action !== 'nsalist' && $action !== 'nshelp' && !valid_channel($channel)) {
   fail(400, 'bad_params');
 }
 
@@ -227,6 +228,19 @@ try {
       }
     }
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nshelp') {
+    $help = '';
+    try {
+      $help = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'HELP',
+      ]));
+    } catch (Throwable $e) {
+      $help = '';
+    }
+    echo json_encode(['ok' => true, 'help' => $help], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
