@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 86;
+  var PBAC_VER = 87;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -1277,7 +1277,10 @@
       });
     }
     if (fromBac && (/🏆\s*Top\s+\d+/i.test(body) || /Meilleurs joueurs/i.test(body))) {
-      patchChannel(channel, { topGlobal: [], topLoaded: false });
+      var stHead = getChannelState(channel) || defaultState();
+      if (!stHead.topLoaded && !(stHead.topGlobal || []).length) {
+        patchChannel(channel, { topGlobal: [], topLoaded: false });
+      }
       return;
     }
     var topRow = body.match(/^\s*(\d+)\.\s+([^\s—\-]+)[^\d]*?(\d+(?:[.,]\d+)?)\s*pts/i);
@@ -2370,7 +2373,7 @@
       '.opbac-idle__stats-card{margin:0 0 .25rem;padding:.28rem .4rem;border-radius:8px;background:color-mix(in srgb,#6366f1 6%,var(--bg,#fff));border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5))}',
       '.opbac-idle__stats-sum{margin:0;font-size:.78rem;font-weight:700;color:var(--ink,#222);line-height:1.3}',
       '.opbac-idle__stats-empty{margin:0;font-size:.76rem;color:var(--muted,#666);font-weight:600}',
-      '.opbac-recap-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:5.5rem;flex:1 1 auto;padding:.7rem .5rem;text-align:center;font-size:.78rem;font-weight:700;color:var(--muted,#666);line-height:1.35}',
+      '.opbac-recap-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:4.2rem;flex:0 0 auto;padding:.55rem .5rem;text-align:center;font-size:.78rem;font-weight:700;color:var(--muted,#666);line-height:1.35}',
       '.opbac-recap-wait .opbac-refresh{width:1.45rem;height:1.45rem}',
       '.opbac-recap-wait__retry{border:0;border-radius:999px;padding:.32rem .75rem;font-size:.72rem;font-weight:800;cursor:pointer;background:#4f46e5;color:#fff;min-height:30px}',
       '.opbac-stat-rows{display:flex;flex-direction:column;margin:0 0 .35rem;border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));border-radius:10px;overflow:hidden;background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff))}',
@@ -4132,17 +4135,41 @@
       '</div>';
   }
 
+  function recapSignature(game) {
+    game = game || {};
+    var top = game.topGlobal || [];
+    var card = game.statCard;
+    return [
+      currentLobbyTab(),
+      String(currentTopLimit()),
+      recapSheetOpen ? '1' : '0',
+      lobbyRetryFailed ? '1' : '0',
+      game.scoresLoaded ? '1' : '0',
+      game.topLoaded ? '1' : '0',
+      String(game.topTotal || 0),
+      String(top.length),
+      top.map(function (r) { return (r && r.nick ? r.nick : '') + ':' + (r && r.pts != null ? r.pts : ''); }).join(','),
+      String((game.lobbyRanking || []).length),
+      String((game.lobbyHistory || []).length),
+      game.lobbySummary || '',
+      card ? [card.kind, card.nick || '', card.ok, card.pts, card.games].join(':') : '',
+    ].join('|');
+  }
+
   function lobbyDataReady(game, tab) {
     tab = tab || currentLobbyTab();
     if (!game) return false;
     if (tab === 'stats') return !!game.statCard;
     if (tab === 'top') {
       var want = currentTopLimit();
-      var have = ((game && game.topGlobal) || []).length;
-      var total = Number(game && game.topTotal) || 0;
-      if (!game || !game.topLoaded) return false;
-      if (total > 0) return have >= Math.min(want, total);
-      return have >= want;
+      var have = (game.topGlobal || []).length;
+      var total = Number(game.topTotal) || 0;
+      if (game.topLoaded) {
+        if (!have) return true;
+        if (total > 0) return have >= Math.min(want, total);
+        return true;
+      }
+      return false;
     }
     return !!game.scoresLoaded || !!(game.lobbySummary) ||
       !!(game.lobbyRanking && game.lobbyRanking.length) ||
@@ -4173,6 +4200,11 @@
         return;
       }
       if (tab === 'top' && (g.topGlobal || []).length && !g.topLoaded) {
+        lobbyRetryCount += 1;
+        if (lobbyRetryCount > 5) {
+          patchChannel(buf, { topLoaded: true });
+          return;
+        }
         scheduleLobbyRetry(pluginOrbit, buf);
         return;
       }
@@ -4191,19 +4223,27 @@
     if (!orbit || !buffer) return;
     tab = tab || currentLobbyTab();
     var game = getChannelState(buffer) || defaultState();
-    if (!force && lobbyDataReady(game, tab)) {
+    if (lobbyDataReady(game, tab)) {
       lobbyRetryCount = 0;
       lobbyRetryFailed = false;
       stopLobbyRetry();
       return;
     }
-    lobbyRetryFailed = false;
+    if (!force) {
+      if (lobbyRetryFailed) return;
+      if (lobbyRetryTimer) return;
+      if (tab === 'top' && (game.topGlobal || []).length && !game.topLoaded) {
+        scheduleLobbyRetry(orbit, buffer);
+        return;
+      }
+    } else {
+      lobbyRetryCount = 0;
+      lobbyRetryFailed = false;
+      stopLobbyRetry();
+    }
     requestLobbyTabData(orbit, buffer, tab, !!force);
     if (!lobbyDataReady(getChannelState(buffer) || defaultState(), tab)) {
-      if (!lobbyRetryTimer) {
-        lobbyRetryCount = 0;
-        scheduleLobbyRetry(orbit, buffer);
-      }
+      if (!lobbyRetryTimer) scheduleLobbyRetry(orbit, buffer);
     }
   }
 
@@ -4382,12 +4422,12 @@
         })) + '</p>';
       }
       if (lobbyRetryFailed) {
-        return recapWaitHtml(pick({
+        return buildTopLimitHtml() + recapWaitHtml(pick({
           fr: 'Le classement n’a pas pu être chargé.',
           en: 'Ranking could not be loaded.',
         }), true);
       }
-      return recapWaitHtml(pick({
+      return buildTopLimitHtml() + recapWaitHtml(pick({
         fr: 'Chargement du top ' + limit + '…',
         en: 'Loading top ' + limit + '…',
       }));
@@ -4436,7 +4476,7 @@
     var tabs = [
       ['scores', pick({ fr: 'Scores', en: 'Scores' })],
       ['stats', pick({ fr: 'Stats', en: 'Stats' })],
-      ['top', pick({ fr: 'Top 10', en: 'Top 10' })],
+      ['top', pick({ fr: 'Top', en: 'Top' })],
     ];
     var html = '<div class="opbac-recap' + (open ? ' opbac-recap--open' : '') + '" data-opbac-recap>' +
       '<div class="opbac-recap__body" data-opbac-idle-stats>' +
@@ -4898,23 +4938,24 @@
   function applyTopResult(channel, tags) {
     var wanted = Number(tagVal(tags, '+wanted') || tagVal(tags, '+limit')) || 0;
     var ask = currentTopLimit();
-    if (wanted && wanted < ask) return;
+    var game = getChannelState(channel) || defaultState();
+    if (wanted && wanted !== ask && (game.topGlobal || []).length && game.topLoaded) return;
     var rows = rankingFromTop(tagVal(tags, '+ranking'));
     var offset = Number(tagVal(tags, '+offset')) || 0;
     var more = tagVal(tags, '+more') === '1';
     var total = Number(tagVal(tags, '+total')) || 0;
-    var game = getChannelState(channel) || defaultState();
     var list = offset > 0 ? (game.topGlobal || []).slice() : [];
     rows.forEach(function (row, i) { list[offset + i] = row; });
     var compact = capTopGlobal(list.filter(Boolean));
-    if (!total) total = more ? 0 : compact.length;
+    if (!compact.length && more) return;
+    if (!total) total = more ? (game.topTotal || 0) : compact.length;
     patchChannel(channel, {
       topGlobal: compact,
-      topTotal: total || (game.topTotal || 0),
-      topLoaded: !more,
+      topTotal: total || compact.length,
+      topLoaded: !more || !compact.length,
     });
     refreshDockOverlay();
-    if (!more) stopLobbyRetryIfReady(channel);
+    if (!more || compact.length) stopLobbyRetryIfReady(channel);
   }
 
   function stopLobbyRetryIfReady(channel) {
@@ -6380,7 +6421,7 @@
         '|' + JSON.stringify(game.topGlobal || []);
     }
     if (game.phase === 'idle' || game.phase === 'game_end') {
-      base += '|xm' + extraModesTick;
+      base += '|xm' + extraModesTick + '|rc' + recapSignature(game);
     }
     return base;
   }
