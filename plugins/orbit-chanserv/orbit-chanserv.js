@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=100"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=101"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -35,9 +35,10 @@
     { id: 'energy', icon: '⚡', smileys: ['⚡','💡','🔌','🔋','🪫','🔆','🔥','♨️','🌡️','🏭','⚙️','🔧','🛠️','🧯','🛢️','⛽','💨','💧','🌀','☢️'] },
     { id: 'works', icon: '🚚', smileys: ['🚚','🚛','🚜','🚧','🏗️','🧱','🪜','🦺','👷','🔨','🪛','🪓','🪵','🗼','⛑️','🧤','🧰','📏','🔩','🛣️'] },
     { id: 'social', icon: '🤝', smileys: ['🤝','🫂','❤️‍🩹','🏥','👨‍👩‍👧','🎁','🎉','🎊','🏖️','⚽','🎭','📚','🎓','🏕️','🚌','🎟️','🍽️','☕','🥐','🎄'] },
+    { id: 'games', icon: '🎲', smileys: ['🎲','🃏','🎴','🀄','♟️','♞','♝','♜','♛','♚','🧩','🎮','🕹️','👾','🎯','🏆','🎱','🎳','🎰','✏️'] },
     { id: 'music', icon: '🎵', smileys: ['🎵','🎶','🎤','🎧','🎸','🎹','🥁','🎺','🎷','🎻','📻'] },
     { id: 'nature', icon: '🌍', smileys: ['🌍','☀️','🌙','🌈','❄️','🌸','🌹','🌲','🌊','⛰️','🍀','🌾'] },
-    { id: 'things', icon: '🎯', smileys: ['🍺','🍷','🍕','🎂','🏆','🎮','🎯','⌚','📦','🛒','🔑','📷'] },
+    { id: 'things', icon: '📦', smileys: ['🍺','🍷','🍕','🎂','⌚','📦','🛒','🔑','📷','🕶️','🎈','📎'] },
   ];
 
   var TOPIC_SMILEY_TAGS = {
@@ -58,11 +59,17 @@
     '🏖️': 'plage', '⚽': 'sport', '🎭': 'theatre', '📚': 'livres', '🎓': 'diplome',
     '🚌': 'bus', '🍽️': 'repas', '☕': 'cafe', '🎄': 'noel',
     '🎵': 'musique', '🎶': 'musique', '🌍': 'terre', '☀️': 'soleil', '🌹': 'rose',
+    '🎲': 'des dice jeu', '🃏': 'cartes cards poker', '🎴': 'cartes', '🀄': 'mahjong',
+    '♟️': 'echecs chess', '♞': 'echecs cavalier', '♝': 'echecs fou', '♜': 'echecs tour',
+    '♛': 'echecs dame', '♚': 'echecs roi', '🧩': 'puzzle', '🎮': 'jeu video',
+    '🕹️': 'joystick arcade', '👾': 'arcade', '🎯': 'cible', '🏆': 'trophee',
+    '🎱': 'billard', '🎳': 'bowling', '🎰': 'casino', '✏️': 'crayon bac',
   };
   var TOPIC_GROUP_TAGS = {
     all: 'tous all', faces: 'visages faces', hands: 'gestes hands', hearts: 'coeurs hearts',
     chat: 'tchat chat irc salon utilisateurs', energy: 'energie electricite gaz edf enedis',
     works: 'chantier travaux camion nacelle grue enedis poteau', social: 'social ccas entraide',
+    games: 'jeux games cartes des echecs chess poker bac',
     music: 'musique music', nature: 'nature', things: 'objets things',
   };
   function foldSmileyQuery(s) {
@@ -3525,8 +3532,8 @@
             }, pick('Tous', 'All')),
           ].concat(TOPIC_SMILEY_GROUPS.map(function (g) {
             var lbl = pick(
-              ({ faces: 'Visages', hands: 'Gestes', hearts: 'Cœurs', chat: 'Tchat', energy: 'Énergie', works: 'Chantier', social: 'Social', music: 'Musique', nature: 'Nature', things: 'Objets' })[g.id] || g.id,
-              ({ faces: 'Faces', hands: 'Hands', hearts: 'Hearts', chat: 'Chat', energy: 'Energy', works: 'Works', social: 'Social', music: 'Music', nature: 'Nature', things: 'Things' })[g.id] || g.id
+              ({ faces: 'Visages', hands: 'Gestes', hearts: 'Cœurs', chat: 'Tchat', energy: 'Énergie', works: 'Chantier', social: 'Social', games: 'Jeux', music: 'Musique', nature: 'Nature', things: 'Objets' })[g.id] || g.id,
+              ({ faces: 'Faces', hands: 'Hands', hearts: 'Hearts', chat: 'Chat', energy: 'Energy', works: 'Works', social: 'Social', games: 'Games', music: 'Music', nature: 'Nature', things: 'Things' })[g.id] || g.id
             );
             return h('button', {
               key: g.id, type: 'button', role: 'tab',
