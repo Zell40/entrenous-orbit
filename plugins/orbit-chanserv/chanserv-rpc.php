@@ -7,7 +7,8 @@
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
  * Read-only: ChanServ INFO / STATUS / BOTLIST / ACCESS LIST * ALL,
- * NickServ INFO ALL / ALIST / HELP / GLIST / LIST.
+ * NickServ INFO / ALIST / HELP / GLIST / LIST (as the user, never Xreg).
+ * NickServ AJOIN LIST / ADD / DEL as the identified nick.
  * REGISTER stays on IRC so Anope maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
@@ -109,6 +110,71 @@ function valid_nslist_flag(string $s): bool {
   return in_array(strtoupper($s), ['DISPLAY', 'NOEXPIRE', 'SUSPENDED', 'UNCONFIRMED'], true);
 }
 
+function rpc_source(array $body, string $account): string {
+  $nick = trim((string) ($body['nick'] ?? ''));
+  return valid_account($nick) ? $nick : $account;
+}
+
+function ns_fold(string $s): string {
+  $t = strtolower($s);
+  $t = strtr($t, ['é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e', 'à' => 'a', 'ù' => 'u']);
+  return $t;
+}
+
+/** Help / access-denied / not-identified — not usable NickServ INFO or ALIST. */
+function ns_denied_or_help(string $s): bool {
+  $fold = ns_fold($s);
+  return (bool) preg_match(
+    '/syntaxe:|syntax:|acces refuse|access denied|permission denied|pas identifie|not identified|must be identified|vous devez|information.{0,40}prive|is private/',
+    $fold
+  );
+}
+
+function looks_like_info(string $s): bool {
+  foreach (preg_split("/\r\n|\n|\r/", $s) as $line) {
+    $line = trim($line);
+    if ($line === '' || preg_match('/^(syntaxe|syntax)\s*:/i', $line)) {
+      continue;
+    }
+    if (preg_match('/^[^:]{2,60}:\s+\S/', $line)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function is_alist_empty_msg(string $s): bool {
+  return (bool) preg_match('/aucun salon|n[\'’ ]a acces a aucun|has no access|no access (?:on|to) any/i', ns_fold($s));
+}
+
+function looks_like_ajoin(string $s): bool {
+  return (bool) preg_match('/[#&][^\s,]+/', $s);
+}
+
+function is_ajoin_empty_msg(string $s): bool {
+  return (bool) preg_match('/aucun auto-?join|no auto-?join|liste d[\'’]?auto-?join.{0,40}vide/i', ns_fold($s));
+}
+
+function valid_chan_key(string $s): bool {
+  return (bool) preg_match('/^[^\s,:]{1,48}$/', $s);
+}
+
+function ns_identify(string $url, string $token, bool $bearerB64, string $account, string $source): void {
+  try {
+    anope_rpc($url, $token, $bearerB64, 'anope.identify', [$account, $source]);
+  } catch (Throwable $e) {
+    // Already identified, or the nick is not online — command may still work.
+  }
+}
+
+function ns_cmd(string $url, string $token, bool $bearerB64, array $params): string {
+  try {
+    return flatten_rpc(anope_rpc($url, $token, $bearerB64, 'anope.command', $params));
+  } catch (Throwable $e) {
+    return '';
+  }
+}
+
 function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params): mixed {
   if (!function_exists('curl_init')) {
     throw new RuntimeException('curl');
@@ -185,7 +251,7 @@ $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
 if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
-$nsActions = ['nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist'];
+$nsActions = ['nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin'];
 if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
   && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
@@ -196,58 +262,79 @@ if (!in_array($action, $nsActions, true) && !valid_channel($channel)) {
 
 try {
   if ($action === 'nsinfo') {
-    $info = '';
-    try {
-      $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'INFO', $account, 'ALL',
-      ]));
-    } catch (Throwable $e) {
-      $info = '';
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    // Same as `/nickserv info` — no ALL, no oper override.
+    $info = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+      $source, 'NickServ', 'INFO',
+    ]);
+    if (ns_denied_or_help($info) || !looks_like_info($info)) {
+      $info = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+        $source, 'NickServ', 'INFO', $source,
+      ]);
     }
-    $fold = strtolower($info);
-    $isHelp = str_contains($fold, 'syntaxe:') || str_contains($fold, 'syntax:');
-    if ($info === '' || $isHelp) {
-      $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'INFO', $account,
-      ]));
+    if (ns_denied_or_help($info) && !looks_like_info($info)) {
+      $info = '';
     }
     echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'nsalist') {
-    $list = '';
-    try {
-      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'ALIST',
-      ]));
-    } catch (Throwable $e) {
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+      $source, 'NickServ', 'ALIST',
+    ]);
+    if (ns_denied_or_help($list) && !looks_like_alist($list) && !is_alist_empty_msg($list)) {
       $list = '';
-    }
-    if (!looks_like_alist($list)) {
-      try {
-        $other = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-          $account, 'NickServ', 'ALIST', $account,
-        ]));
-        if (looks_like_alist($other) || $list === '') {
-          $list = $other;
-        }
-      } catch (Throwable $e) {
-        // keep $list
-      }
     }
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'nsglist') {
-    $list = '';
-    try {
-      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'GLIST',
-      ]));
-    } catch (Throwable $e) {
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+      $source, 'NickServ', 'GLIST',
+    ]);
+    if (ns_denied_or_help($list)) {
       $list = '';
+    }
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nsajoin') {
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $op = strtoupper(trim((string) ($body['op'] ?? 'LIST')));
+    $ajoinChan = trim((string) ($body['channel'] ?? ''));
+    $ajoinKey = trim((string) ($body['key'] ?? ''));
+    if ($op === 'ADD') {
+      if (!valid_channel($ajoinChan)) {
+        fail(400, 'bad_params');
+      }
+      $params = [$source, 'NickServ', 'AJOIN', 'ADD', $ajoinChan];
+      if ($ajoinKey !== '' && valid_chan_key($ajoinKey)) {
+        $params[] = $ajoinKey;
+      }
+      $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
+    } elseif ($op === 'DEL') {
+      if (!valid_channel($ajoinChan)) {
+        fail(400, 'bad_params');
+      }
+      $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+        $source, 'NickServ', 'AJOIN', 'DEL', $ajoinChan,
+      ]);
+    } else {
+      $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+        $source, 'NickServ', 'AJOIN', 'LIST',
+      ]);
+      if (ns_denied_or_help($list) && !looks_like_ajoin($list) && !is_ajoin_empty_msg($list)) {
+        $list = '';
+      }
     }
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;

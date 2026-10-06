@@ -199,8 +199,8 @@
         return;
       }
       patchUi({ chan: chan, loading: true, flash: '' });
-      beginExpect('info', chan);
-      cs('INFO ' + chan);
+      // Guest chaninfo: IRC is the only source; replies stay hidden via beginExpect.
+      queryInfo(chan, { allowIrc: true });
     }
     function patchUi(partial) {
       Object.keys(partial).forEach(function (k) { ui[k] = partial[k]; });
@@ -804,7 +804,9 @@
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
       if (!identified()) {
-        if (!panelOpen()) {
+        // Guests: never IRC-probe in the background (floods the salon with INFO notices).
+        // Chaninfo / panel refresh may still request INFO explicitly via queryPublicInfo.
+        if (!panelOpen() && !(opts && opts.allowIrc)) {
           patchUi({ loading: false });
           return;
         }
@@ -816,6 +818,11 @@
         if (ui.chan !== chan) return;
         if (data && data.ok && (data.info || data.status)) {
           applyProbeTexts(chan, data.info, data.status);
+          return;
+        }
+        // RPC down: only fall back to IRC INFO when the panel is open (user-facing).
+        if (!panelOpen() && !(opts && opts.allowIrc)) {
+          patchUi({ loading: false });
           return;
         }
         beginExpect('info', chan);
