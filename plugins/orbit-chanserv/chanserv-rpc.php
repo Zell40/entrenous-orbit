@@ -125,7 +125,7 @@ function ns_fold(string $s): string {
 function ns_denied_or_help(string $s): bool {
   $fold = ns_fold($s);
   return (bool) preg_match(
-    '/syntaxe:|syntax:|acces refuse|access denied|permission denied|pas identifie|not identified|must be identified|vous devez|information.{0,40}prive|is private/',
+    '/syntaxe:|syntax:|acces refuse|access denied|permission denied|pas identifie|not identified|must be identified|vous devez.{0,40}identifi|information.{0,40}prive|is private/',
     $fold
   );
 }
@@ -159,23 +159,58 @@ function valid_chan_key(string $s): bool {
   return (bool) preg_match('/^[^\s,:]{1,48}$/', $s);
 }
 
+function ns_debug_log(?string $line = null): array {
+  static $notes = [];
+  if ($line !== null && $line !== '') {
+    $notes[] = $line;
+  }
+  return $notes;
+}
+
+function ns_preview(string $s, int $n = 220): string {
+  $t = trim(preg_replace('/\s+/', ' ', $s) ?? '');
+  if ($t === '') {
+    return '';
+  }
+  if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+    return mb_strlen($t) > $n ? mb_substr($t, 0, $n) . '…' : $t;
+  }
+  return strlen($t) > $n ? substr($t, 0, $n) . '…' : $t;
+}
+
 function ns_identify(string $url, string $token, bool $bearerB64, string $account, string $source): void {
   try {
-    anope_rpc($url, $token, $bearerB64, 'anope.identify', [$account, $source]);
+    anope_rpc($url, $token, $bearerB64, 'anope.identify', [$account, $source], 2);
+    ns_debug_log('identify:ok');
   } catch (Throwable $e) {
-    // Already identified, or the nick is not online — command may still work.
+    ns_debug_log('identify:fail ' . $e->getMessage());
   }
 }
 
 function ns_cmd(string $url, string $token, bool $bearerB64, array $params): string {
+  $label = isset($params[2]) ? strtoupper((string) $params[2]) : 'CMD';
   try {
-    return flatten_rpc(anope_rpc($url, $token, $bearerB64, 'anope.command', $params));
+    $out = flatten_rpc(anope_rpc($url, $token, $bearerB64, 'anope.command', $params, 5));
+    ns_debug_log($label . ($out === '' ? ':vide' : ':' . ns_preview($out)));
+    return $out;
   } catch (Throwable $e) {
+    ns_debug_log($label . ':rpc ' . $e->getMessage());
     return '';
   }
 }
 
-function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params): mixed {
+function ns_info_cmd(string $url, string $token, bool $bearerB64, string $source): string {
+  $info = ns_cmd($url, $token, $bearerB64, [$source, 'NickServ', 'INFO']);
+  if (ns_denied_or_help($info) || !looks_like_info($info)) {
+    $info = ns_cmd($url, $token, $bearerB64, [$source, 'NickServ', 'INFO', $source]);
+  }
+  if (ns_denied_or_help($info) && !looks_like_info($info)) {
+    return '';
+  }
+  return $info;
+}
+
+function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params, int $timeoutSec = 5): mixed {
   if (!function_exists('curl_init')) {
     throw new RuntimeException('curl');
   }
@@ -192,14 +227,15 @@ function anope_rpc(string $url, string $token, bool $bearerB64, string $method, 
   if ($token !== '') {
     $headers[] = 'Authorization: Bearer ' . ($bearerB64 ? base64_encode($token) : $token);
   }
+  $timeoutSec = max(1, $timeoutSec);
   $ch = curl_init($url);
   curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST => true,
     CURLOPT_POSTFIELDS => $payload,
     CURLOPT_HTTPHEADER => $headers,
-    CURLOPT_TIMEOUT => 8,
-    CURLOPT_CONNECTTIMEOUT => 4,
+    CURLOPT_TIMEOUT => $timeoutSec,
+    CURLOPT_CONNECTTIMEOUT => min(3, $timeoutSec),
   ]);
   $response = curl_exec($ch);
   $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -251,7 +287,7 @@ $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
 if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
-$nsActions = ['nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin'];
+$nsActions = ['nsaccount', 'nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin'];
 if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
   && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
@@ -261,21 +297,41 @@ if (!in_array($action, $nsActions, true) && !valid_channel($channel)) {
 }
 
 try {
+  if ($action === 'nsaccount') {
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
+    $glist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'GLIST']);
+    if (ns_denied_or_help($glist)) {
+      $glist = '';
+    }
+    $alist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'ALIST']);
+    if (ns_denied_or_help($alist) && !looks_like_alist($alist) && !is_alist_empty_msg($alist)) {
+      $alist = '';
+    }
+    $ajoin = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'AJOIN', 'LIST']);
+    if (ns_denied_or_help($ajoin) && !looks_like_ajoin($ajoin) && !is_ajoin_empty_msg($ajoin)) {
+      $ajoin = '';
+    }
+    echo json_encode([
+      'ok' => true,
+      'info' => $info,
+      'glist' => $glist,
+      'alist' => $alist,
+      'ajoin' => $ajoin,
+      'debug' => [
+        'source' => $source,
+        'account' => $account,
+        'notes' => ns_debug_log(),
+      ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'nsinfo') {
     $source = rpc_source($body, $account);
     ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
-    // Same as `/nickserv info` — no ALL, no oper override.
-    $info = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
-      $source, 'NickServ', 'INFO',
-    ]);
-    if (ns_denied_or_help($info) || !looks_like_info($info)) {
-      $info = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
-        $source, 'NickServ', 'INFO', $source,
-      ]);
-    }
-    if (ns_denied_or_help($info) && !looks_like_info($info)) {
-      $info = '';
-    }
+    $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
     echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
