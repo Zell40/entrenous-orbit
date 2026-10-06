@@ -345,7 +345,9 @@ try {
     if (!valid_nslist_pattern($pattern)) {
       fail(400, 'bad_params');
     }
-    $params = [$account, 'NickServ', 'LIST', $pattern];
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $params = [$source, 'NickServ', 'LIST', $pattern];
     $flags = $body['flags'] ?? [];
     if (is_array($flags)) {
       foreach ($flags as $flag) {
@@ -355,25 +357,17 @@ try {
         }
       }
     }
-    $list = '';
-    try {
-      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
-    } catch (Throwable $e) {
-      $list = '';
-    }
+    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'nshelp') {
-    $help = '';
-    try {
-      $help = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-        $account, 'NickServ', 'HELP',
-      ]));
-    } catch (Throwable $e) {
-      $help = '';
-    }
+    $source = rpc_source($body, $account);
+    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+    $help = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
+      $source, 'NickServ', 'HELP',
+    ]);
     echo json_encode(['ok' => true, 'help' => $help], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
