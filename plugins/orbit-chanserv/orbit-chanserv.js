@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=104"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=102"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1885,9 +1885,8 @@
         'background:var(--bg);border:1px solid var(--border);color:var(--ink)}',
         '.ocs-pill.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));color:var(--accent)}',
         '.ocs-pill.is-off{color:var(--muted)}',
-        '.ocs-now{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem;font-size:.82rem;line-height:1.4;',
-        'padding:.5rem .65rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border);color:var(--ink)}',
-        '.ocs-now .ocs-pr__m{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}',
+        '.ocs-now{font-size:.82rem;line-height:1.4;padding:.5rem .65rem;border-radius:10px;',
+        'background:var(--bg-soft);border:1px solid var(--border);color:var(--ink);white-space:pre-wrap}',
         '.ocs-flash__cmd{display:block;font-size:.72rem;font-weight:650;opacity:.75;margin-bottom:.25rem;word-break:break-all}',
         '.ocs-tabs{display:flex;flex-wrap:nowrap;align-items:center;gap:.08rem;border-bottom:1px solid var(--border);',
         'padding:0 0 .2rem;overflow:visible;width:max-content;max-width:none;box-sizing:border-box;flex:none}',
@@ -1930,14 +1929,12 @@
         '.ocs-mg{display:flex;flex-direction:column;gap:.55rem}',
         '.ocs-mg__h{margin:0;font-size:.72rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}',
         '.ocs-mg__g{display:flex;flex-direction:column;gap:.22rem}',
+        '.ocs-ml__lab span{font-weight:650;color:var(--muted)}',
         '.ocs-ml{display:flex;align-items:center;justify-content:space-between;gap:.4rem;',
         'padding:.28rem .5rem;border-radius:10px;background:var(--bg-soft);border:1px solid var(--border);min-width:0}',
         '.ocs-ml.is-on{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft)}',
         '.ocs-ml.is-lock{border-style:dashed}',
-        '.ocs-ml__lab{display:inline-flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:750;min-width:0;line-height:1.25}',
-        '.ocs-ml__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-        '.ocs-ml .ocs-pr__m{min-width:1.85rem;text-align:center}',
-        '.ocs-ml.is-on .ocs-pr__m{color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent)}',
+        '.ocs-ml__lab{font-size:.8rem;font-weight:750;min-width:0;line-height:1.25;overflow:hidden;text-overflow:ellipsis}',
         '.ocs-ml__btns{display:flex;gap:.22rem;flex:none;white-space:nowrap}',
         '.ocs-ml__btns .ocs-btn{min-height:26px;padding:.12rem .45rem;font-size:.7rem}',
         '.ocs-ml__btns .ocs-btn .ocs-miwrap + span:empty{display:none}',
@@ -2298,19 +2295,6 @@
     function formatParamToken(letter, raw) {
       var v = String(raw || '').trim();
       return v ? '+' + letter + ' ' + v : '+' + letter;
-    }
-    function modeLetterChips(modes) {
-      var s = String(modes || '').trim();
-      if (!s) return [h('span', { key: 'empty' }, '—')];
-      var chips = [];
-      var sign = '+';
-      for (var i = 0; i < s.length; i++) {
-        var c = s.charAt(i);
-        if (c === '+' || c === '-') { sign = c; continue; }
-        if (!/[A-Za-z]/.test(c)) continue;
-        chips.push(h('code', { key: sign + c + i, className: 'ocs-pr__m' }, sign + c));
-      }
-      return chips.length ? chips : [h('span', { key: 'raw' }, s)];
     }
     function normalizeRedirect(raw) {
       var s = String(raw || '').trim();
@@ -3742,14 +3726,14 @@
           var flags = chanFlagLetters();
           var lockedModes = parseMlock(s.infoText);
           body.push(h('p', { className: 'ocs-h' }, pick('Modes actuels', 'Current modes')));
-          body.push(h('div', { className: 'ocs-now' }, modeLetterChips(nowModes)));
+          body.push(h('div', { className: 'ocs-now' }, nowModes || '—'));
           var cat = modeCatalog();
           var used = {};
           cat.forEach(function (g) {
             g.modes.forEach(function (row) { used[row[0]] = true; });
           });
           var extraModes = flags.filter(function (letter) { return !used[letter]; }).map(function (letter) {
-            return [letter, pick('Mode', 'Mode'), pick('Mode de salon +', 'Channel mode +') + letter];
+            return [letter, pick('Mode ', 'Mode ') + letter, pick('Mode de salon +', 'Channel mode +') + letter];
           });
           var modeTabs = [
             { id: 'join', label: pick('Sécurité', 'Security') },
@@ -3769,10 +3753,7 @@
                 ? pick('Mode verrouillé. Retirer le cadenas pour le modifier.', 'Mode is locked. Unlock it to change.')
                 : tip);
             return h('div', { key: letter, className: 'ocs-ml' + (on ? ' is-on' : '') + (locked ? ' is-lock' : ''), title: lockTip },
-              h('span', { className: 'ocs-ml__lab' },
-                h('code', { className: 'ocs-pr__m' }, '+' + letter),
-                h('span', { className: 'ocs-ml__name' }, name)
-              ),
+              h('span', { className: 'ocs-ml__lab' }, name + ' ( ', h('span', null, letter), ' )'),
               h('span', { className: 'ocs-ml__btns' },
                 h(OnOffSwitch, {
                   on: on,
