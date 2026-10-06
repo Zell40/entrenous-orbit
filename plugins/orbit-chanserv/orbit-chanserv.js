@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=101"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=102"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -1937,9 +1937,13 @@
         '.ocs-pr.is-lock{border-style:dashed}',
         '.ocs-pr__l{display:flex;align-items:center;gap:.32rem;font-size:.8rem;font-weight:750;min-width:0}',
         '.ocs-pr__m{flex:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.72rem;font-weight:700;',
-        'padding:.08rem .28rem;border-radius:5px;background:var(--bg-2,rgba(127,127,127,.16));color:var(--muted)}',
+        'padding:.08rem .28rem;border-radius:5px;background:var(--bg-2,rgba(127,127,127,.16));color:var(--muted);white-space:nowrap}',
         '.ocs-pr.is-on .ocs-pr__m{color:var(--accent)}',
-        '.ocs-pr__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.ocs-pr__name{min-width:0}',
+        '.ocs-pr__live{margin:0;font-size:.7rem;line-height:1.35;color:var(--muted)}',
+        '.tipi{flex:none;width:1.05rem;height:1.05rem;padding:0;border-radius:999px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));',
+        'background:var(--accent-soft);color:var(--accent-d);font:inherit;font-size:.68rem;font-weight:800;font-style:italic;line-height:1;',
+        'cursor:help;display:inline-grid;place-items:center}',
         '.ocs-pr__act{display:flex;align-items:center;gap:.22rem;min-width:0}',
         '.ocs-pr__in{flex:1;min-width:0;min-height:26px;box-sizing:border-box;padding:.12rem .4rem;font:inherit;font-size:.78rem;',
         'border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--ink)}',
@@ -2280,6 +2284,57 @@
         ['L', pick('Redirection', 'Redirect'), '#salon'],
         ['W', pick('Anti-snoop', 'Anti-snoop'), '5m'],
       ];
+    }
+    function formatParamToken(letter, raw) {
+      var v = String(raw || '').trim();
+      return v ? '+' + letter + ' ' + v : '+' + letter;
+    }
+    function normalizeRedirect(raw) {
+      var s = String(raw || '').trim();
+      if (!s) return s;
+      if (/^[#&+]/.test(s)) return s;
+      return '#' + s.replace(/^#+/, '');
+    }
+    function explainParam(letter, raw) {
+      var v = String(raw || '').trim();
+      if (!v) return '';
+      var pair = v.match(/^([~*]?)(\d+)\s*:\s*(\d+)$/);
+      if (letter === 'j' && pair) {
+        return pick(pair[2] + ' utilisateurs en ' + pair[3] + ' secondes', pair[2] + ' users in ' + pair[3] + ' seconds');
+      }
+      if (letter === 'F' && pair) {
+        return pick(pair[2] + ' changements de pseudo en ' + pair[3] + ' secondes', pair[2] + ' nick changes in ' + pair[3] + ' seconds');
+      }
+      if (letter === 'E' && pair) {
+        return pick(pair[2] + ' messages identiques en ' + pair[3] + ' secondes', pair[2] + ' identical messages in ' + pair[3] + ' seconds');
+      }
+      if (letter === 'B' && pair) {
+        return pick(pair[2] + ' % de majuscules, au moins ' + pair[3] + ' caractères', pair[2] + '% uppercase, at least ' + pair[3] + ' characters');
+      }
+      if (letter === 'f' && pair) {
+        var act = pair[1] === '*'
+          ? pick(' (expulsion et ban)', ' (kick and ban)')
+          : pair[1] === '~' ? pick(' (prévenir les ops)', ' (notify ops)')
+          : pick(' (expulsion)', ' (kick)');
+        return pick(pair[2] + ' messages en ' + pair[3] + ' secondes', pair[2] + ' messages in ' + pair[3] + ' seconds') + act;
+      }
+      if (letter === 'd' && /^\d+$/.test(v)) {
+        return pick('Attendre ' + v + ' secondes après l’entrée pour parler', 'Wait ' + v + ' seconds after joining before talking');
+      }
+      if (letter === 'J' && /^\d+$/.test(v)) {
+        return pick('Retour interdit pendant ' + v + ' secondes après un kick', 'Cannot rejoin for ' + v + ' seconds after a kick');
+      }
+      if (letter === 'L') {
+        return pick('Les personnes refusées vont sur ' + normalizeRedirect(v), 'Rejected users are sent to ' + normalizeRedirect(v));
+      }
+      if (letter === 'H') {
+        var hm = v.match(/^(\d+)\s*:\s*(.+)$/);
+        if (hm) return pick(hm[1] + ' messages conservés pendant ' + hm[2], hm[1] + ' messages kept for ' + hm[2]);
+      }
+      if (letter === 'W') {
+        return pick('Observateurs inactifs plus de ' + v, 'Watchers idle longer than ' + v);
+      }
+      return '';
     }
     function chanParamLetters() {
       var isu = orbit.server.isupport() || {};
@@ -3745,11 +3800,18 @@
               var on = !!cur;
               var locked = mlockHas(lockedModes, letter);
               var typeB = pmeta.typeB.indexOf(letter) >= 0;
+              var live = explainParam(letter, draft || cur);
+              var token = formatParamToken(letter, draft || cur);
+              var tip = letter === 'L'
+                ? pick('Tu dois être opérateur sur le salon cible. Envoyé via ChanServ.', 'You must be an operator on the target channel. Sent via ChanServ.')
+                : hint;
               return h('div', { key: letter, className: 'ocs-pr' + (on ? ' is-on' : '') + (locked ? ' is-lock' : '') },
                 h('div', { className: 'ocs-pr__l' },
-                  h('code', { className: 'ocs-pr__m' }, '+' + letter),
-                  h('span', { className: 'ocs-pr__name' }, name)
+                  h('code', { className: 'ocs-pr__m' }, token),
+                  h('span', { className: 'ocs-pr__name' }, name),
+                  h('button', { type: 'button', className: 'tipi', title: tip, 'aria-label': tip }, 'i')
                 ),
+                live ? h('p', { className: 'ocs-pr__live' }, live) : null,
                 h('div', { className: 'ocs-pr__act' },
                   h('input', {
                     className: 'ocs-pr__in',
@@ -3768,6 +3830,7 @@
                     onKeyDown: function (e) {
                       if (e.key !== 'Enter' || locked) return;
                       var v = String(draft || '').trim();
+                      if (letter === 'L' && v) v = normalizeRedirect(v);
                       if (v) csMode('SET', '+' + letter + ' ' + v);
                     },
                   }),
@@ -3777,6 +3840,7 @@
                     disabled: locked,
                     onClick: function () {
                       var v = String(draft || '').trim();
+                      if (letter === 'L' && v) v = normalizeRedirect(v);
                       if (v) csMode('SET', '+' + letter + ' ' + v);
                     },
                   }, pick('Appliquer', 'Apply')),
