@@ -299,26 +299,33 @@ if (!in_array($action, $nsActions, true) && !valid_channel($channel)) {
 try {
   if ($action === 'nsaccount') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
-    $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
-    $glist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'GLIST']);
-    if (ns_denied_or_help($glist)) {
-      $glist = '';
-    }
-    $alist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'ALIST']);
-    if (ns_denied_or_help($alist) && !looks_like_alist($alist) && !is_alist_empty_msg($alist)) {
-      $alist = '';
-    }
-    $ajoin = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'AJOIN', 'LIST']);
-    if (ns_denied_or_help($ajoin) && !looks_like_ajoin($ajoin) && !is_ajoin_empty_msg($ajoin)) {
-      $ajoin = '';
+    $grab = static function () use ($url, $token, $ANOPE_RPC_BEARER_B64, $source): array {
+      $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
+      $glist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'GLIST']);
+      if (ns_denied_or_help($glist)) {
+        $glist = '';
+      }
+      $alist = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'ALIST']);
+      if (ns_denied_or_help($alist) && !looks_like_alist($alist) && !is_alist_empty_msg($alist)) {
+        $alist = '';
+      }
+      $ajoin = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [$source, 'NickServ', 'AJOIN', 'LIST']);
+      if (ns_denied_or_help($ajoin) && !looks_like_ajoin($ajoin) && !is_ajoin_empty_msg($ajoin)) {
+        $ajoin = '';
+      }
+      return compact('info', 'glist', 'alist', 'ajoin');
+    };
+    $out = $grab();
+    if (!looks_like_info($out['info']) && !looks_like_alist($out['alist']) && !looks_like_ajoin($out['ajoin']) && !is_alist_empty_msg($out['alist']) && !is_ajoin_empty_msg($out['ajoin'])) {
+      ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+      $out = $grab();
     }
     echo json_encode([
       'ok' => true,
-      'info' => $info,
-      'glist' => $glist,
-      'alist' => $alist,
-      'ajoin' => $ajoin,
+      'info' => $out['info'],
+      'glist' => $out['glist'],
+      'alist' => $out['alist'],
+      'ajoin' => $out['ajoin'],
       'debug' => [
         'source' => $source,
         'account' => $account,
@@ -330,7 +337,6 @@ try {
 
   if ($action === 'nsinfo') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
     echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -338,7 +344,6 @@ try {
 
   if ($action === 'nsalist') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
       $source, 'NickServ', 'ALIST',
     ]);
@@ -351,7 +356,6 @@ try {
 
   if ($action === 'nsglist') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
       $source, 'NickServ', 'GLIST',
     ]);
@@ -364,7 +368,6 @@ try {
 
   if ($action === 'nsajoin') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $op = strtoupper(trim((string) ($body['op'] ?? 'LIST')));
     $ajoinChan = trim((string) ($body['channel'] ?? ''));
     $ajoinKey = trim((string) ($body['key'] ?? ''));
@@ -402,7 +405,6 @@ try {
       fail(400, 'bad_params');
     }
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $params = [$source, 'NickServ', 'LIST', $pattern];
     $flags = $body['flags'] ?? [];
     if (is_array($flags)) {
@@ -420,7 +422,6 @@ try {
 
   if ($action === 'nshelp') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $help = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
       $source, 'NickServ', 'HELP',
     ]);
