@@ -334,20 +334,34 @@ try {
   if ($action === 'nsset') {
     $source = rpc_source($body, $account);
     $opt = strtoupper(trim((string) preg_replace('/\s+/', ' ', (string) ($body['option'] ?? ''))));
-    $val = strtoupper(trim((string) ($body['value'] ?? '')));
-    if (!in_array($val, ['ON', 'OFF'], true)) {
-      fail(400, 'bad_params');
-    }
+    $rawVal = (string) ($body['value'] ?? '');
     $parts = array_values(array_filter(explode(' ', $opt), static fn($p) => $p !== ''));
     $first = $parts[0] ?? '';
-    $allowed = ['AUTOOP', 'CHANSTATS', 'LAYOUT', 'PROTECT', 'PRIVATE', 'HIDE', 'HIDEMAIL', 'KEEPMODES', 'NEVEROP'];
-    if ($first === '' || !in_array($first, $allowed, true)) {
+    $toggles = ['AUTOOP', 'CHANSTATS', 'LAYOUT', 'PROTECT', 'PRIVATE', 'HIDE', 'HIDEMAIL', 'KEEPMODES', 'NEVEROP'];
+    $values = ['DISPLAY', 'EMAIL', 'GREET', 'LANGUAGE', 'URL'];
+    $hideOk = ['EMAIL', 'STATUS', 'USERMASK', 'QUIT'];
+    if ($first === '' || (!in_array($first, $toggles, true) && !in_array($first, $values, true))) {
       fail(400, 'bad_params');
     }
-    if ($first === 'HIDE' && isset($parts[1]) && $parts[1] !== 'EMAIL') {
-      fail(400, 'bad_params');
+    if ($first === 'HIDE') {
+      $sub = $parts[1] ?? '';
+      if ($sub === '' || !in_array($sub, $hideOk, true)) {
+        fail(400, 'bad_params');
+      }
     }
-    $params = array_merge([$source, 'NickServ', 'SET'], $parts, [$val]);
+    if (in_array($first, $values, true)) {
+      $val = trim($rawVal);
+      if ($val === '' || strlen($val) > 200 || preg_match('/[\r\n]/', $val)) {
+        fail(400, 'bad_params');
+      }
+      $params = [$source, 'NickServ', 'SET', $first, $val];
+    } else {
+      $val = strtoupper(trim($rawVal));
+      if (!in_array($val, ['ON', 'OFF'], true)) {
+        fail(400, 'bad_params');
+      }
+      $params = array_merge([$source, 'NickServ', 'SET'], $parts, [$val]);
+    }
     $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
