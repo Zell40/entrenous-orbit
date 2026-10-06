@@ -7,7 +7,7 @@
  *
  * Secrets in chanserv-rpc.local.php (never overwrite on deploy).
  * Read-only: ChanServ INFO / STATUS / BOTLIST / ACCESS LIST * ALL,
- * NickServ INFO ALL / ALIST / HELP.
+ * NickServ INFO ALL / ALIST / HELP / GLIST / LIST.
  * REGISTER stays on IRC so Anope maxregistered + require_oper apply as on a normal client.
  */
 declare(strict_types=1);
@@ -101,6 +101,14 @@ function looks_like_alist(string $s): bool {
   return (bool) preg_match('/\d+\s*[:.)]?\s+!?[#&]/', $s);
 }
 
+function valid_nslist_pattern(string $s): bool {
+  return (bool) preg_match('/^[#A-Za-z0-9_*?\\-\\[\\]\\\\^{}|`.]{1,64}$/', $s);
+}
+
+function valid_nslist_flag(string $s): bool {
+  return in_array(strtoupper($s), ['DISPLAY', 'NOEXPIRE', 'SUSPENDED', 'UNCONFIRMED'], true);
+}
+
 function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params): mixed {
   if (!function_exists('curl_init')) {
     throw new RuntimeException('curl');
@@ -177,11 +185,12 @@ $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
 if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
+$nsActions = ['nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist'];
 if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
-  && $action !== 'nsinfo' && $action !== 'nsalist' && $action !== 'nshelp') {
+  && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
 }
-if ($action !== 'nsinfo' && $action !== 'nsalist' && $action !== 'nshelp' && !valid_channel($channel)) {
+if (!in_array($action, $nsActions, true) && !valid_channel($channel)) {
   fail(400, 'bad_params');
 }
 
@@ -226,6 +235,44 @@ try {
       } catch (Throwable $e) {
         // keep $list
       }
+    }
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nsglist') {
+    $list = '';
+    try {
+      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+        $account, 'NickServ', 'GLIST',
+      ]));
+    } catch (Throwable $e) {
+      $list = '';
+    }
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nslist') {
+    $pattern = trim((string) ($body['pattern'] ?? ''));
+    if (!valid_nslist_pattern($pattern)) {
+      fail(400, 'bad_params');
+    }
+    $params = [$account, 'NickServ', 'LIST', $pattern];
+    $flags = $body['flags'] ?? [];
+    if (is_array($flags)) {
+      foreach ($flags as $flag) {
+        $u = strtoupper(trim((string) $flag));
+        if (valid_nslist_flag($u)) {
+          $params[] = $u;
+        }
+      }
+    }
+    $list = '';
+    try {
+      $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
+    } catch (Throwable $e) {
+      $list = '';
     }
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;

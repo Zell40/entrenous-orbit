@@ -54,13 +54,14 @@ function entrenous_build_gecos_from_profile(array $data): string
 }
 
 /**
- * Fetch GECOS for a NickServ / WP login from the public profile API.
+ * Fetch the public WP profile JSON for a NickServ / WP login.
+ * Returns null on transport/parse failure (not the same as exists:false).
  */
-function entrenous_fetch_wp_gecos(string $account, string $profileUrl, float $timeout = 2.5): string
+function entrenous_fetch_wp_profile(string $account, string $profileUrl, float $timeout = 2.5): ?array
 {
     $account = trim($account);
     if ($account === '' || !preg_match('/^[A-Za-z0-9_\[\]\\\\`|^{}-]{1,50}$/', $account)) {
-        return '';
+        return null;
     }
     $url = rtrim($profileUrl, '?&') . (str_contains($profileUrl, '?') ? '&' : '?')
         . 'account=' . rawurlencode($account);
@@ -94,10 +95,19 @@ function entrenous_fetch_wp_gecos(string $account, string $profileUrl, float $ti
         }
     }
     if ($code !== 200 || $body === '') {
-        return '';
+        return null;
     }
     $data = json_decode($body, true);
-    if (!is_array($data)) {
+    return is_array($data) ? $data : null;
+}
+
+/**
+ * Fetch GECOS for a NickServ / WP login from the public profile API.
+ */
+function entrenous_fetch_wp_gecos(string $account, string $profileUrl, float $timeout = 2.5): string
+{
+    $data = entrenous_fetch_wp_profile($account, $profileUrl, $timeout);
+    if ($data === null) {
         return '';
     }
     return entrenous_build_gecos_from_profile($data);

@@ -4,7 +4,7 @@
  *
  *   GET /app/accounts/api/profile_gecos/?account=Zell
  *   GET /accounts/api/profile_gecos/?account=Zell
- *   → { "ok": true, "realname": "40 - Homme - Paris" }
+ *   → { "ok": true, "exists": true, "realname": "40 - Homme - Paris", "display_name": … }
  *
  * Proxies the public WordPress REST profile used by Kiwi/avatars, so the
  * browser never needs CORS to reseau-entrenous.fr.
@@ -44,9 +44,23 @@ if ($account === '') {
     exit;
 }
 
-$realname = entrenous_fetch_wp_gecos($account, $WP_PROFILE_URL, $HTTP_TIMEOUT);
-if ($realname === '') {
+$data = entrenous_fetch_wp_profile($account, $WP_PROFILE_URL, $HTTP_TIMEOUT);
+if ($data === null) {
     echo json_encode(['ok' => true, 'realname' => null, 'exists' => false], JSON_UNESCAPED_SLASHES);
     exit;
 }
-echo json_encode(['ok' => true, 'realname' => $realname, 'exists' => true], JSON_UNESCAPED_SLASHES);
+$realname = entrenous_build_gecos_from_profile($data);
+$exists = !empty($data['exists']);
+echo json_encode([
+    'ok'           => true,
+    'exists'       => $exists,
+    'realname'     => $realname !== '' ? $realname : null,
+    'login'        => $data['login'] ?? $data['account'] ?? null,
+    'display_name' => $data['display_name'] ?? null,
+    'age'          => $data['age'] ?? null,
+    'sexe'         => $data['sexe'] ?? $data['gender'] ?? null,
+    'ville'        => $data['ville'] ?? $data['city'] ?? null,
+    'avatar'       => $data['avatar'] ?? null,
+    'profile_url'  => $data['profile_url'] ?? null,
+    'registered'   => $data['registered'] ?? null,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

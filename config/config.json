@@ -38,6 +38,7 @@
     "projectUrl": "https://www.reseau-entrenous.fr/articles/NouveauWebchat",
     "registerUrl": "https://www.reseau-entrenous.fr/register/",
     "loginUrl": "https://www.reseau-entrenous.fr/login/",
+    "identityUrl": "https://www.reseau-entrenous.fr/mon-entrenous/identite/",
     "links": [],
     "accent": ""
   },
@@ -210,7 +211,7 @@
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=57",
     "/app/plugins/third/orbit-rss/orbit-rss.js?v=28",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=8",
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=19",
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=20",
     "/app/plugins/third/orbit-asl/orbit-asl.js?v=2"
   ],
   "rss": {

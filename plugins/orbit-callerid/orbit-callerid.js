@@ -10,7 +10,7 @@
  *
  * config.json:
  *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=19"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=20"]
  */
 (function () {
   'use strict';
@@ -1333,24 +1333,24 @@
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     var locked = !!(parentalActive || isParental(orbit));
     var enabled = locked || hasModeG(orbit) || wantCallerid(orbit);
-    return h('div', { className: 'ocid-srow' },
-      h('span', { className: 'ocid-srow__ic', 'aria-hidden': true }, '🛡️'),
-      h('div', { className: 'ocid-srow__txt' },
-        h('div', { className: 'ocid-srow__label' },
+    return h('div', { className: 'srow' },
+      h('span', { className: 'srow__ic srow__ic--mode', 'aria-hidden': true }, '+g'),
+      h('div', { className: 'srow__txt' },
+        h('div', { className: 'srow__label' },
           pick(orbit, {
-            fr: 'Filtrer les messages privés (+g)',
-            en: 'Filter private messages (+g)',
+            fr: 'Filtrer les messages privés',
+            en: 'Filter private messages',
           })
         ),
-        h('div', { className: 'ocid-srow__hint' },
+        h('div', { className: 'srow__hint' },
           locked
             ? pick(orbit, {
               fr: 'Imposé par le contrôle parental — non désactivable.',
               en: 'Required by parental controls — cannot be turned off.',
             })
             : pick(orbit, {
-              fr: 'Seules les personnes que vous acceptez pourront vous écrire en privé. Gérez la liste blanche via l’icône bouclier.',
-              en: 'Only people you accept can private-message you. Manage the allow list via the shield icon.',
+              fr: 'Seules les personnes acceptées peuvent t’écrire (+g)',
+              en: 'Only accepted people can message you (+g)',
             })
         )
       ),
