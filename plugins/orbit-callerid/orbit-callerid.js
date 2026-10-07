@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=25"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=26"]
  */
 (function () {
   'use strict';
@@ -512,8 +512,7 @@
             stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
           },
             h('path', { d: 'M4 6h16v12H4z' }),
-            h('path', { d: 'm4 7 8 6 8-6' }),
-            h('path', { d: 'M5 19 19 5' })
+            h('path', { d: 'm4 7 8 6 8-6' })
           )
         ),
         h('p', { className: 'ocid-popup__lead' },
@@ -525,14 +524,14 @@
         h('p', { className: 'ocid-modal__empty ocid-warn__body' },
           pick(orbit, {
             fr: [
-              'L’icône enveloppe barrée (dans la barre du haut) est active : personne ne peut t’écrire en message privé.',
+              'L’icône enveloppe (dans la barre du haut) est active : personne ne peut t’écrire en message privé.',
               '',
               'Pour débloquer : clique à nouveau sur cette icône (elle redevient grise), ou désactive le mode « ne pas recevoir les MP » dans Paramètres → Modes.',
               '',
               'Astuce : le bouclier gère la liste blanche (+g) ; l’enveloppe coupe tous les MP (+D).',
             ].join('\n'),
             en: [
-              'The slashed-envelope icon in the top bar is on: nobody can private-message you.',
+              'The envelope icon in the top bar is on: nobody can private-message you.',
               '',
               'To unblock: click that icon again (it turns grey), or turn off “block private messages” in Settings → Modes.',
               '',
@@ -1822,6 +1821,7 @@
 
   function ChannelWarnAppearanceRow(props) {
     var orbit = props.orbit;
+    useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     var hidden = useSyncExternalStore(
       function (cb) {
         window.addEventListener('ocid-channel-warn-pref', cb);
@@ -1830,6 +1830,8 @@
       function () { return hideChannelWarnPref(orbit) ? '1' : '0'; },
       function () { return '0'; }
     );
+    // Affichage only — and only while this session is under parental controls.
+    if (!gate.parental) return null;
     var show = hidden !== '1';
     return h('div', { className: 'ocid-srow' },
       h('span', { className: 'ocid-srow__ic', 'aria-hidden': true }, '🛡️'),

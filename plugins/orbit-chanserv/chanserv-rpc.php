@@ -459,9 +459,22 @@ try {
   if ($action === 'nshelp') {
     $source = rpc_source($body, $account);
     ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
-    $help = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
-      $source, 'NickServ', 'HELP',
-    ]);
+    // Optional topic (e.g. "SET LANGUAGE") — short uppercase tokens only.
+    $topic = trim((string) ($body['topic'] ?? ''));
+    $params = [$source, 'NickServ', 'HELP'];
+    if ($topic !== '') {
+      $parts = preg_split('/\s+/', strtoupper($topic)) ?: [];
+      if (count($parts) < 1 || count($parts) > 3) {
+        fail(400, 'bad_params');
+      }
+      foreach ($parts as $p) {
+        if (!preg_match('/^[A-Z][A-Z0-9]{0,20}$/', $p)) {
+          fail(400, 'bad_params');
+        }
+      }
+      $params = array_merge($params, $parts);
+    }
+    $help = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
     echo json_encode(['ok' => true, 'help' => $help], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
