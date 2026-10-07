@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 28;
+  var ORX_VER = 29;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -321,7 +321,7 @@
       asked[key] = now;
       try {
         pluginOrbit.irc.send('@+rss=v1;+ev=recent;+chan=' + tagEscape(chan) +
-          ' TAGMSG ' + botNick());
+          ' TAGMSG ' + chan);
       } catch (e) { /* ignore */ }
     }
 
