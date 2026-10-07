@@ -147,7 +147,7 @@
           '.oms-row.is-unread .oms-row__from{font-weight:800}',
           '.oms-dot{width:.55rem;height:.55rem;border-radius:50%;margin-top:.4rem;flex:none;background:transparent}',
           '.oms-row.is-unread .oms-dot{background:var(--accent,#2563eb)}',
-          '.oms-row__from{font-size:.95rem;font-weight:650}',
+          '.oms-row__from{font-size:.95rem;font-weight:700}',
           '.oms-row__when{display:block;font-size:.75rem;color:var(--muted,var(--faint));margin-top:.12rem}',
           '.oms-read{padding:1rem 1.15rem 1.4rem}',
           '.oms-read__who{margin:0;font-size:1.05rem;font-weight:800}',
@@ -166,7 +166,7 @@
           '.oms-hint{margin:0;font-size:.78rem;color:var(--muted,var(--faint));line-height:1.4}',
           '.oms-count{align-self:flex-end;font-size:.72rem;color:var(--muted,var(--faint))}',
           '.oms-ign{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.55rem 1rem;border-bottom:1px solid var(--border,rgba(0,0,0,.06))}',
-          '.oms-ign span{font-weight:650}',
+          '.oms-ign span{font-weight:700}',
         ].join('');
         document.head.appendChild(el);
       }
@@ -343,7 +343,8 @@
       function onRaw(msg) {
         if (!msg) return;
         var cmd = String(msg.command || '').toUpperCase();
-        if (cmd === '900' || cmd === 'ACCOUNT') { ui.needId = false; scheduleList(); return; }
+        if (cmd === '900') { ui.needId = false; scheduleList(); return; }
+        if (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick())) { ui.needId = false; scheduleList(); return; }
         if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return;
         if (!isSvc(msg.nick)) return;
         var text = parse.stripIrc((msg.params && msg.params[1]) || '');
@@ -586,7 +587,7 @@
             h('span', { className: 'oms-dot', 'aria-hidden': true }),
             h('span', null,
               h('span', { className: 'oms-row__from' }, m.sender),
-              h('span', { className: 'oms-row__when' }, (m.unread ? '● ' : '') + m.when)
+              h('span', { className: 'oms-row__when' }, m.when)
             )
           );
         }));
@@ -905,7 +906,7 @@
   }
 
   function looksDenied(text) {
-    return /access denied|acc[eè]s refus|must be identified|identifiez|not identified|n'êtes pas identifi|log in|vous connecter/i.test(String(text || ''));
+    return /access denied|acc[eè]s refus|permission denied|must be identified|identifiez|not identified|n'êtes pas identifi|log in|vous connecter/i.test(String(text || ''));
   }
 
   function parseList(lines) {
