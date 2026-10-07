@@ -29,6 +29,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 5. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
 6. Menu **⋮** (mobile) → **Liste blanche MP**.
 7. `/accepter` `/refuser` `/listeaccept`.
+8. **Join salon officiel** (hors salons sûrs) : popup + message système rédigés pour ados — adultes possibles, âge profil non fiable, pas d’infos perso.
 
 ## Config
 
@@ -37,10 +38,13 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
   "callerid": {
     "group": "controle-parentale",
     "modes": "+ixIgcRw",
-    "autoMode": true
+    "autoMode": true,
+    "warnOfficialJoins": true,
+    "safeChannels": ["#EntreJeunes.chat"],
+    "officialSuffix": ".chat"
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=20"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=22"
   ]
 }
 ```
@@ -50,6 +54,9 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 | `group` | `controle-parentale` | Groupe WHOIS → parental |
 | `modes` | `+ixIgcRw` | Paquet parental (tous les caractères requis pour le badge si pas de groupe visible) |
 | `autoMode` | `true` | Repose le paquet **uniquement** si parental actif |
+| `warnOfficialJoins` | `true` | Avertir au join des salons officiels / réseau |
+| `safeChannels` | `["#EntreJeunes.chat"]` | Salons sans avertissement (espace jeunes) |
+| `officialSuffix` | `.chat` | Si ChanServ ne répond pas : fallback d’avertissement pour les salons `*suffix` |
 
 ## Déploiement
 

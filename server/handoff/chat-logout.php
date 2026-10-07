@@ -1,7 +1,8 @@
 <?php
 /**
- * Expire the HttpOnly `orbit_en_resume` cookie (leave chat / /logout).
+ * Expire the HttpOnly resume + listen cookies (leave chat / /logout).
  * JS cannot delete HttpOnly cookies; Orbit POSTs here from clearResume().
+ * Clearing orbit_en_listen avoids reconnecting on Websocket-CP after logout.
  */
 declare(strict_types=1);
 
@@ -22,6 +23,7 @@ $clear = [
     'samesite' => 'Lax',
 ];
 setcookie('orbit_en_resume', '', $clear);
+setcookie('orbit_en_listen', '', $clear);
 $local = __DIR__ . '/chat-resume.local.php';
 $domain = '';
 if (is_readable($local)) {
@@ -35,6 +37,7 @@ if ($domain === '') {
 }
 if ($domain !== '') {
     setcookie('orbit_en_resume', '', $clear + ['domain' => $domain]);
+    setcookie('orbit_en_listen', '', $clear + ['domain' => $domain]);
 }
 
 echo json_encode(['ok' => true]);

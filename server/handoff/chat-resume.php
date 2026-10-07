@@ -131,16 +131,31 @@ $nick = $parsed['nick'];
 $account = $parsed['account'];
 $realname = $parsed['realname'];
 
-// WordPress profile is the source of truth for âge / genre / ville (GECOS).
+// WordPress profile is the source of truth for âge / genre / ville (GECOS)
+// and for the parental-control websocket listen (cookie orbit_en_listen).
 $WP_PROFILE_URL = 'https://www.reseau-entrenous.fr/wp-json/entrenous/v1/profile';
 if (!empty($cfg['wp_profile_url']) && is_string($cfg['wp_profile_url'])) {
     $WP_PROFILE_URL = $cfg['wp_profile_url'];
 }
 require __DIR__ . '/wp-profile-gecos.inc.php';
-$wpRealname = entrenous_fetch_wp_gecos($account, $WP_PROFILE_URL, 2.5);
+$wpProfile = entrenous_fetch_wp_profile($account, $WP_PROFILE_URL, 2.5);
+$wpRealname = $wpProfile !== null ? entrenous_build_gecos_from_profile($wpProfile) : '';
 if ($wpRealname !== '') {
     $realname = $wpRealname;
 }
+
+// Refresh orbit_en_listen from the live WP age so a leftover cp cookie (or an
+// Apache default to 8197) cannot keep an adult on Websocket-CP after reconnect.
+$age = entrenous_age_from_profile_or_gecos($wpProfile, $realname);
+$listen = entrenous_listen_from_age($age, $account);
+$listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
+    ? $cfg['listen_cookie_domain']
+    : '.entrenous.chat';
+$listenOpts = [];
+if ($listenDomain !== '') {
+    $listenOpts['domain'] = $listenDomain;
+}
+entrenous_set_listen_cookie($listen, $listenOpts);
 
 $header = b64url_encode_bin(json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
 $body = b64url_encode_bin(json_encode([

@@ -112,3 +112,57 @@ function entrenous_fetch_wp_gecos(string $account, string $profileUrl, float $ti
     }
     return entrenous_build_gecos_from_profile($data);
 }
+
+/**
+ * Parse age from a WP profile payload or from an IRC GECOS ("40 - Homme - Paris").
+ */
+function entrenous_age_from_profile_or_gecos(?array $data, string $gecos = ''): ?int
+{
+    if (is_array($data) && isset($data['age']) && $data['age'] !== '' && $data['age'] !== null) {
+        $n = (int) $data['age'];
+        if ($n >= 1 && $n <= 120) {
+            return $n;
+        }
+    }
+    if ($gecos !== '' && preg_match('/^(\d{1,3})\s*-/', $gecos, $m)) {
+        $n = (int) $m[1];
+        if ($n >= 1 && $n <= 120) {
+            return $n;
+        }
+    }
+    return null;
+}
+
+/**
+ * Websocket listen cookie value for Apache (cp = contrôle parental, reg = normal).
+ * Same rule as MonIdentité: age &lt; 17 → cp (Harry / Lucas exempt).
+ */
+function entrenous_listen_from_age(?int $age, string $account = ''): string
+{
+    $login = strtolower(trim($account));
+    if ($login === 'harry' || $login === 'lucas') {
+        return 'reg';
+    }
+    if ($age !== null && $age >= 10 && $age < 17) {
+        return 'cp';
+    }
+    return 'reg';
+}
+
+/**
+ * Set (or refresh) the HttpOnly orbit_en_listen cookie Apache reads on irc.*.
+ *
+ * @param array{expires?:int,path?:string,secure?:bool,httponly?:bool,samesite?:string,domain?:string} $opts
+ */
+function entrenous_set_listen_cookie(string $listen, array $opts): void
+{
+    $listen = ($listen === 'cp') ? 'cp' : 'reg';
+    $defaults = [
+        'expires'  => time() + 14 * 86400,
+        'path'     => '/',
+        'secure'   => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+    setcookie('orbit_en_listen', $listen, $opts + $defaults);
+}

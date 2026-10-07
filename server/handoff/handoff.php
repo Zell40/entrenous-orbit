@@ -35,10 +35,21 @@ $ville   = isset($_POST['ville'])   ? trim((string) $_POST['ville']) : '';
 $listen  = isset($_POST['listen'])  ? strtolower(trim((string) $_POST['listen'])) : 'reg';
 $guest   = isset($_POST['guest']) && (string) $_POST['guest'] === '1';
 // Invité WP (âge déjà ≥ 17 côté formulaire) : toujours le listen normal.
+// Sinon l’âge POST prime sur un listen=cp erroné / cookie restant.
+require_once __DIR__ . '/wp-profile-gecos.inc.php';
 if ($guest) {
     $listen = 'reg';
-} elseif ($listen !== 'cp') {
-    $listen = 'reg';
+} else {
+    $ageN = null;
+    if ($age !== '' && preg_match('/^\d{1,3}$/', $age)) {
+        $ageN = (int) $age;
+    }
+    $listen = entrenous_listen_from_age($ageN, $account !== '' ? $account : $nick);
+    // Si l’âge est inconnu, respecter un listen=cp explicite du formulaire WP.
+    if ($ageN === null && $listen === 'reg' && isset($_POST['listen'])
+        && strtolower(trim((string) $_POST['listen'])) === 'cp') {
+        $listen = 'cp';
+    }
 }
 $bouncer = isset($_POST['bouncer']) && (string) $_POST['bouncer'] === '1';
 $znc_pass = isset($_POST['znc_pass']) ? (string) $_POST['znc_pass'] : '';
@@ -140,7 +151,7 @@ if ($listenDomain !== '') {
     $listenOpts['domain'] = $listenDomain;
 }
 if (!$bouncer) {
-    setcookie('orbit_en_listen', $listen, $listenOpts);
+    entrenous_set_listen_cookie($listen, $listenOpts);
 }
 
 // Invité : cookie listen seulement. Pas de JWT / sessionStorage (Orbit

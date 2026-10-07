@@ -143,7 +143,10 @@
   "callerid": {
     "group": "controle-parentale",
     "modes": "+ixIgcRw",
-    "autoMode": true
+    "autoMode": true,
+    "warnOfficialJoins": true,
+    "safeChannels": ["#EntreJeunes.chat"],
+    "officialSuffix": ".chat"
   },
   "helpservWelcome": {
     "bots": [
@@ -211,7 +214,7 @@
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=57",
     "/app/plugins/third/orbit-rss/orbit-rss.js?v=28",
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=8",
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=20",
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=22",
     "/app/plugins/third/orbit-asl/orbit-asl.js?v=2"
   ],
   "rss": {

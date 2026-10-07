@@ -37,10 +37,14 @@ Les champs optionnels `age` / `sexe` (`H`|`F`|`A`) / `ville` construisent le
 GECOS IRC `40 - Homme - Paris`, stocké dans `orbit_handoff.realname` (badges
 genre dans la liste des membres et le profil Orbit).
 
-Le champ POST `listen` (`cp` ou `reg`, défaut `reg`) pose le cookie HttpOnly
-`orbit_en_listen` (Domain `.entrenous.chat`). Apache sur `irc.entrenous.chat`
-(`/etc/apache2/sites-available/kiwiirc.websocket.irc.conf`) le lit et route
-le websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`).
+Le champ POST `listen` (`cp` ou `reg`) et surtout l’**âge** POSTé posent le
+cookie HttpOnly `orbit_en_listen` (Domain `.entrenous.chat`). Apache sur
+`irc.entrenous.chat` (`kiwiirc.websocket.irc.conf`) le lit et route le
+websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`).
+Si l’âge est connu (≥ 17 → `reg`, &lt; 17 → `cp`), il prime sur un `listen=cp`
+erroné. `chat-resume.php` **rafraîchit** ce cookie à chaque reprise de session
+depuis le profil WordPress (évite un adulte coincé sur Websocket-CP après un
+ancien cookie `cp`). `chat-logout.php` expire aussi `orbit_en_listen`.
 
 Le champ POST `guest=1` (formulaire invité WordPress, âge ≥ 17) pose
 `orbit_en_listen=reg` **sans** JWT ni `orbit_handoff`, puis redirige vers

@@ -9,8 +9,11 @@
  *     un par un ; l’UI liste blanche / 718 s’y accroche sans parler de parental.
  *
  * config.json:
- *   "callerid": { "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=20"]
+ *   "callerid": {
+ *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
+ *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
+ *   }
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=22"]
  */
 (function () {
   'use strict';
@@ -24,11 +27,17 @@
 
   var DEFAULT_GROUP = 'controle-parentale';
   var DEFAULT_MODES = '+ixIgcRw';
+  var DEFAULT_SAFE_CHANNELS = ['#EntreJeunes.chat'];
+  var CHAN_WARN_TIMEOUT_MS = 2800;
   var STORAGE_ACCEPT = 'savedAccept';
   var STORAGE_PERSIST = 'persistAccept';
   var STORAGE_DENY = 'savedDeny';
   var STORAGE_BLOCKED_BY = 'blockedBy';
   var STORAGE_WANT_G = 'wantCallerid';
+  /** Marker: legacy unscoped keys were cleared (shared across accounts). */
+  var STORAGE_SCOPED = 'storageScopedV1';
+  /** Current browser-session identity (account or nick) for scoped lists. */
+  var sessionOwner = '';
 
   /** Notice markers (neutral — no « parental ») for cross-client signaling. */
   var MARK_ACCEPT_FR = 'Votre demande de conversation a été acceptée';
@@ -173,16 +182,239 @@
 
   function cfg(orbit) {
     var c = (orbit.config() && orbit.config().callerid) || {};
+    var safe = Array.isArray(c.safeChannels) && c.safeChannels.length
+      ? c.safeChannels
+      : DEFAULT_SAFE_CHANNELS;
     return {
       group: String(c.group || DEFAULT_GROUP).toLowerCase(),
       modes: String(c.modes || DEFAULT_MODES),
       autoMode: c.autoMode !== false,
+      warnOfficialJoins: c.warnOfficialJoins !== false,
+      safeChannels: safe.map(function (ch) { return fold(ch); }),
+      officialSuffix: String(c.officialSuffix != null ? c.officialSuffix : '.chat').toLowerCase(),
     };
+  }
+
+  /** Official-channel cache: fold(chan) → { official: bool|null, ts } */
+  var officialCache = Object.create(null);
+  /** Channels already warned this session */
+  var channelWarned = Object.create(null);
+  /** Pending official checks: fold(chan) → { timer, orbit } */
+  var officialPending = Object.create(null);
+  var channelWarnOpen = false;
+
+  function isChannelName(name) {
+    var c = String(name || '').charAt(0);
+    return c === '#' || c === '&';
+  }
+
+  function isSafeChannel(orbit, chan) {
+    var key = fold(chan);
+    var list = cfg(orbit).safeChannels || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === key) return true;
+    }
+    return false;
+  }
+
+  function looksNetworkChannel(orbit, chan) {
+    var suffix = cfg(orbit).officialSuffix;
+    if (!suffix) return true;
+    return fold(chan).slice(-suffix.length) === suffix;
+  }
+
+  function rememberOfficial(chan, official) {
+    var key = fold(chan);
+    if (!key) return;
+    officialCache[key] = { official: !!official, known: true, ts: Date.now() };
+  }
+
+  function clearOfficialPending(chan) {
+    var key = fold(chan);
+    var pend = officialPending[key];
+    if (pend && pend.timer) window.clearTimeout(pend.timer);
+    delete officialPending[key];
+  }
+
+  function warnText(orbit, chan) {
+    return pick(orbit, {
+      fr: [
+        'Tu viens d’entrer dans ' + chan + ', un salon où il peut aussi y avoir des adultes.',
+        '',
+        'L’âge affiché sur un profil n’est pas une preuve : sur IRC, on ne peut pas être sûr de qui se cache derrière un pseudo.',
+        '',
+        'Reste prudent·e : ne donne jamais ton adresse, ton école, ton numéro, ni de photos. Si quelqu’un te met mal à l’aise, arrête la discussion, quitte le salon si besoin, et parle-en à un adulte de confiance — ou utilise Signaler.',
+        '',
+        'Le salon #EntreJeunes.chat est pensé pour les plus jeunes. Ici, prends le temps de choisir à qui tu parles.',
+      ].join('\n'),
+      en: [
+        'You just joined ' + chan + ', a channel where adults may also be present.',
+        '',
+        'The age shown on a profile is not proof: on IRC you cannot be sure who is behind a nick.',
+        '',
+        'Stay careful: never share your address, school, phone number, or photos. If someone makes you uncomfortable, stop chatting, leave the channel if needed, and talk to a trusted adult — or use Report.',
+        '',
+        '#EntreJeunes.chat is meant for younger users. Here, take your time choosing who you talk to.',
+      ].join('\n'),
+    });
+  }
+
+  function showChannelWarn(orbit, chan) {
+    var key = fold(chan);
+    if (!key || channelWarned[key]) return;
+    if (!parentalActive) return;
+    channelWarned[key] = true;
+    var text = warnText(orbit, chan);
+    pushLocalLine(orbit, chan, text.replace(/\n\n/g, ' — ').replace(/\n/g, ' '), 'system');
+    orbit.notify(
+      pick(orbit, { fr: 'Contrôle parental', en: 'Parental controls' }),
+      pick(orbit, {
+        fr: 'Salon mixte : reste prudent·e avec qui tu parles.',
+        en: 'Mixed channel: be careful who you talk to.',
+      })
+    );
+    if (typeof orbit.modal !== 'function' || channelWarnOpen) return;
+    channelWarnOpen = true;
+    var close = orbit.modal(function () {
+      return h('div', { className: 'ocid-popup ocid-popup--warn' },
+        h('div', { className: 'ocid-popup__icon ocid-popup__icon--warn', 'aria-hidden': true }, h(ShieldIcon, { size: 36 })),
+        h('p', { className: 'ocid-popup__lead' },
+          pick(orbit, {
+            fr: 'Attention avant de discuter',
+            en: 'A quick heads-up before you chat',
+          })
+        ),
+        h('p', { className: 'ocid-modal__empty ocid-warn__body' }, text),
+        h('div', { className: 'ocid-popup__actions' },
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn ocid-banner__btn--ok',
+            onClick: function () {
+              channelWarnOpen = false;
+              if (typeof close === 'function') close();
+            },
+          }, pick(orbit, { fr: 'J’ai compris', en: 'Got it' }))
+        )
+      );
+    }, {
+      title: pick(orbit, { fr: 'Salon avec adultes possibles', en: 'Channel may include adults' }),
+      wide: false,
+    });
+  }
+
+  function maybeWarnOfficialJoin(orbit, chan) {
+    if (!orbit || !isChannelName(chan)) return;
+    if (!cfg(orbit).warnOfficialJoins) return;
+    if (!parentalActive) return;
+    if (isSafeChannel(orbit, chan)) return;
+    var key = fold(chan);
+    if (channelWarned[key]) return;
+
+    var cached = officialCache[key];
+    if (cached && cached.known) {
+      if (cached.official) showChannelWarn(orbit, chan);
+      return;
+    }
+
+    if (officialPending[key]) return;
+    officialPending[key] = {
+      orbit: orbit,
+      chan: chan,
+      timer: window.setTimeout(function () {
+        clearOfficialPending(chan);
+        // EntreNous : les salons réseau finissent souvent par .chat ; sans INFO ChanServ, on préfère avertir.
+        if (looksNetworkChannel(orbit, chan)) showChannelWarn(orbit, chan);
+      }, CHAN_WARN_TIMEOUT_MS),
+    };
+    try {
+      orbit.irc.send('PRIVMSG ChanServ :INFO ' + chan);
+    } catch (e) { /* ignore */ }
+  }
+
+  function onOfficialInfo(orbit, info) {
+    if (!info || !info.chan) return;
+    rememberOfficial(info.chan, !!info.official);
+    var key = fold(info.chan);
+    var pend = officialPending[key];
+    if (!pend) return;
+    clearOfficialPending(info.chan);
+    if (info.official) showChannelWarn(orbit || pend.orbit, info.chan);
   }
 
   function pick(orbit, table) {
     if (orbit.i18n && orbit.i18n.pick) return orbit.i18n.pick(table);
     return table.fr || table.en || '';
+  }
+
+  /** Prefer NickServ account, else nick — empty until registration. */
+  function storageOwner(orbit) {
+    var acct = '';
+    var nick = '';
+    try { acct = fold(orbit.state.account && orbit.state.account()); } catch (e) { /* ignore */ }
+    try { nick = fold(orbit.state.nick && orbit.state.nick()); } catch (e) { /* ignore */ }
+    return acct || nick || '';
+  }
+
+  function scopedKey(base, owner) {
+    return base + '@' + owner;
+  }
+
+  function scopedGet(orbit, base, fallback) {
+    var owner = storageOwner(orbit);
+    if (!owner) return fallback;
+    try {
+      return orbit.storage.get(scopedKey(base, owner), fallback);
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function scopedSet(orbit, base, value) {
+    var owner = storageOwner(orbit);
+    if (!owner) return;
+    try { orbit.storage.set(scopedKey(base, owner), value); } catch (e) { /* ignore */ }
+  }
+
+  /** Drop pre-v21 keys that were shared by every account on this browser. */
+  function purgeLegacySharedStorage(orbit) {
+    try {
+      if (orbit.storage.get(STORAGE_SCOPED, false) === true) return;
+      orbit.storage.set(STORAGE_ACCEPT, []);
+      orbit.storage.set(STORAGE_DENY, []);
+      orbit.storage.set(STORAGE_BLOCKED_BY, []);
+      orbit.storage.set(STORAGE_WANT_G, false);
+      orbit.storage.set(STORAGE_SCOPED, true);
+    } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * Isolate in-memory ACCEPT / pending state when another account uses this tab.
+   * Returns the current owner (may be empty before NICK/SASL).
+   */
+  function ensureOwnerSession(orbit, log) {
+    var owner = storageOwner(orbit);
+    if (!owner) return '';
+    if (sessionOwner === owner) return owner;
+    var prev = sessionOwner;
+    sessionOwner = owner;
+    if (prev) {
+      acceptList.nicks = [];
+      acceptList.loading = false;
+      bumpAccept();
+      restoreDone = false;
+      pending.map = Object.create(null);
+      pending.rev++;
+      pending.listeners.forEach(function (l) { l(); });
+      outgoing.map = Object.create(null);
+      outgoing.rev++;
+      outgoing.listeners.forEach(function (l) { l(); });
+      popupOpenFor = Object.create(null);
+      refuseNotified = Object.create(null);
+      outboundText = Object.create(null);
+      bumpDeny();
+      if (log) log('callerid: compte changé (' + prev + ' → ' + owner + '), listes isolées');
+    }
+    return owner;
   }
 
   function fold(s) {
@@ -241,11 +473,11 @@
   }
 
   function wantCallerid(orbit) {
-    try { return orbit.storage.get(STORAGE_WANT_G, false) === true; } catch (e) { return false; }
+    return scopedGet(orbit, STORAGE_WANT_G, false) === true;
   }
 
   function setWantCallerid(orbit, on) {
-    try { orbit.storage.set(STORAGE_WANT_G, !!on); } catch (e) { /* ignore */ }
+    scopedSet(orbit, STORAGE_WANT_G, !!on);
   }
 
   /** Voluntary +g (Settings → Modes). Never used to remove parental package. */
@@ -290,39 +522,40 @@
   }
 
   function loadSavedAccept(orbit) {
-    try {
-      var v = orbit.storage.get(STORAGE_ACCEPT, []);
-      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
-    } catch (e) {
-      return [];
-    }
+    var v = scopedGet(orbit, STORAGE_ACCEPT, []);
+    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
   }
 
   function saveAcceptNick(orbit, nick, add) {
-    var persist = true;
-    try { persist = orbit.storage.get(STORAGE_PERSIST, true) !== false; } catch (e) { /* ignore */ }
-    if (!persist) return;
+    if (!persistEnabled(orbit)) return;
+    if (!storageOwner(orbit)) return;
     var list = loadSavedAccept(orbit);
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    try { orbit.storage.set(STORAGE_ACCEPT, next); } catch (e) { /* ignore */ }
+    scopedSet(orbit, STORAGE_ACCEPT, next);
   }
 
   function persistEnabled(orbit) {
-    try { return orbit.storage.get(STORAGE_PERSIST, true) !== false; } catch (e) { return true; }
+    return scopedGet(orbit, STORAGE_PERSIST, true) !== false;
   }
 
   function setPersistEnabled(orbit, on) {
-    try { orbit.storage.set(STORAGE_PERSIST, !!on); } catch (e) { /* ignore */ }
+    scopedSet(orbit, STORAGE_PERSIST, !!on);
   }
 
   function restoreSavedAccept(orbit, log) {
-    if (restoreDone || !calleridActive) return;
+    if (!calleridActive) return;
+    ensureOwnerSession(orbit, log);
+    if (!storageOwner(orbit)) return;
+    if (restoreDone) return;
     restoreDone = true;
     var list = loadSavedAccept(orbit);
-    if (!list.length) return;
-    log('callerid: restauration ACCEPT (' + list.length + ')');
+    if (!list.length) {
+      refreshAcceptList(orbit);
+      return;
+    }
+    log('callerid: restauration ACCEPT (' + list.length + ') pour ' + storageOwner(orbit));
     list.forEach(function (nick) {
       try { orbit.irc.send('ACCEPT +' + nick); } catch (e) { /* ignore */ }
     });
@@ -388,10 +621,15 @@
     }
     if (!modesApplied) applyParentalModes(orbit);
     activateCallerid(orbit, log, 'parental');
+    try {
+      var active = orbit.state.active();
+      if (active && isChannelName(active)) maybeWarnOfficialJoin(orbit, active);
+    } catch (e) { /* ignore */ }
   }
 
   /** Callerid UX (+g / ACCEPT). Independent of the parental label. */
   function activateCallerid(orbit, log, reason) {
+    ensureOwnerSession(orbit, log);
     if (!calleridActive) {
       setCallerid(true);
       log('callerid: filtre MP (+g / ACCEPT)' + (reason ? ' — ' + reason : ''));
@@ -409,12 +647,8 @@
   }
 
   function loadSavedDeny(orbit) {
-    try {
-      var v = orbit.storage.get(STORAGE_DENY, []);
-      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
-    } catch (e) {
-      return [];
-    }
+    var v = scopedGet(orbit, STORAGE_DENY, []);
+    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
   }
 
   /** Denied / SILENCE’d nicks — shown in the allow-list UI for unblock. */
@@ -433,22 +667,19 @@
   }
 
   function saveDenyNick(orbit, nick, add) {
+    if (!storageOwner(orbit)) return;
     var list = loadSavedDeny(orbit);
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    try { orbit.storage.set(STORAGE_DENY, next); } catch (e) { /* ignore */ }
+    scopedSet(orbit, STORAGE_DENY, next);
     bumpDeny();
   }
 
   /** Nicks who refused / blocked *us* (requester-side memory). */
   function loadBlockedBy(orbit) {
-    try {
-      var v = orbit.storage.get(STORAGE_BLOCKED_BY, []);
-      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
-    } catch (e) {
-      return [];
-    }
+    var v = scopedGet(orbit, STORAGE_BLOCKED_BY, []);
+    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
   }
 
   function isBlockedBy(orbit, nick) {
@@ -458,11 +689,12 @@
   }
 
   function saveBlockedByNick(orbit, nick, add) {
+    if (!storageOwner(orbit)) return;
     var list = loadBlockedBy(orbit);
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    try { orbit.storage.set(STORAGE_BLOCKED_BY, next); } catch (e) { /* ignore */ }
+    scopedSet(orbit, STORAGE_BLOCKED_BY, next);
   }
 
   function markPeerBlockedUs(orbit, nick) {
@@ -874,10 +1106,13 @@
       '.ocid-srow .switch__dot{position:absolute;top:2px;left:2px;width:1.05rem;height:1.05rem;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.2)}',
       '.ocid-srow .switch.is-on .switch__dot{transform:translateX(1.05rem)}',
       '.ocid-popup{display:flex;flex-direction:column;align-items:stretch;gap:.85rem;padding:.35rem .15rem .15rem;max-width:24rem}',
+      '.ocid-popup--warn{max-width:26rem}',
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
+      '.ocid-popup__icon--warn{color:#d97706}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
       '.ocid-popup__actions{display:flex;gap:.55rem;justify-content:center;flex-wrap:wrap}',
       '.ocid-modal__empty{opacity:.7;font-size:.92rem;margin:0}',
+      '.ocid-warn__body{white-space:pre-wrap;text-align:left;line-height:1.45;max-height:min(50vh,22rem);overflow:auto}',
       '.topbar__search.ocid-topbar.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
       '.topbar__search.ocid-topbar .ocid-topbar__badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:.65rem;font-weight:800;line-height:14px;text-align:center}',
       '.topbar__search.ocid-topbar{position:relative}',
@@ -1419,6 +1654,7 @@
     listView.open = false;
 
     function boot() {
+      purgeLegacySharedStorage(orbit);
       myGroupsText = '';
       modesApplied = false;
       restoreDone = false;
@@ -1427,9 +1663,17 @@
       outboundText = Object.create(null);
       peers.probedAt = Object.create(null);
       peers.loading = Object.create(null);
+      acceptList.nicks = [];
+      acceptList.loading = false;
+      bumpAccept();
       setParental(false);
       setCallerid(false);
       closeListView();
+      Object.keys(officialPending).forEach(function (k) { clearOfficialPending(k); });
+      officialPending = Object.create(null);
+      channelWarned = Object.create(null);
+      channelWarnOpen = false;
+      ensureOwnerSession(orbit, log);
       var me = orbit.state.nick();
       if (me) {
         requestWhois(orbit, me);
@@ -1450,6 +1694,11 @@
     orbit.on('buffer.active', function (name) {
       if (listView.open) closeListView();
       if (isQueryPeer(name)) probePeer(orbit, name);
+      else if (parentalActive && isChannelName(name)) maybeWarnOfficialJoin(orbit, name);
+    });
+
+    orbit.on('chanserv:chaninfo', function (info) {
+      onOfficialInfo(orbit, info);
     });
 
     orbit.on('raw', function (msg) {
@@ -1457,6 +1706,16 @@
       var params = msg.params || [];
       var me = orbit.state.nick() || '';
       var targetNick = params[1] || '';
+
+      // SASL / ACCOUNT: identity may switch from nick → account; re-scope lists.
+      if (cmd === '900' || cmd === 'ACCOUNT') {
+        var prevOwner = sessionOwner;
+        ensureOwnerSession(orbit, log);
+        if (sessionOwner && sessionOwner !== prevOwner && calleridActive) {
+          restoreDone = false;
+          restoreSavedAccept(orbit, log);
+        }
+      }
 
       if (cmd === '221') {
         var umodeis = String(params[1] || params[0] || '');
@@ -1638,10 +1897,39 @@
         return;
       }
 
+      // Self JOIN → avertissement salons officiels (hors salons « sûrs »)
+      if (String(cmd).toUpperCase() === 'JOIN') {
+        var joinNick = msg.nick || '';
+        if (fold(joinNick) === fold(me)) {
+          var joined = params[0] || '';
+          // JOIN can be "#chan" or "#chan\x07key" depending on parser
+          joined = String(joined).split('\u0007')[0].split(' ')[0];
+          if (parentalActive) maybeWarnOfficialJoin(orbit, joined);
+          else if (isParental(orbit)) {
+            activateParental(orbit, log, 'join');
+            maybeWarnOfficialJoin(orbit, joined);
+          }
+        }
+      }
+
       var up = String(cmd).toUpperCase();
       if ((up === 'PRIVMSG' || up === 'NOTICE') && msg.nick) {
         if (fold(msg.nick) === fold(me)) return;
         var body = (params.length >= 2 ? params[1] : '') || '';
+        // Backup: parse ChanServ INFO Options for « official » when plugin emit is missing
+        if (up === 'NOTICE' && fold(msg.nick) === 'chanserv') {
+          var infoBody = String(body || '');
+          var optMatch = infoBody.match(/options?\s*:\s*(.+)$/i);
+          if (optMatch) {
+            var optBlob = fold(optMatch[1]);
+            var isOff = optBlob.indexOf('official') > -1 || optBlob.indexOf('officiel') > -1
+              || optBlob.indexOf('salon officiel') > -1 || optBlob.indexOf('cs_official') > -1;
+            var pendingKeys = Object.keys(officialPending);
+            if (pendingKeys.length === 1) {
+              onOfficialInfo(orbit, { chan: officialPending[pendingKeys[0]].chan, official: isOff });
+            }
+          }
+        }
         if (isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body) || isBlockNotice(body)) {
           handlePeerDecision(orbit, msg.nick, body);
           return;
