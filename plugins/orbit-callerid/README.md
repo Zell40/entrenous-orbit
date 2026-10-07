@@ -24,7 +24,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 
 1. **Paramètres → Modes & confidentialité** : même ligne que les autres umodes (`+g`, libellé, interrupteur ; verrouillé sous contrôle parental). Les autres modes du paquet (`+ixIgcRw`) s’affichent **actifs et non désactivables**. `+x` (hôte masqué) n’est jamais désactivable.
 2. **Au-dessus d’Accueil** : pastille parentale (marge haute) — groupe ou paquet complet uniquement.
-3. **Liste blanche** : fermée par défaut ; l’onglet n’apparaît dans la colonne **que** lorsque la vue est ouverte via l’**icône bouclier** (⋮ sur mobile).
+3. **Liste blanche** : fermée par défaut ; l’icône bouclier ouvre un **buffer local** « Liste blanche » (indépendant du salon : topbar sans modes, pas de liste de membres). L’onglet bouclier apparaît alors dans la colonne de gauche.
 4. **Haut du tchat** : bannière bleue + **popup** sur **718** (filtre MP).
 5. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
 6. Menu **⋮** (mobile) → **Liste blanche MP**.
@@ -44,7 +44,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "officialSuffix": ".chat"
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=22"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=23"
   ]
 }
 ```

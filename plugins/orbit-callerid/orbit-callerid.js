@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=22"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=23"]
  */
 (function () {
   'use strict';
@@ -29,6 +29,8 @@
   var DEFAULT_MODES = '+ixIgcRw';
   var DEFAULT_SAFE_CHANNELS = ['#EntreJeunes.chat'];
   var CHAN_WARN_TIMEOUT_MS = 2800;
+  /** Local Orbit buffer (not a channel) so the topbar / member list detach from the salon. */
+  var ALLOWLIST_BUF = 'Liste blanche';
   var STORAGE_ACCEPT = 'savedAccept';
   var STORAGE_PERSIST = 'persistAccept';
   var STORAGE_DENY = 'savedDeny';
@@ -169,8 +171,8 @@
     bumpGate();
   }
 
-  /** Full-pane allow-list view (Status-like), not a modal. */
-  var listView = { open: false, rev: 0, listeners: new Set() };
+  /** Full-pane allow-list view — backed by a local buffer so chrome is independent of the salon. */
+  var listView = { open: false, rev: 0, listeners: new Set(), prevActive: '', switching: false };
   function subscribeListView(cb) { listView.listeners.add(cb); return function () { listView.listeners.delete(cb); }; }
   function getListViewSnap() { return listView.rev; }
   function setListViewOpen(on) {
@@ -178,6 +180,39 @@
     try { document.body.classList.toggle('ocid-view-open', listView.open); } catch (e) { /* ignore */ }
     listView.rev++;
     listView.listeners.forEach(function (l) { l(); });
+  }
+
+  function isAllowlistBuffer(name) {
+    return fold(name) === fold(ALLOWLIST_BUF);
+  }
+
+  function chatState(orbit) {
+    try { return orbit.state.get(); } catch (e) { return null; }
+  }
+
+  /** Hide Orbit's native PM row for our buffer — we render the shield tab via sidebar_room. */
+  function hideNativeAllowlistRow() {
+    try {
+      var rooms = document.querySelector('.rooms');
+      if (!rooms) return;
+      rooms.querySelectorAll('.room:not(.ocid-room)').forEach(function (row) {
+        var nm = row.querySelector('.room__name');
+        var label = nm ? String(nm.textContent || '').trim() : '';
+        if (isAllowlistBuffer(label)) {
+          row.hidden = true;
+          row.setAttribute('data-ocid-native-hide', '1');
+        }
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  function revealNativeAllowlistRows() {
+    try {
+      document.querySelectorAll('.room[data-ocid-native-hide]').forEach(function (row) {
+        row.hidden = false;
+        row.removeAttribute('data-ocid-native-hide');
+      });
+    } catch (e) { /* ignore */ }
   }
 
   function cfg(orbit) {
@@ -425,10 +460,10 @@
     return /^[#&+!]/.test(name || '');
   }
 
-  /** Status / notice inboxes are local buffers (`$server`, `$notice:Nick`), not IRC nicks. */
+  /** Status / notice inboxes / allow-list pane — not IRC nicks. */
   function isPseudoBuffer(name) {
     var n = String(name || '');
-    return n.charAt(0) === '$' || n === 'Status';
+    return n.charAt(0) === '$' || n === 'Status' || isAllowlistBuffer(n);
   }
 
   function isQueryPeer(name) {
@@ -1030,11 +1065,43 @@
 
   function openListView(orbit) {
     refreshAcceptList(orbit);
+    var st = chatState(orbit);
+    var cur = '';
+    try { cur = (st && st.active) || orbit.state.active() || ''; } catch (e) { /* ignore */ }
+    if (cur && !isAllowlistBuffer(cur)) listView.prevActive = cur;
+    listView.switching = true;
     setListViewOpen(true);
+    try {
+      if (st && typeof st.setActive === 'function') st.setActive(ALLOWLIST_BUF);
+    } catch (e2) { /* ignore */ }
+    window.setTimeout(function () {
+      listView.switching = false;
+      hideNativeAllowlistRow();
+    }, 0);
   }
 
-  function closeListView() {
+  function closeListView(orbit, opts) {
+    opts = opts || {};
+    var restore = opts.restore !== false;
+    if (!listView.open) {
+      setListViewOpen(false);
+      return;
+    }
+    var st = orbit ? chatState(orbit) : null;
+    var prev = listView.prevActive || '';
+    listView.prevActive = '';
+    listView.switching = true;
     setListViewOpen(false);
+    revealNativeAllowlistRows();
+    try {
+      if (st && typeof st.closeBuffer === 'function') st.closeBuffer(ALLOWLIST_BUF);
+    } catch (e) { /* ignore */ }
+    try {
+      if (restore && prev && !isAllowlistBuffer(prev) && st && typeof st.setActive === 'function') {
+        st.setActive(prev);
+      }
+    } catch (e2) { /* ignore */ }
+    window.setTimeout(function () { listView.switching = false; }, 0);
   }
 
   /** @deprecated name kept for call sites — opens the full Status-like pane. */
@@ -1059,6 +1126,9 @@
       '.ocid-room.is-active .room__name{color:var(--accent-d);font-weight:800}',
       'body.ocid-view-open .messages,body.ocid-view-open .composer,body.ocid-view-open .chan-hero,body.ocid-view-open .main__room-bg,body.ocid-view-open .empty{display:none!important}',
       'body.ocid-view-open .main{background:var(--bg)}',
+      'body.ocid-view-open .topbar__modes,body.ocid-view-open .topbar__pill,body.ocid-view-open .topbar__manage,body.ocid-view-open .members{display:none!important}',
+      'body.ocid-view-open .topbar__sub{display:none!important}',
+      'body.ocid-view-open.app,body.ocid-view-open .app{--ocid-nomembers:1}',
       '.ocid-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(180deg,color-mix(in srgb,#0ea5e9 6%,var(--bg,#fff)) 0,var(--bg,#fff) 8rem)}',
       '.ocid-view__head{display:flex;align-items:center;gap:.75rem;flex:none;padding:.85rem 1.15rem;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 8%,var(--bg,#fff))}',
       '.ocid-view__head-ic{display:grid;place-items:center;width:2.4rem;height:2.4rem;border-radius:10px;background:color-mix(in srgb,#0ea5e9 18%,var(--bg,#fff));color:#0284c7;flex:none}',
@@ -1159,8 +1229,24 @@
     var n = listPending().length;
     return h('div', {
       className: 'room ocid-room is-active' + (n ? ' has-unread' : ''),
-      role: 'status',
+      role: 'button',
+      tabIndex: 0,
       title: pick(orbit, { fr: 'Liste blanche ouverte', en: 'Allow list open' }),
+      onClick: function () {
+        try {
+          var st = chatState(orbit);
+          if (st && typeof st.setActive === 'function') st.setActive(ALLOWLIST_BUF);
+        } catch (e) { /* ignore */ }
+      },
+      onKeyDown: function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          try { e.preventDefault(); } catch (err) { /* ignore */ }
+          try {
+            var st = chatState(orbit);
+            if (st && typeof st.setActive === 'function') st.setActive(ALLOWLIST_BUF);
+          } catch (e2) { /* ignore */ }
+        }
+      },
     },
       h('span', { className: 'room__av', 'data-ocid': true, 'aria-hidden': true }, h(ShieldIcon, { size: 18 })),
       h('span', { className: 'room__body' },
@@ -1182,7 +1268,7 @@
         'aria-label': pick(orbit, { fr: 'Fermer la liste blanche', en: 'Close allow list' }),
         onClick: function (e) {
           try { e.stopPropagation(); e.preventDefault(); } catch (err) { /* ignore */ }
-          closeListView();
+          closeListView(orbit);
         },
       }, '✕')
     );
@@ -1202,7 +1288,7 @@
       'aria-label': pick(orbit, { fr: 'Liste blanche MP', en: 'PM allow list' }),
       'aria-pressed': listView.open,
       onClick: function () {
-        if (listView.open) closeListView();
+        if (listView.open) closeListView(orbit);
         else openListView(orbit);
       },
     },
@@ -1219,6 +1305,15 @@
       return function () {
         try { document.body.classList.remove('ocid-view-open'); } catch (e2) { /* ignore */ }
       };
+    }, [listView.open]);
+    useEffect(function () {
+      if (!listView.open) return undefined;
+      hideNativeAllowlistRow();
+      var root = document.querySelector('.rooms');
+      if (!root || typeof MutationObserver === 'undefined') return undefined;
+      var mo = new MutationObserver(function () { hideNativeAllowlistRow(); });
+      mo.observe(root, { childList: true, subtree: true });
+      return function () { mo.disconnect(); };
     }, [listView.open]);
     if (!listView.open) return null;
     return h('div', { className: 'ocid-view', role: 'region', 'aria-label': pick(orbit, { fr: 'Liste blanche', en: 'Allow list' }) },
@@ -1238,11 +1333,11 @@
         h('button', {
           type: 'button',
           className: 'ocid-banner__btn',
-          onClick: function () { closeListView(); },
+          onClick: function () { closeListView(orbit); },
         }, pick(orbit, { fr: 'Fermer', en: 'Close' }))
       ),
       h('div', { className: 'ocid-view__body' },
-        h(ListModalBody, { orbit: orbit, onClose: closeListView })
+        h(ListModalBody, { orbit: orbit, onClose: function () { closeListView(orbit); } })
       )
     );
   }
@@ -1652,6 +1747,8 @@
     // Never leave the full-pane view open from a previous session / HMR.
     try { document.body.classList.remove('ocid-view-open'); } catch (e) { /* ignore */ }
     listView.open = false;
+    listView.prevActive = '';
+    listView.switching = false;
 
     function boot() {
       purgeLegacySharedStorage(orbit);
@@ -1668,7 +1765,7 @@
       bumpAccept();
       setParental(false);
       setCallerid(false);
-      closeListView();
+      closeListView(orbit, { restore: false });
       Object.keys(officialPending).forEach(function (k) { clearOfficialPending(k); });
       officialPending = Object.create(null);
       channelWarned = Object.create(null);
@@ -1692,7 +1789,18 @@
     hookOutboundCapture(orbit);
 
     orbit.on('buffer.active', function (name) {
-      if (listView.open) closeListView();
+      if (listView.switching) return;
+      if (isAllowlistBuffer(name)) {
+        if (!listView.open) {
+          listView.prevActive = listView.prevActive || '';
+          setListViewOpen(true);
+          refreshAcceptList(orbit);
+          window.setTimeout(hideNativeAllowlistRow, 0);
+        }
+        return;
+      }
+      // Navigated to another buffer — close allow-list without stealing focus back.
+      if (listView.open) closeListView(orbit, { restore: false });
       if (isQueryPeer(name)) probePeer(orbit, name);
       else if (parentalActive && isChannelName(name)) maybeWarnOfficialJoin(orbit, name);
     });
