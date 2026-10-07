@@ -45,7 +45,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "officialSuffix": ".chat"
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=26"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=28"
   ]
 }
 ```
@@ -57,7 +57,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 | `autoMode` | `true` | Repose le paquet **uniquement** si parental actif |
 | `warnOfficialJoins` | `true` | Avertir au join des salons officiels / réseau |
 | `safeChannels` | `["#EntreJeunes.chat"]` | Salons sans avertissement (espace jeunes) |
-| `officialSuffix` | `.chat` | Si ChanServ ne répond pas : fallback d’avertissement pour les salons `*suffix` |
+| `officialSuffix` | `.chat` | Salons réseau `*suffix` : avertissement immédiat (hors `safeChannels`), sans attendre ChanServ |
 
 ## Déploiement
 

@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=26"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=28"]
  */
 (function () {
   'use strict';
@@ -304,7 +304,13 @@
 
   function setHideChannelWarnPref(orbit, on) {
     try { orbit.storage.set(STORAGE_HIDE_CHANNEL_WARN, !!on); } catch (e) { /* ignore */ }
-    if (!on) channelWarned = Object.create(null);
+    if (!on) {
+      channelWarned = Object.create(null);
+      try {
+        var active = orbit && orbit.state && orbit.state.active && orbit.state.active();
+        if (active && isChannelName(active)) maybeWarnOfficialJoin(orbit, active);
+      } catch (e) { /* ignore */ }
+    }
     try { window.dispatchEvent(new Event('ocid-channel-warn-pref')); } catch (e) { /* ignore */ }
   }
 
@@ -375,6 +381,13 @@
     var key = fold(chan);
     if (channelWarned[key]) return;
 
+    // EntreNous: salons réseau (suffixe .chat) = avertir tout de suite, hors liste sûre.
+    // Ne pas attendre ChanServ : un INFO « non officiel » annulait sinon le fallback.
+    if (looksNetworkChannel(orbit, chan)) {
+      showChannelWarn(orbit, chan);
+      return;
+    }
+
     var cached = officialCache[key];
     if (cached && cached.known) {
       if (cached.official) showChannelWarn(orbit, chan);
@@ -387,8 +400,7 @@
       chan: chan,
       timer: window.setTimeout(function () {
         clearOfficialPending(chan);
-        // EntreNous : les salons réseau finissent souvent par .chat ; sans INFO ChanServ, on préfère avertir.
-        if (looksNetworkChannel(orbit, chan)) showChannelWarn(orbit, chan);
+        // Hors suffixe réseau : sans réponse ChanServ, on n’avertit pas.
       }, CHAN_WARN_TIMEOUT_MS),
     };
     try {
@@ -403,7 +415,9 @@
     var pend = officialPending[key];
     if (!pend) return;
     clearOfficialPending(info.chan);
-    if (info.official) showChannelWarn(orbit || pend.orbit, info.chan);
+    if (info.official || looksNetworkChannel(orbit || pend.orbit, info.chan)) {
+      showChannelWarn(orbit || pend.orbit, info.chan);
+    }
   }
 
   function pick(orbit, table) {

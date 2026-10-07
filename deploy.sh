@@ -224,6 +224,7 @@ rsync -a --delete --backup --backup-dir="${WEBROOT}.bak" \
   --exclude="/plugins/third/orbit-asl/" \
   --exclude="/plugins/third/orbit-anope/" \
   --exclude="/plugins/third/orbit-chanserv/" \
+  --exclude="/plugins/third/orbit-memoserv/" \
   --exclude="/plugins/third/orbit-helpdesk/" \
   --exclude="/$FILEHOST_UPLOAD_NAME" \
   --exclude="/filehost-purge.php" \
@@ -369,6 +370,12 @@ elif [ -f "$PLUGINS_REPO/plugins/orbit-chanserv/chanserv-rpc.local.php.example" 
         "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php.example"
   echo "$(date -Is) NOTE: create $WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php (Anope JSON-RPC URL + token = wp_anope_sync)"
 fi
+
+# Mémos Anope (pseudo Message)
+MEMOSERV_DIR="plugins/third/orbit-memoserv"
+mkdir -p "$WEBROOT/$MEMOSERV_DIR"
+cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/orbit-memoserv.js" \
+      "$WEBROOT/$MEMOSERV_DIR/"
 
 # Helpdesk bottom-nav (AideMoi / SignalMoi / EcoutE)
 HELPDESK_DIR="plugins/third/orbit-helpdesk"

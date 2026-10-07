@@ -803,10 +803,12 @@
       var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [] };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
+      // Background probes (RegisterWatch) must never hit IRC — INFO notices flood the salon.
+      var allowIrc = !(opts && opts.noIrc) && (panelOpen() || !!(opts && opts.allowIrc));
       if (!identified()) {
-        // Guests: never IRC-probe in the background (floods the salon with INFO notices).
+        // Guests: never IRC-probe in the background.
         // Chaninfo / panel refresh may still request INFO explicitly via queryPublicInfo.
-        if (!panelOpen() && !(opts && opts.allowIrc)) {
+        if (!allowIrc) {
           patchUi({ loading: false });
           return;
         }
@@ -820,8 +822,8 @@
           applyProbeTexts(chan, data.info, data.status);
           return;
         }
-        // RPC down: only fall back to IRC INFO when the panel is open (user-facing).
-        if (!panelOpen() && !(opts && opts.allowIrc)) {
+        // RPC down: only fall back to IRC INFO when the panel / chaninfo asked for it.
+        if (!allowIrc) {
           patchUi({ loading: false });
           return;
         }
@@ -3171,7 +3173,8 @@
       );
       useEffect(function () {
         if (!isChannel(chan) || !identified()) return undefined;
-        queryInfo(chan);
+        // RPC only — never PRIVMSG ChanServ INFO (notices would land in the salon).
+        queryInfo(chan, { noIrc: true });
         return undefined;
       }, [chan, acc]);
       useEffect(function () {
