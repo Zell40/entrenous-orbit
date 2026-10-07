@@ -351,10 +351,14 @@ try {
     }
     if (in_array($first, $values, true)) {
       $val = trim($rawVal);
-      if ($val === '' || strlen($val) > 200 || preg_match('/[\r\n]/', $val)) {
-        fail(400, 'bad_params');
+      if ($first === 'GREET' && $val === '') {
+        $params = [$source, 'NickServ', 'SET', $first];
+      } else {
+        if ($val === '' || strlen($val) > 200 || preg_match('/[\r\n]/', $val)) {
+          fail(400, 'bad_params');
+        }
+        $params = [$source, 'NickServ', 'SET', $first, $val];
       }
-      $params = [$source, 'NickServ', 'SET', $first, $val];
     } else {
       $val = strtoupper(trim($rawVal));
       if (!in_array($val, ['ON', 'OFF'], true)) {
