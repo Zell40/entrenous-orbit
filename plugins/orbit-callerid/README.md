@@ -29,7 +29,8 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
 5. **Côté demandeur** : bandeau ambre **neutre** (« n’accepte les MP que sur autorisation ») — **jamais** « contrôle parental » (ne pas exposer un compte protégé / mineur).
 6. Menu **⋮** (mobile) → **Liste blanche MP**.
 7. `/accepter` `/refuser` `/listeaccept`.
-8. **Join salon officiel** (hors salons sûrs) : popup + message système rédigés pour ados — adultes possibles, âge profil non fiable, pas d’infos perso.
+8. **Join salon officiel** (hors salons sûrs) : popup large (bureau) + message système rédigés pour ados — adultes possibles, âge profil non fiable, pas d’infos perso. Case « Ne plus afficher » ; réactivation dans **Paramètres → Apparence**.
+9. **Icône enveloppe (+D)** : gris comme les autres icônes ; **rouge** si les MP sont coupés (sans fond bleu). Popup d’aide à l’activation (bouton « J’ai compris » + case « Ne plus afficher »).
 
 ## Config
 
@@ -44,7 +45,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "officialSuffix": ".chat"
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=23"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=25"
   ]
 }
 ```

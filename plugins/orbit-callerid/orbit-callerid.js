@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=23"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=25"]
  */
 (function () {
   'use strict';
@@ -36,9 +36,13 @@
   var STORAGE_DENY = 'savedDeny';
   var STORAGE_BLOCKED_BY = 'blockedBy';
   var STORAGE_WANT_G = 'wantCallerid';
-  /** Marker: legacy unscoped keys were cleared (shared across accounts). */
-  var STORAGE_SCOPED = 'storageScopedV1';
-  /** Current browser-session identity (account or nick) for scoped lists. */
+  /** User opted out of the « MP bloqués » tip (+D / enveloppe). */
+  var STORAGE_HIDE_PRIVDEAF_TIP = 'hidePmBlockedTip';
+  /** User opted out of the official-channel warn popup (parental). */
+  var STORAGE_HIDE_CHANNEL_WARN = 'hideChannelWarn';
+  var privDeafTipOpen = false;
+  var privDeafWasOn = false;
+  /** Current browser-session identity (account or nick) for in-memory lists. */
   var sessionOwner = '';
 
   /** Notice markers (neutral — no « parental ») for cross-client signaling. */
@@ -294,10 +298,21 @@
     });
   }
 
+  function hideChannelWarnPref(orbit) {
+    try { return !!orbit.storage.get(STORAGE_HIDE_CHANNEL_WARN, false); } catch (e) { return false; }
+  }
+
+  function setHideChannelWarnPref(orbit, on) {
+    try { orbit.storage.set(STORAGE_HIDE_CHANNEL_WARN, !!on); } catch (e) { /* ignore */ }
+    if (!on) channelWarned = Object.create(null);
+    try { window.dispatchEvent(new Event('ocid-channel-warn-pref')); } catch (e) { /* ignore */ }
+  }
+
   function showChannelWarn(orbit, chan) {
     var key = fold(chan);
     if (!key || channelWarned[key]) return;
     if (!parentalActive) return;
+    if (hideChannelWarnPref(orbit)) return;
     channelWarned[key] = true;
     var text = warnText(orbit, chan);
     pushLocalLine(orbit, chan, text.replace(/\n\n/g, ' — ').replace(/\n/g, ' '), 'system');
@@ -310,6 +325,7 @@
     );
     if (typeof orbit.modal !== 'function' || channelWarnOpen) return;
     channelWarnOpen = true;
+    var dontShow = { current: false };
     var close = orbit.modal(function () {
       return h('div', { className: 'ocid-popup ocid-popup--warn' },
         h('div', { className: 'ocid-popup__icon ocid-popup__icon--warn', 'aria-hidden': true }, h(ShieldIcon, { size: 36 })),
@@ -320,11 +336,24 @@
           })
         ),
         h('p', { className: 'ocid-modal__empty ocid-warn__body' }, text),
+        h('label', { className: 'ocid-check--tip' },
+          h('input', {
+            type: 'checkbox',
+            onChange: function (e) { dontShow.current = !!(e && e.target && e.target.checked); },
+          }),
+          h('span', null,
+            pick(orbit, {
+              fr: 'Ne plus afficher ce message',
+              en: 'Don’t show this again',
+            })
+          )
+        ),
         h('div', { className: 'ocid-popup__actions' },
           h('button', {
             type: 'button',
             className: 'ocid-banner__btn ocid-banner__btn--ok',
             onClick: function () {
+              if (dontShow.current) setHideChannelWarnPref(orbit, true);
               channelWarnOpen = false;
               if (typeof close === 'function') close();
             },
@@ -333,7 +362,7 @@
       );
     }, {
       title: pick(orbit, { fr: 'Salon avec adultes possibles', en: 'Channel may include adults' }),
-      wide: false,
+      wide: true,
     });
   }
 
@@ -341,6 +370,7 @@
     if (!orbit || !isChannelName(chan)) return;
     if (!cfg(orbit).warnOfficialJoins) return;
     if (!parentalActive) return;
+    if (hideChannelWarnPref(orbit)) return;
     if (isSafeChannel(orbit, chan)) return;
     var key = fold(chan);
     if (channelWarned[key]) return;
@@ -390,37 +420,8 @@
     return acct || nick || '';
   }
 
-  function scopedKey(base, owner) {
-    return base + '@' + owner;
-  }
-
-  function scopedGet(orbit, base, fallback) {
-    var owner = storageOwner(orbit);
-    if (!owner) return fallback;
-    try {
-      return orbit.storage.get(scopedKey(base, owner), fallback);
-    } catch (e) {
-      return fallback;
-    }
-  }
-
-  function scopedSet(orbit, base, value) {
-    var owner = storageOwner(orbit);
-    if (!owner) return;
-    try { orbit.storage.set(scopedKey(base, owner), value); } catch (e) { /* ignore */ }
-  }
-
-  /** Drop pre-v21 keys that were shared by every account on this browser. */
-  function purgeLegacySharedStorage(orbit) {
-    try {
-      if (orbit.storage.get(STORAGE_SCOPED, false) === true) return;
-      orbit.storage.set(STORAGE_ACCEPT, []);
-      orbit.storage.set(STORAGE_DENY, []);
-      orbit.storage.set(STORAGE_BLOCKED_BY, []);
-      orbit.storage.set(STORAGE_WANT_G, false);
-      orbit.storage.set(STORAGE_SCOPED, true);
-    } catch (e) { /* ignore */ }
-  }
+  // Persistence is identity-scoped by Orbit's plugin storage API (localStorage
+  // key includes @account). Keys below stay plain; do not add @owner here.
 
   /**
    * Isolate in-memory ACCEPT / pending state when another account uses this tab.
@@ -483,6 +484,98 @@
     return myUmodes(orbit).indexOf('g') > -1;
   }
 
+  function hasModeD(orbit) {
+    return myUmodes(orbit).indexOf('D') > -1;
+  }
+
+  function hidePrivDeafTipPref(orbit) {
+    try { return !!orbit.storage.get(STORAGE_HIDE_PRIVDEAF_TIP, false); } catch (e) { return false; }
+  }
+
+  function setHidePrivDeafTipPref(orbit, on) {
+    try { orbit.storage.set(STORAGE_HIDE_PRIVDEAF_TIP, !!on); } catch (e) { /* ignore */ }
+  }
+
+  /** Tip when +D (enveloppe) blocks all private messages. */
+  function showPrivDeafBlockedTip(orbit) {
+    if (!orbit || typeof orbit.modal !== 'function') return;
+    if (privDeafTipOpen) return;
+    if (!hasModeD(orbit)) return;
+    if (hidePrivDeafTipPref(orbit)) return;
+    privDeafTipOpen = true;
+    var dontShow = { current: false };
+    var close = orbit.modal(function () {
+      return h('div', { className: 'ocid-popup' },
+        h('div', { className: 'ocid-popup__icon', 'aria-hidden': true, style: { color: 'var(--danger,#d6465f)' } },
+          h('svg', {
+            viewBox: '0 0 24 24', width: 36, height: 36, fill: 'none',
+            stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
+          },
+            h('path', { d: 'M4 6h16v12H4z' }),
+            h('path', { d: 'm4 7 8 6 8-6' }),
+            h('path', { d: 'M5 19 19 5' })
+          )
+        ),
+        h('p', { className: 'ocid-popup__lead' },
+          pick(orbit, {
+            fr: 'Messages privés bloqués',
+            en: 'Private messages blocked',
+          })
+        ),
+        h('p', { className: 'ocid-modal__empty ocid-warn__body' },
+          pick(orbit, {
+            fr: [
+              'L’icône enveloppe barrée (dans la barre du haut) est active : personne ne peut t’écrire en message privé.',
+              '',
+              'Pour débloquer : clique à nouveau sur cette icône (elle redevient grise), ou désactive le mode « ne pas recevoir les MP » dans Paramètres → Modes.',
+              '',
+              'Astuce : le bouclier gère la liste blanche (+g) ; l’enveloppe coupe tous les MP (+D).',
+            ].join('\n'),
+            en: [
+              'The slashed-envelope icon in the top bar is on: nobody can private-message you.',
+              '',
+              'To unblock: click that icon again (it turns grey), or turn off “block private messages” in Settings → Modes.',
+              '',
+              'Tip: the shield manages the allow list (+g); the envelope blocks all PMs (+D).',
+            ].join('\n'),
+          })
+        ),
+        h('label', { className: 'ocid-check--tip' },
+          h('input', {
+            type: 'checkbox',
+            onChange: function (e) { dontShow.current = !!(e && e.target && e.target.checked); },
+          }),
+          h('span', null,
+            pick(orbit, {
+              fr: 'Ne plus afficher ce message',
+              en: 'Don’t show this again',
+            })
+          )
+        ),
+        h('div', { className: 'ocid-popup__actions' },
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn ocid-banner__btn--ok',
+            onClick: function () {
+              if (dontShow.current) setHidePrivDeafTipPref(orbit, true);
+              privDeafTipOpen = false;
+              if (typeof close === 'function') close();
+            },
+          }, pick(orbit, { fr: 'J’ai compris', en: 'Got it' }))
+        )
+      );
+    }, {
+      title: pick(orbit, { fr: 'Messages privés', en: 'Private messages' }),
+      wide: false,
+    });
+  }
+
+  function syncPrivDeafTip(orbit) {
+    var on = hasModeD(orbit);
+    if (on && !privDeafWasOn) showPrivDeafBlockedTip(orbit);
+    privDeafWasOn = on;
+  }
+
   function isParentalGroup(orbit) {
     var group = cfg(orbit).group;
     return !!(group && myGroupsText.toLowerCase().indexOf(group) > -1);
@@ -508,11 +601,11 @@
   }
 
   function wantCallerid(orbit) {
-    return scopedGet(orbit, STORAGE_WANT_G, false) === true;
+    try { return orbit.storage.get(STORAGE_WANT_G, false) === true; } catch (e) { return false; }
   }
 
   function setWantCallerid(orbit, on) {
-    scopedSet(orbit, STORAGE_WANT_G, !!on);
+    try { orbit.storage.set(STORAGE_WANT_G, !!on); } catch (e) { /* ignore */ }
   }
 
   /** Voluntary +g (Settings → Modes). Never used to remove parental package. */
@@ -557,8 +650,12 @@
   }
 
   function loadSavedAccept(orbit) {
-    var v = scopedGet(orbit, STORAGE_ACCEPT, []);
-    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    try {
+      var v = orbit.storage.get(STORAGE_ACCEPT, []);
+      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    } catch (e) {
+      return [];
+    }
   }
 
   function saveAcceptNick(orbit, nick, add) {
@@ -568,15 +665,15 @@
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    scopedSet(orbit, STORAGE_ACCEPT, next);
+    try { orbit.storage.set(STORAGE_ACCEPT, next); } catch (e) { /* ignore */ }
   }
 
   function persistEnabled(orbit) {
-    return scopedGet(orbit, STORAGE_PERSIST, true) !== false;
+    try { return orbit.storage.get(STORAGE_PERSIST, true) !== false; } catch (e) { return true; }
   }
 
   function setPersistEnabled(orbit, on) {
-    scopedSet(orbit, STORAGE_PERSIST, !!on);
+    try { orbit.storage.set(STORAGE_PERSIST, !!on); } catch (e) { /* ignore */ }
   }
 
   function restoreSavedAccept(orbit, log) {
@@ -682,8 +779,12 @@
   }
 
   function loadSavedDeny(orbit) {
-    var v = scopedGet(orbit, STORAGE_DENY, []);
-    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    try {
+      var v = orbit.storage.get(STORAGE_DENY, []);
+      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    } catch (e) {
+      return [];
+    }
   }
 
   /** Denied / SILENCE’d nicks — shown in the allow-list UI for unblock. */
@@ -707,14 +808,18 @@
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    scopedSet(orbit, STORAGE_DENY, next);
+    try { orbit.storage.set(STORAGE_DENY, next); } catch (e) { /* ignore */ }
     bumpDeny();
   }
 
   /** Nicks who refused / blocked *us* (requester-side memory). */
   function loadBlockedBy(orbit) {
-    var v = scopedGet(orbit, STORAGE_BLOCKED_BY, []);
-    return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    try {
+      var v = orbit.storage.get(STORAGE_BLOCKED_BY, []);
+      return Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+    } catch (e) {
+      return [];
+    }
   }
 
   function isBlockedBy(orbit, nick) {
@@ -729,7 +834,7 @@
     var low = fold(nick);
     var next = list.filter(function (n) { return fold(n) !== low; });
     if (add) next.push(String(nick).trim());
-    scopedSet(orbit, STORAGE_BLOCKED_BY, next);
+    try { orbit.storage.set(STORAGE_BLOCKED_BY, next); } catch (e) { /* ignore */ }
   }
 
   function markPeerBlockedUs(orbit, nick) {
@@ -1176,16 +1281,27 @@
       '.ocid-srow .switch__dot{position:absolute;top:2px;left:2px;width:1.05rem;height:1.05rem;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.2)}',
       '.ocid-srow .switch.is-on .switch__dot{transform:translateX(1.05rem)}',
       '.ocid-popup{display:flex;flex-direction:column;align-items:stretch;gap:.85rem;padding:.35rem .15rem .15rem;max-width:24rem}',
-      '.ocid-popup--warn{max-width:26rem}',
+      '.ocid-popup--warn{max-width:none;width:100%;box-sizing:border-box}',
       '.ocid-popup__icon{align-self:center;color:#0ea5e9}',
       '.ocid-popup__icon--warn{color:#d97706}',
       '.ocid-popup__lead{margin:0;font-size:1.05rem;text-align:center;line-height:1.35}',
       '.ocid-popup__actions{display:flex;gap:.55rem;justify-content:center;flex-wrap:wrap}',
       '.ocid-modal__empty{opacity:.7;font-size:.92rem;margin:0}',
-      '.ocid-warn__body{white-space:pre-wrap;text-align:left;line-height:1.45;max-height:min(50vh,22rem);overflow:auto}',
-      '.topbar__search.ocid-topbar.is-on{background:var(--accent-soft,rgba(20,82,204,.14));color:var(--accent-d,var(--accent))}',
+      /* Desktop: full text, no scrollbar. Mobile: scroll only if the body overflows. */
+      '.ocid-warn__body{white-space:pre-wrap;text-align:left;line-height:1.45;max-height:none;overflow:visible}',
+      '@media (max-width:560px){.ocid-warn__body{max-height:min(48vh,20rem);overflow:auto;-webkit-overflow-scrolling:touch}}',
+      /* Shield (liste blanche): same chrome as other icons — accent color only when open. */
+      '.topbar__search.ocid-topbar{position:relative;background:transparent;color:var(--muted)}',
+      '.topbar__search.ocid-topbar:hover{background:var(--bg-soft-2);color:var(--ink)}',
+      '.topbar__search.ocid-topbar.is-on{background:transparent!important;color:var(--accent-d,var(--accent))!important}',
       '.topbar__search.ocid-topbar .ocid-topbar__badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:.65rem;font-weight:800;line-height:14px;text-align:center}',
-      '.topbar__search.ocid-topbar{position:relative}',
+      /* +D enveloppe (MP muets): gris comme les autres / rouge si actif — jamais de fond bleu. */
+      '.topbar__search.topbar__privdeaf{background:transparent!important;color:var(--muted)!important}',
+      '.topbar__search.topbar__privdeaf:hover{background:var(--bg-soft-2)!important;color:var(--ink)!important}',
+      '.topbar__search.topbar__privdeaf.is-on{background:transparent!important;color:var(--danger,#d6465f)!important}',
+      '.topbar__search.topbar__privdeaf.is-on:hover{background:var(--bg-soft-2)!important;color:var(--danger,#d6465f)!important}',
+      '.ocid-check--tip{display:flex;align-items:flex-start;gap:.5rem;margin:.35rem 0 0;font-size:.86rem;cursor:pointer;user-select:none;text-align:left}',
+      '.ocid-check--tip input{margin:.15rem 0 0;flex:none}',
     ].join('');
   }
 
@@ -1704,6 +1820,49 @@
     );
   }
 
+  function ChannelWarnAppearanceRow(props) {
+    var orbit = props.orbit;
+    var hidden = useSyncExternalStore(
+      function (cb) {
+        window.addEventListener('ocid-channel-warn-pref', cb);
+        return function () { window.removeEventListener('ocid-channel-warn-pref', cb); };
+      },
+      function () { return hideChannelWarnPref(orbit) ? '1' : '0'; },
+      function () { return '0'; }
+    );
+    var show = hidden !== '1';
+    return h('div', { className: 'ocid-srow' },
+      h('span', { className: 'ocid-srow__ic', 'aria-hidden': true }, '🛡️'),
+      h('div', { className: 'ocid-srow__txt' },
+        h('div', { className: 'ocid-srow__label' },
+          pick(orbit, {
+            fr: 'Avertissement salons mixtes',
+            en: 'Mixed-channel warning',
+          })
+        ),
+        h('div', { className: 'ocid-srow__hint' },
+          pick(orbit, {
+            fr: 'Sous contrôle parental : rappeler les consignes de sécurité en rejoignant un salon officiel (hors espace jeunes). Désactivez pour ne plus voir le popup.',
+            en: 'With parental controls: show the safety tip when joining an official channel (outside the youth space). Turn off to hide the popup.',
+          })
+        )
+      ),
+      h('button', {
+        type: 'button',
+        className: 'switch' + (show ? ' is-on' : ''),
+        role: 'switch',
+        'aria-checked': show,
+        'aria-label': pick(orbit, {
+          fr: 'Avertissement salons mixtes',
+          en: 'Mixed-channel warning',
+        }),
+        onClick: function () {
+          setHideChannelWarnPref(orbit, show);
+        },
+      }, h('span', { className: 'switch__dot', 'aria-hidden': true }))
+    );
+  }
+
   function registerSettingsMode(orbit) {
     var render = function () { return h(CalleridModeRow, { orbit: orbit }); };
     if (typeof orbit.addSettingsMode === 'function') {
@@ -1733,6 +1892,25 @@
     }
   }
 
+  function registerSettingsAppearance(orbit) {
+    var render = function () { return h(ChannelWarnAppearanceRow, { orbit: orbit }); };
+    if (typeof orbit.addSettingsAppearance === 'function') {
+      orbit.addSettingsAppearance({ render: render });
+      return;
+    }
+    if (typeof orbit.addSettingsSection === 'function') {
+      orbit.addSettingsSection({
+        label: pick(orbit, { fr: 'Avertissements', en: 'Warnings' }),
+        icon: '🛡️',
+        render: function () {
+          return h('div', { className: 'scard' },
+            h('div', { className: 'scard__body' }, render())
+          );
+        },
+      });
+    }
+  }
+
   function modesContainG(text) {
     var m = String(text || '');
     var idx = m.search(/modes\s+/i);
@@ -1751,7 +1929,6 @@
     listView.switching = false;
 
     function boot() {
-      purgeLegacySharedStorage(orbit);
       myGroupsText = '';
       modesApplied = false;
       restoreDone = false;
@@ -1780,6 +1957,7 @@
       if (hasParentalModePackage(orbit)) activateParental(orbit, log, 'paquet-modes');
       else if (hasModeG(orbit)) activateCallerid(orbit, log, 'umodes');
       else window.setTimeout(function () { applyVoluntaryCallerid(orbit, log); }, 600);
+      window.setTimeout(function () { syncPrivDeafTip(orbit); }, 800);
     }
 
     try {
@@ -1834,6 +2012,7 @@
         };
         if (hasParentalModePackage(fakeOrbit)) activateParental(orbit, log, '221-paquet');
         else if (umodeis.indexOf('g') > -1) activateCallerid(orbit, log, '221');
+        window.setTimeout(function () { syncPrivDeafTip(orbit); }, 0);
         return;
       }
 
@@ -1858,6 +2037,7 @@
           };
           if (hasParentalModePackage(selfOrbit)) activateParental(orbit, log, '379-paquet');
           else if (modesContainG(modeLine)) activateCallerid(orbit, log, '379');
+          window.setTimeout(function () { syncPrivDeafTip(orbit); }, 0);
         } else {
           var peerModes = String(modeLine).replace(/^.*modes\s*/i, '').replace(/^\+/, '');
           var peerPack = false;
@@ -1892,6 +2072,7 @@
             else if (hasModeG(orbit)) activateCallerid(orbit, log, 'MODE+g');
             else if (wantCallerid(orbit) && !isParental(orbit)) applyVoluntaryCallerid(orbit, log);
             else if (!listPending().length) setCallerid(false);
+            syncPrivDeafTip(orbit);
           }, 0);
           if (parentalActive && cfg(orbit).autoMode && modeStr.indexOf('-') > -1 && /[gixIRcRw]/.test(modeStr)) {
             window.setTimeout(function () {
@@ -2054,6 +2235,7 @@
     orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     registerSettingsMode(orbit);
+    registerSettingsAppearance(orbit);
 
     if (typeof orbit.addCommand === 'function') {
       function nickArg(args, rest) {
