@@ -151,12 +151,28 @@
   "helpservWelcome": {
     "bots": [
       {
+        "nick": "AideMoi",
+        "needle": "reseau-entrenous.fr/aide/",
+        "lines": [
+          "👋 Bonjour {{nick}}, comment puis-je vous aider ?",
+          "📚 Avant d'ouvrir un ticket, jetez un œil à la documentation EntreNous :\n\nℹ️ Aide générale — prise en main du tchat\nhttps://www.reseau-entrenous.fr/aide/\n\n💻 Webchat — connexion et interface\nhttps://www.reseau-entrenous.fr/aide/webchat/\n\n🔐 NickServ — protéger et gérer son pseudo\nhttps://www.reseau-entrenous.fr/aide/nickserv/\n\n🤖 Gaya — bots des salons personnels\nhttps://www.reseau-entrenous.fr/aide/gaya/\n\n🖥️ Serveur — fonctionnement du réseau\nhttps://www.reseau-entrenous.fr/aide/aide-serveur/\n\n✍️ Si ces pages ne suffisent pas, décrivez votre problème (pseudo, salon, connexion, erreur).\n🎫 Un ticket sera ouvert uniquement lorsque la demande sera claire."
+        ]
+      },
+      {
+        "nick": "SignalMoi",
+        "needle": "Ne discutez pas des signalements en public",
+        "lines": [
+          "🚩 Bonjour {{nick}}, comment puis-je vous aider pour ce signalement ?",
+          "📝 Expliquez la situation (pseudo concerné, salon, ce qui s'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\n🚫 Ne discutez pas des signalements en public."
+        ]
+      },
+      {
         "nick": "EcoutE",
         "needle": "idée ou un avis",
         "lines": [
-          "Bonjour {{nick}}, merci de partager une idée ou un avis.",
-          "Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que votre message sera suffisamment clair.",
-          "Vous pouvez également ajouter des photos si vous le souhaitez."
+          "💡 Bonjour {{nick}}, merci de partager une idée ou un avis.",
+          "✍️ Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que votre message sera suffisamment clair.",
+          "📷 Vous pouvez également ajouter des photos si vous le souhaitez."
         ]
       }
     ]
@@ -200,16 +216,16 @@
   "plugins": [
     { "url": "/app/plugins/third/orbit-clock.js", "sandbox": true, "permissions": ["none"] },
     { "url": "/app/plugins/third/orbit-radio.js?v=5", "sandbox": true, "permissions": ["storage", "irc"] },
-    "/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=4",
+    "/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=5",
     "/app/plugins/third/orbit-copy.js",
     "/app/plugins/third/orbit-invite.js",
     "/app/plugins/third/orbit-navbar.js",
     "/app/plugins/third/orbit-ircop.js",
     "/app/plugins/third/orbit-room-gallery/orbit-room-gallery.js?v=36",
-    "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=9",
+    "/app/plugins/third/orbit-helpserv-welcome/orbit-helpserv-welcome.js?v=10",
     "/app/plugins/third/orbit-anope/orbit-anope.js?v=11",
     "/app/plugins/third/orbit-chanserv/orbit-chanserv.js?v=104",
-    "/app/plugins/third/orbit-conference/orbit-conference.js?v=54",
+    "/app/plugins/third/orbit-conference/orbit-conference.js?v=55",
     "/app/plugins/third/orbit-petitbac/orbit-petitbac.js?v=80",
     "/app/plugins/third/orbit-echecs/orbit-echecs.js?v=57",
     "/app/plugins/third/orbit-rss/orbit-rss.js?v=29",

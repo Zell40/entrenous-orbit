@@ -6,7 +6,7 @@
  * config.json:
  *   "helpdesk": { "label", "title", "desks": [ { "id", "label", "title", "bot",
  *     "channel", "links": [ { "label", "url" } ] } ] }
- *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=4"]
+ *   "plugins": ["/app/plugins/third/orbit-helpdesk/orbit-helpdesk.js?v=5"]
  *
  * Omit helpdesk.desks to use the EntreNous defaults.
  */
@@ -234,7 +234,80 @@ Orbit.plugin('helpdesk', (orbit, log) => {
     </div>`;
   }
 
+  function reportDeskNick() {
+    try {
+      const q = orbit.config() && orbit.config().report && orbit.config().report.query;
+      return String(q || 'SignalMoi').trim();
+    } catch (e) {
+      return 'SignalMoi';
+    }
+  }
+
+  function isChannelName(name) {
+    return /^[#&+!]/.test(String(name || ''));
+  }
+
+  function ReportTopbarButton() {
+    const { useSyncExternalStore } = orbit.React;
+    const active = useSyncExternalStore(
+      (cb) => {
+        const id = window.setInterval(cb, 400);
+        const off = typeof orbit.on === 'function' ? orbit.on('buffer.active', cb) : null;
+        return () => {
+          window.clearInterval(id);
+          if (typeof off === 'function') off();
+        };
+      },
+      () => orbit.state.active(),
+      () => orbit.state.active(),
+    );
+    if (!active || isChannelName(active)) return null;
+    if (active.charAt(0) === '$') return null;
+    const desk = reportDeskNick();
+    if (String(active).toLowerCase() === desk.toLowerCase()) return null;
+    // Skip HelpServ desks themselves (AideMoi / EcoutE / …).
+    if (desks.some((d) => d.bot && String(d.bot).toLowerCase() === String(active).toLowerCase())) return null;
+
+    const tip = pick({
+      fr: 'Signaler ' + active,
+      en: 'Report ' + active,
+    });
+    return html`<button
+      type="button"
+      className="topbar__search hdk-report-top"
+      title=${tip}
+      aria-label=${tip}
+      onClick=${() => {
+        const st = orbit.state.get();
+        if (st && typeof st.reportUser === 'function') {
+          st.reportUser(active);
+          return;
+        }
+        openQuery(desk);
+        try { orbit.emit('helpserv:welcome', desk); } catch (e) { /* ignore */ }
+      }}
+    >
+      <span className="hdk-report-top__ic" aria-hidden="true"><${IconSignalFlag} /></span>
+    </button>`;
+  }
+
+  function IconSignalFlag() {
+    return html`<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 21V4" />
+      <path d="M5 4h12l-2.2 3.6L17 11H5" />
+    </svg>`;
+  }
+
+  const reportCss = document.createElement('style');
+  reportCss.textContent = [
+    '.topbar__search.hdk-report-top{color:var(--muted)}',
+    '.topbar__search.hdk-report-top:hover,.topbar__search.hdk-report-top:focus-visible{color:#be123c}',
+    '.hdk-report-top__ic{display:inline-flex;line-height:0}',
+  ].join('');
+  document.head.appendChild(reportCss);
+
   orbit.addUi('nav_item', () => html`<${HelpTab} />`);
   orbit.addUi('overlay', () => html`<${HelpPanel} />`);
+  orbit.addUi('topbar_item', () => html`<${ReportTopbarButton} />`);
   log('ready (' + desks.map((d) => d.id).join(', ') + ')');
 });

@@ -156,6 +156,14 @@
 
   // Self security-group fragments from WHOIS special lines
   var myGroupsText = '';
+  var groupsState = { rev: 0, listeners: new Set() };
+  function subscribeGroups(cb) { groupsState.listeners.add(cb); return function () { groupsState.listeners.delete(cb); }; }
+  function getGroupsRev() { return groupsState.rev; }
+  function bumpGroups() {
+    groupsState.rev++;
+    groupsState.listeners.forEach(function (l) { try { l(); } catch (e) { /* ignore */ } });
+  }
+  function foldNick(n) { return String(n || '').trim().toLowerCase(); }
   /** Last Meet room id per channel (for -01/-02 collision suffixes). */
   var channelRooms = Object.create(null);
   /** Visio still live in channel (until explicit stop) — keeps rejoin banner after leaving the panel. */
@@ -1640,12 +1648,28 @@
     );
   }
 
-  function CameraIcon() {
+  function CameraIcon(props) {
+    var barred = !!(props && props.barred);
     return h('svg', {
       viewBox: '0 0 24 24', width: 19, height: 19, fill: 'none',
       stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
       'aria-hidden': 'true',
-    }, h('path', { d: 'M15.5 10.5 20 8v8l-4.5-2.5' }), h('rect', { x: 3, y: 7, width: 12.5, height: 10, rx: 2.2 }));
+    },
+      h('path', { d: 'M15.5 10.5 20 8v8l-4.5-2.5' }),
+      h('rect', { x: 3, y: 7, width: 12.5, height: 10, rx: 2.2 }),
+      barred ? h('path', { d: 'M4 4 20 20' }) : null
+    );
+  }
+
+  function isDeniedByGroup(orbit) {
+    return groupsBlocked(orbit, confCfg(orbit)).indexOf('deny:') === 0;
+  }
+
+  function parentalVisioTip(orbit) {
+    return orbit.i18n.pick({
+      fr: 'La visio n’est pas autorisée sous contrôle parental.',
+      en: 'Video calls are not allowed under parental controls.',
+    });
   }
 
   function WarningTriIcon() {
@@ -1672,6 +1696,7 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    useSyncExternalStore(subscribeGroups, getGroupsRev, getGroupsRev);
     // Never on Status / server console / notice inboxes.
     if (!activeBuf || isConsoleOrPseudo(activeBuf)) return null;
     var sessHere = getSession(activeBuf);
@@ -1679,6 +1704,25 @@
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var anyOpen = listSessions().length > 0;
     if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+
+    // Contrôle parental (denyGroups) : icône visible mais barrée + tip, jamais cliquable.
+    if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
+      var blockTip = parentalVisioTip(orbit);
+      return h('span', { className: 'oconf-cam-wrap oconf-cam-wrap--blocked' },
+        h('button', {
+          type: 'button',
+          className: 'topbar__search oconf-cam--blocked',
+          'aria-label': blockTip,
+          'aria-disabled': true,
+          disabled: true,
+          onClick: function (e) {
+            try { e.preventDefault(); e.stopPropagation(); } catch (err) { /* ignore */ }
+          },
+        }, h(CameraIcon, { barred: true })),
+        h('span', { className: 'oconf-cam-tip', role: 'tooltip' }, blockTip)
+      );
+    }
+
     if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
     if (!sessHere && !canJoin(orbit, activeBuf).ok && !others.length) return null;
     var onHere = !!sessHere;
@@ -1701,6 +1745,10 @@
               if (others[0]) focusVisioBuffer(orbit, others[0].buffer);
               return;
             }
+            if (isDeniedByGroup(orbit)) {
+              orbit.notify('Visio', parentalVisioTip(orbit));
+              return;
+            }
             var liveHere = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
             openConference(orbit, activeBuf, { joinOnly: liveHere });
           }
@@ -1715,6 +1763,7 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
+    useSyncExternalStore(subscribeGroups, getGroupsRev, getGroupsRev);
     if (!activeBuf || isConsoleOrPseudo(activeBuf)) return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
@@ -1722,6 +1771,19 @@
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var cfg = confCfg(orbit);
     if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+    if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
+      var blockTip = parentalVisioTip(orbit);
+      return h('button', {
+        type: 'button',
+        className: 'nmenu__item is-disabled',
+        role: 'menuitem',
+        disabled: true,
+        title: blockTip,
+      },
+        h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon, { barred: true })),
+        blockTip
+      );
+    }
     if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
     var joinGate = canJoin(orbit, activeBuf);
     if (!sessHere && !joinGate.ok && !hasInvite && !others.length) return null;
@@ -2522,6 +2584,8 @@
       '.oconf-cam-tip{position:absolute;top:calc(100% + 8px);right:0;z-index:95;min-width:200px;max-width:min(320px,70vw);padding:.55rem .7rem;border-radius:12px;background:#fff;color:#1c1917;font-size:.8rem;font-weight:650;line-height:1.35;text-align:left;box-shadow:0 12px 28px -10px rgba(0,0,0,.35);border:1px solid #d6d3d1;opacity:0;visibility:hidden;pointer-events:none;white-space:normal}',
       '.oconf-cam-tip::before{content:"";position:absolute;right:12px;bottom:100%;border:6px solid transparent;border-bottom-color:#fff;filter:drop-shadow(0 -1px 0 #d6d3d1)}',
       '.oconf-cam-wrap:hover .oconf-cam-tip,.oconf-cam-wrap:focus-within .oconf-cam-tip{opacity:1;visibility:visible}',
+      '.topbar__search.oconf-cam--blocked,.topbar__search.oconf-cam--blocked:hover{background:transparent!important;color:var(--muted,#888)!important;opacity:.72;cursor:not-allowed}',
+      '.oconf-cam-wrap--blocked:hover .oconf-cam-tip,.oconf-cam-wrap--blocked:focus-within .oconf-cam-tip{opacity:1;visibility:visible}',
       '@media (max-width:880px){.oconf-cam-tip{right:auto;left:50%;transform:translateX(-50%);min-width:180px}.oconf-cam-tip::before{right:auto;left:50%;transform:translateX(-50%)}}',
       '.oconf-away-banner{display:none}',
       '.oconf-away-slot{display:none}',
@@ -2563,14 +2627,20 @@
     // query string (nick, channel, age…). Guest URLs then spam
     // "Failed to parse URL parameter value" and can look like a failed IRC connect.
 
+    function refreshMyGroups() {
+      myGroupsText = '';
+      bumpGroups();
+      try {
+        var me = orbit.state.nick();
+        if (me) orbit.irc.send('WHOIS ' + me);
+      } catch (e) { /* ignore */ }
+    }
     // Warm WHOIS for group ACL (controle parental, etc.)
-    try {
-      var me = orbit.state.nick();
-      if (me) orbit.irc.send('WHOIS ' + me);
-    } catch (e) { /* ignore */ }
+    refreshMyGroups();
     // Prefetch EXTJWT during splash so the first visio click is not the first ircd round-trip.
     orbit.on('connected', function () {
       clearExtJwtState();
+      refreshMyGroups();
       scheduleExtJwtWarm(orbit);
     });
     orbit.on('boot:ready', function () { scheduleExtJwtWarm(orbit); });
@@ -2595,11 +2665,12 @@
         }
       }
       // RPL_WHOISSPECIAL — security groups often appear here
-      if (cmd === '320' && msg.params && msg.params[1] === orbit.state.nick()) {
+      if (cmd === '320' && msg.params && foldNick(msg.params[1]) === foldNick(orbit.state.nick())) {
         myGroupsText = (myGroupsText + ' ' + (msg.params[2] || '')).trim();
+        bumpGroups();
       }
-      if (cmd === '318' && msg.params && msg.params[1] === orbit.state.nick()) {
-        // end of whois — keep myGroupsText
+      if (cmd === '318' && msg.params && foldNick(msg.params[1]) === foldNick(orbit.state.nick())) {
+        bumpGroups();
       }
       if (String(cmd).toUpperCase() === 'TAGMSG') {
         var tagTags = msg.tags || {};

@@ -15,7 +15,7 @@
  *       { "nick": "EcoutE", "needle": "…", "lines": ["…"] }
  *     ]
  *   }
- *   "plugins": [".../orbit-helpserv-welcome.js?v=9"]
+ *   "plugins": [".../orbit-helpserv-welcome.js?v=10"]
  *
  * Closing the PV drops the buffer; the welcome is shown again on reopen.
  * Switching away without closing keeps a single welcome (no spam).
@@ -40,25 +40,25 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
 
   function aideGuide() {
     return [
-      'Avant d\'ouvrir un ticket, jetez un œil à la documentation EntreNous :',
+      '📚 Avant d\'ouvrir un ticket, jetez un œil à la documentation EntreNous :',
       '',
-      `${B}Aide générale${R} — prise en main du tchat`,
+      `ℹ️ ${B}Aide générale${R} — prise en main du tchat`,
       'https://www.reseau-entrenous.fr/aide/',
       '',
-      `${B}Webchat${R} — connexion et interface`,
+      `💻 ${B}Webchat${R} — connexion et interface`,
       'https://www.reseau-entrenous.fr/aide/webchat/',
       '',
-      `${B}NickServ${R} — protéger et gérer son pseudo`,
+      `🔐 ${B}NickServ${R} — protéger et gérer son pseudo`,
       'https://www.reseau-entrenous.fr/aide/nickserv/',
       '',
-      `${B}Gaya${R} — bots des salons personnels`,
+      `🤖 ${B}Gaya${R} — bots des salons personnels`,
       'https://www.reseau-entrenous.fr/aide/gaya/',
       '',
-      `${B}Serveur${R} — fonctionnement du réseau`,
+      `🖥️ ${B}Serveur${R} — fonctionnement du réseau`,
       'https://www.reseau-entrenous.fr/aide/aide-serveur/',
       '',
-      'Si ces pages ne suffisent pas, décrivez votre problème (pseudo, salon, connexion, erreur).',
-      'Un ticket sera ouvert uniquement lorsque la demande sera claire.',
+      '✍️ Si ces pages ne suffisent pas, décrivez votre problème (pseudo, salon, connexion, erreur).',
+      '🎫 Un ticket sera ouvert uniquement lorsque la demande sera claire.',
     ].join('\n');
   }
 
@@ -69,7 +69,7 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
         nick: 'AideMoi',
         needle: 'reseau-entrenous.fr/aide/',
         lines: [
-          'Bonjour {{nick}}, comment puis-je vous aider ?',
+          '👋 Bonjour {{nick}}, comment puis-je vous aider ?',
           aideGuide(),
         ],
       },
@@ -77,16 +77,16 @@ Orbit.plugin('helpserv-welcome', (orbit, log) => {
         nick: 'SignalMoi',
         needle: 'Ne discutez pas des signalements en public',
         lines: [
-          'Bonjour {{nick}}, comment puis-je vous aider pour ce signalement ?',
-          'Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\nNe discutez pas des signalements en public.',
+          '🚩 Bonjour {{nick}}, comment puis-je vous aider pour ce signalement ?',
+          '📝 Expliquez la situation (pseudo concerné, salon, ce qui s\'est passé). Dès votre premier message, le bot ouvrira le suivi automatiquement.\n\n🚫 Ne discutez pas des signalements en public.',
         ],
       },
       {
         nick: 'EcoutE',
         needle: 'idée ou un avis',
         lines: [
-          'Bonjour {{nick}}, merci de partager une idée ou un avis.',
-          'Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que le message sera clair.\n\nL\'équipe lit toutes les idées via HelpServ.',
+          '💡 Bonjour {{nick}}, merci de partager une idée ou un avis.',
+          '✍️ Décrivez votre suggestion en quelques mots (amélioration, nouveau salon, fonctionnalité…). Un ticket sera ouvert dès que le message sera clair.\n\n👂 L\'équipe lit toutes les idées via HelpServ.',
         ],
       },
     ];
