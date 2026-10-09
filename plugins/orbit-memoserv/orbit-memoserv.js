@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=11"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=12"]
  */
 (function (factory) {
   var api = factory();
@@ -337,7 +337,7 @@
             return;
           }
           var err = (data && data.error) || 'rpc';
-          if (kind === 'list') statusLine('rpc ' + err);
+          statusLine((kind === 'send' ? 'envoi' : kind) + ' rpc ' + err);
           if (err === 'not_configured' && rpcState !== 'on') {
             rpcState = 'off';
             pending.kind = '';
@@ -369,7 +369,7 @@
         }).catch(function (err) {
           if (gen !== rpcGen) return;
           var detail = err && err.message ? err.message : String(err || 'reseau');
-          if (kind === 'list') statusLine('rpc injoignable · ' + detail);
+          statusLine((kind === 'send' ? 'envoi' : kind) + ' injoignable · ' + detail);
           if (rpcState !== 'on') {
             rpcState = 'off';
             pending.kind = '';
@@ -515,8 +515,12 @@
           else setFlash('', false);
         } else if (kind) {
           var left = parse.leftover(lines);
-          var err = parse.looksError(left);
-          setFlash(left, err);
+          var err = !left || parse.looksError(left);
+          setFlash(left, err && !!left);
+          if (kind === 'send' || kind === 'check' || kind === 'cancel') {
+            var label = kind === 'send' ? 'envoi' : kind === 'check' ? 'vérification' : 'annulation';
+            statusLine(label + (err ? ' refusé · ' : ' ok · ') + String(left || 'réponse vide').slice(0, 160));
+          }
           if (kind === 'send' && left && !err) {
             ui.draft = '';
             ui.screen = 'list';
@@ -680,26 +684,21 @@
           return;
         }
         var channel = target.charAt(0) === '#' || target.charAt(0) === '&';
-        if (!channel) {
-          var g = currentGroup();
-          if (!g) {
-            ui.pendingSend = true;
-            fetchGroup(target);
-            return;
-          }
-          if (groupShared(g) && !g.registered && g.account) {
-            target = g.account;
-            ui.to = g.account;
-            ui.group = {
-              nick: g.account,
-              account: g.account,
-              nicks: g.nicks,
-              registered: true,
-            };
-          }
+        var g = channel ? null : currentGroup();
+        if (g && groupShared(g) && !g.registered && g.account) {
+          statusLine('envoi sur le compte ' + g.account + ' · ' + target + ' n’est pas enregistré');
+          target = g.account;
+          ui.to = g.account;
+          ui.group = {
+            nick: g.account,
+            account: g.account,
+            nicks: g.nicks,
+            registered: true,
+          };
         }
         var self = fold(target) === fold(myNick()) || (myAccount() && fold(target) === fold(myAccount()));
-        var cmd = (ui.receipt && !self) ? 'RSEND' : 'SEND';
+        var cmd = (ui.receipt && !self && !channel) ? 'RSEND' : 'SEND';
+        statusLine('envoi → ' + target);
         sendCmd('send', cmd + ' ' + target + ' ' + text);
       }
 
@@ -1004,17 +1003,14 @@
             nicks: nicks,
             registered: registered,
           };
-          var sendNow = ui.pendingSend && !groupShared(ui.group);
           ui.pendingSend = false;
           bump();
-          if (sendNow) sendMemo();
         }).catch(function () {
           if (gen !== groupGen) return;
           ui.group = { nick: nick, account: '', nicks: [], registered: true };
-          var sendNow = ui.pendingSend;
           ui.pendingSend = false;
+          if (fold(ui.to) === fold(nick)) statusLine('compte introuvable pour ' + nick);
           bump();
-          if (sendNow) sendMemo();
         });
       }
 
@@ -1260,7 +1256,7 @@
             en: 'The recipient must be registered. If they are online, ' + serviceNick() + ' notifies them.',
           })),
           h('div', { className: 'oms-actions' },
-            h('button', { type: 'submit', 'data-send': '1', className: 'oms-btn oms-btn--go', disabled: ui.loading },
+            h('button', { type: 'submit', 'data-send': '1', className: 'oms-btn oms-btn--go', disabled: pending.kind === 'send' },
               sendLabel()),
             !channel && memoDest() ? h('button', {
               type: 'button', className: 'oms-btn',
@@ -1493,7 +1489,7 @@
     });
   }
 })(function () {
-  var VER = 11;
+  var VER = 12;
 
   function stripIrc(s) {
     return String(s || '')
