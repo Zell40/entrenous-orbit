@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=8"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=9"]
  */
 (function (factory) {
   var api = factory();
@@ -93,13 +93,11 @@
       var suggestGen = 0;
       var popupSeq = 0;
       var hideUntil = 0;
-      var listTimer = 0;
       var listStarted = 0;
       var listDone = 0;
-      var listPauseUntil = 0;
-      var listDeferTimer = 0;
       var listProbe = '';
-      var listAutos = [];
+      var lastPopupKey = '';
+      var lastPopupAt = 0;
       var lastStatus = '';
       var sameStatus = 0;
 
@@ -379,64 +377,17 @@
       var queueList = false;
       var queueWhy = '';
       function requestList(why) {
-        var reason = why || 'planifié';
-        var manual = reason === 'manuel' || reason === 'suppression';
-        if (manual) listProbe = '';
-        var live = reason.indexOf('arrivée') === 0;
-        if (!myNick()) {
-          statusLine('LIST ignoré, pas de pseudo (' + reason + ')');
-          return;
-        }
-        if (pending.kind && pending.kind !== 'list') {
+        var reason = why || 'manuel';
+        if (reason === 'manuel' || reason === 'panneau' || reason === 'démarrage') listProbe = '';
+        if (!myNick()) return;
+        if (pending.kind) {
           queueList = true;
           queueWhy = reason;
-          statusLine('LIST en attente (' + reason + ')');
           return;
         }
-        if (pending.kind === 'list') {
-          statusLine('LIST déjà en cours (' + reason + ')');
-          return;
-        }
-        var now = Date.now();
-        if (!manual && !live && now < listPauseUntil) {
-          statusLine('LIST en pause (' + reason + ')');
-          return;
-        }
-        if (!manual && !live && listDone && now - listDone < 8000) {
-          statusLine('LIST reporté (' + reason + ')');
-          if (!listDeferTimer) {
-            var wait = Math.max(300, 8000 - (now - listDone));
-            listDeferTimer = setTimeout(function () {
-              listDeferTimer = 0;
-              requestList(reason);
-            }, wait);
-          }
-          return;
-        }
-        if (!manual) {
-          listAutos = listAutos.filter(function (t) { return now - t < 12000; });
-          if (listAutos.length >= 3) {
-            listPauseUntil = now + 20000;
-            statusLine('pause 20 s — LIST en boucle · ' + reason);
-            return;
-          }
-          listAutos.push(now);
-        }
-        if (!manual && listStarted && now - listStarted < 2500) {
-          statusLine('LIST trop tôt (' + reason + ')');
-          return;
-        }
-        listStarted = now;
-        statusLine('LIST → ' + reason + ' · rpc=' + rpcState);
+        listStarted = Date.now();
+        statusLine('LIST → ' + reason);
         sendCmd('list', 'LIST');
-      }
-      function scheduleList(why) {
-        if (listTimer) clearTimeout(listTimer);
-        var reason = why || 'planifié';
-        listTimer = setTimeout(function () {
-          listTimer = 0;
-          requestList(reason);
-        }, 600);
       }
 
       function applyList(lines) {
@@ -556,7 +507,9 @@
           if (kind === 'send' && left && !err) {
             ui.draft = '';
             ui.screen = 'list';
+            requestList('envoi');
           }
+          if (kind === 'cancel' && left && !err) requestList('annulation');
           if (kind === 'del' && left && !err) requestList('suppression');
           if ((kind === 'ignore-add' || kind === 'ignore-del') && !err) {
             sendCmd('ignore', 'IGNORE LIST');
@@ -586,6 +539,11 @@
       }
 
       function showMemoPopup(from, channel) {
+        var key = (from || '') + '|' + (channel || '');
+        var now = Date.now();
+        if (key === lastPopupKey && now - lastPopupAt < 30000) return;
+        lastPopupKey = key;
+        lastPopupAt = now;
         var id = ++popupSeq;
         ui.popups = ui.popups.concat([{
           id: id,
@@ -601,11 +559,10 @@
         openView('list');
       }
 
-      function onArrival(from, why, channel) {
+      function onArrival(from, channel) {
         ui.pendingArrivals += 1;
         ui.unreadHint = listedUnread() + ui.pendingArrivals;
         bump();
-        scheduleList(why || ('arrivée' + (from ? ' de ' + from : '')));
         showMemoPopup(from, channel);
         if (!ui.open || (typeof document !== 'undefined' && document.hidden)) {
           orbit.notify(
@@ -622,27 +579,23 @@
       function onRaw(msg) {
         if (!msg) return;
         var cmd = String(msg.command || '').toUpperCase();
-        if (cmd === '900') { ui.needId = false; scheduleList('numérique 900'); return; }
+        if (cmd === '900') { ui.needId = false; return; }
         if (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick())) {
           ui.needId = false;
-          scheduleList('ACCOUNT ' + (msg.nick || myNick() || ''));
           return;
         }
         if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return;
         if (!isSvc(msg.nick)) return;
         var text = parse.stripIrc((msg.params && msg.params[1]) || '');
         if (!text || text.charAt(0) === '\x01') return;
-        if (ui.open || (listStarted && Date.now() - listStarted < 20000)) {
-          statusLine('notice · ' + text.slice(0, 110));
-        }
         var info = parse.classifyNotice(text);
-        if (info && info.type === 'arrival') onArrival(info.from, 'arrivée · ' + text.slice(0, 90));
+        if (info && info.type === 'arrival') onArrival(info.from, info.channel || '');
         else if (info && info.type === 'channel') {
-          onArrival('', 'arrivée salon · ' + text.slice(0, 90), info.channel);
+          onArrival('', info.channel);
         } else if (info && info.type === 'count') {
           ui.unreadHint = Math.max(ui.unreadHint || 0, info.n);
           bump();
-          scheduleList('compte ' + info.n + ' · ' + text.slice(0, 80));
+          if (info.n > 0) showMemoPopup('', '');
         } else if (info && info.type === 'full') {
           setFlash(text, true);
           bump();
@@ -664,12 +617,13 @@
 
       function openView(screen) {
         injectCss();
+        var wasOpen = ui.open;
         ui.open = true;
         if (screen) ui.screen = screen;
         ui.suggest = [];
         bump();
         try { orbit.emit('orbit:panel', 'orbit-memoserv'); } catch (e) { /* ignore */ }
-        if (!ui.listed) requestList('ouverture');
+        if (!wasOpen) requestList('panneau');
       }
 
       function closeView() {
@@ -780,6 +734,7 @@
         ui.suggest = [];
         setFlash('', false);
         bump();
+        if (name === 'list') requestList('reçus');
         if (name === 'ignore') sendCmd('ignore', 'IGNORE LIST');
       }
 
@@ -1260,7 +1215,16 @@
 
       injectCss();
       orbit.on('raw', onRaw);
-      orbit.on('connected', function () { scheduleList('connexion'); });
+      var booted = false;
+      function bootList() {
+        if (booted || !myNick()) return;
+        booted = true;
+        requestList('démarrage');
+      }
+      orbit.on('connected', function () {
+        booted = false;
+        setTimeout(bootList, 600);
+      });
       orbit.on('orbit:panel', function (id) {
         if (id !== 'orbit-memoserv' && ui.open) closeView();
       });
@@ -1316,11 +1280,11 @@
         });
       }
       log('mémos via ' + serviceNick());
-      if (myNick()) scheduleList('démarrage');
+      setTimeout(bootList, 600);
     });
   }
 })(function () {
-  var VER = 8;
+  var VER = 9;
 
   function stripIrc(s) {
     return String(s || '')
