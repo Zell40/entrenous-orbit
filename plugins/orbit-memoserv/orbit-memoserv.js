@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=17"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=19"]
  */
 (function (factory) {
   var api = factory();
@@ -60,6 +60,13 @@
       }
       function myAccount() {
         try { return orbit.state.account() || ''; } catch (e) { return ''; }
+      }
+      function myUmodes() {
+        var st = state();
+        return String((st && st.umodes) || '');
+      }
+      function canReceipt() {
+        return myUmodes().indexOf('o') !== -1;
       }
 
       var ui = {
@@ -117,10 +124,6 @@
           sameStatus = 0;
         }
         log(line);
-        try {
-          var st = state();
-          if (st && st.pushSystem) st.pushSystem('$server', '[Mémo] ' + line);
-        } catch (e) { /* ignore */ }
       }
 
       function bump() {
@@ -720,7 +723,7 @@
           };
         }
         var self = fold(target) === fold(myNick()) || (myAccount() && fold(target) === fold(myAccount()));
-        var cmd = (ui.receipt && !self && !channel) ? 'RSEND' : 'SEND';
+        var cmd = (ui.receipt && canReceipt() && !self && !channel) ? 'RSEND' : 'SEND';
         statusLine('envoi → ' + target);
         sendCmd('send', cmd + ' ' + target + ' ' + text);
       }
@@ -858,10 +861,10 @@
               fr: 'On peut aussi laisser un mémo sur un salon enregistré, pour ceux qui n’étaient pas là.',
               en: 'You can also leave a memo on a registered channel, for people who were away.',
             })),
-            h('li', null, pick({
+            canReceipt() ? h('li', null, pick({
               fr: 'L’accusé de lecture prévient quand le mémo a été ouvert.',
               en: 'A read receipt tells you when the memo was opened.',
-            }))
+            })) : null
           )
         );
       }
@@ -1266,7 +1269,7 @@
             })
           ),
           h('span', { className: 'oms-count' }, String(ui.draft.length) + ' / ' + TEXT_MAX),
-          !self && !channel ? h('label', { className: 'oms-check' },
+          canReceipt() && !self && !channel ? h('label', { className: 'oms-check' },
             h('input', {
               type: 'checkbox',
               checked: !!ui.receipt,
@@ -1514,7 +1517,7 @@
     });
   }
 })(function () {
-  var VER = 17;
+  var VER = 19;
 
   function stripIrc(s) {
     return String(s || '')

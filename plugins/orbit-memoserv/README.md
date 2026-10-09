@@ -35,7 +35,7 @@ Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=17"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=19"]
 ```
 
 Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.
