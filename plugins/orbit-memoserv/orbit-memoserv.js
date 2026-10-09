@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=9"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=10"]
  */
 (function (factory) {
   var api = factory();
@@ -85,6 +85,7 @@
         presence: '',
         presenceNick: '',
         popups: [],
+        help: false,
         rev: 0,
         subs: [],
       };
@@ -164,6 +165,11 @@
           '.oms-bar__sub{display:block;font-size:.72rem;font-weight:500;color:var(--muted,#a1a1aa);margin-top:.05rem}',
           '.oms-iconbtn{border:0;background:transparent;color:var(--muted,#a1a1aa);width:2rem;height:2rem;border-radius:10px;cursor:pointer;font:inherit;font-size:1rem;line-height:1}',
           '.oms-iconbtn:hover,.oms-iconbtn:focus-visible{background:color-mix(in srgb,var(--ink,#fff) 8%,transparent);color:var(--ink,#fff);outline:none}',
+          '.oms-iconbtn.is-on{color:var(--accent,#2563eb);background:color-mix(in srgb,var(--accent,#2563eb) 14%,transparent)}',
+          '.oms-help{margin:0 .75rem .55rem;padding:.7rem .8rem .75rem;border-radius:14px;background:color-mix(in srgb,var(--accent,#2563eb) 10%,transparent);color:var(--ink,#17191c);font-size:.8rem;line-height:1.45}',
+          '.oms-help p{margin:0 0 .45rem}',
+          '.oms-help ul{margin:0;padding-left:1.05rem}',
+          '.oms-help li{margin:.18rem 0}',
           '.oms-seg{display:flex;gap:.25rem;margin:0 .75rem .55rem;padding:.2rem;border-radius:12px;background:color-mix(in srgb,var(--ink,#fff) 6%,transparent);flex:none}',
           '.oms-seg button{flex:1;border:0;border-radius:10px;padding:.38rem .4rem;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;background:transparent;color:var(--muted,#a1a1aa)}',
           '.oms-seg button.is-on{background:var(--bg,#16161c);color:var(--ink,#fff);box-shadow:0 1px 2px rgba(0,0,0,.18)}',
@@ -630,6 +636,7 @@
         if (!ui.open) return;
         ui.open = false;
         ui.suggest = [];
+        ui.help = false;
         bump();
       }
 
@@ -761,6 +768,14 @@
             h('span', { className: 'oms-bar__sub' }, sub)
           ),
           h('button', {
+            type: 'button',
+            className: 'oms-iconbtn' + (ui.help ? ' is-on' : ''),
+            title: pick({ fr: 'À quoi sert Mémo ?', en: 'What is Memo for?' }),
+            'aria-label': pick({ fr: 'À quoi sert Mémo ?', en: 'What is Memo for?' }),
+            'aria-expanded': ui.help ? 'true' : 'false',
+            onClick: function () { ui.help = !ui.help; bump(); },
+          }, '?'),
+          h('button', {
             type: 'button', className: 'oms-iconbtn',
             title: pick({ fr: 'Actualiser', en: 'Refresh' }),
             'aria-label': pick({ fr: 'Actualiser les mémos', en: 'Refresh memos' }),
@@ -772,6 +787,34 @@
             'aria-label': pick({ fr: 'Fermer', en: 'Close' }),
             onClick: function () { closeView(); },
           }, '✕')
+        );
+      }
+
+      function helpEl() {
+        if (!ui.help) return null;
+        return h('div', { className: 'oms-help' },
+          h('p', null, pick({
+            fr: 'Un message privé IRC n’arrive que si l’autre personne est connectée en même temps. Mémo dépose le texte sur son compte enregistré : elle le lit à sa prochaine visite, même si elle est absente.',
+            en: 'A private IRC message only arrives if the other person is online at the same time. Memo leaves the text on their registered account, so they can read it on their next visit.',
+          })),
+          h('ul', null,
+            h('li', null, pick({
+              fr: 'Le message attend, que la personne soit en ligne ou non.',
+              en: 'The message waits, whether they are online or not.',
+            })),
+            h('li', null, pick({
+              fr: 'Il reste jusqu’à ce qu’elle le lise ou le supprime.',
+              en: 'It stays until they read or delete it.',
+            })),
+            h('li', null, pick({
+              fr: 'On peut aussi laisser un mémo sur un salon enregistré, pour ceux qui n’étaient pas là.',
+              en: 'You can also leave a memo on a registered channel, for people who were away.',
+            })),
+            h('li', null, pick({
+              fr: 'L’accusé de lecture prévient quand le mémo a été ouvert.',
+              en: 'A read receipt tells you when the memo was opened.',
+            }))
+          )
         );
       }
 
@@ -1175,6 +1218,7 @@
           if (!ui.open) return undefined;
           function onKey(e) {
             if (e.key !== 'Escape' || !ui.open) return;
+            if (ui.help) { ui.help = false; bump(); return; }
             if (ui.suggest.length) {
               ui.suggest = [];
               bump();
@@ -1201,6 +1245,7 @@
             style: panelBox(),
           },
             bar(),
+            helpEl(),
             segments(),
             flashEl(),
             h('div', { className: 'oms-body' },
@@ -1284,7 +1329,7 @@
     });
   }
 })(function () {
-  var VER = 9;
+  var VER = 10;
 
   function stripIrc(s) {
     return String(s || '')

@@ -180,6 +180,8 @@ function ns_preview(string $s, int $n = 220): string {
 
 function ns_identify(string $url, string $token, bool $bearerB64, string $account, string $source): void {
   try {
+    // Prefer skipping this: anope.identify re-fires login hooks (Gardian stats
+    // NOTICE) on every RPC. Call only when a command was access-denied.
     anope_rpc($url, $token, $bearerB64, 'anope.identify', [$account, $source], 2);
     ns_debug_log('identify:ok');
   } catch (Throwable $e) {
@@ -197,6 +199,26 @@ function ns_cmd(string $url, string $token, bool $bearerB64, array $params): str
     ns_debug_log($label . ':rpc ' . $e->getMessage());
     return '';
   }
+}
+
+/** Run a NickServ command; identify + retry only if the first answer is denied. */
+function ns_cmd_as(
+  string $url,
+  string $token,
+  bool $bearerB64,
+  string $account,
+  string $source,
+  array $params,
+  ?callable $usable = null,
+): string {
+  $out = ns_cmd($url, $token, $bearerB64, $params);
+  $ok = $usable ? (bool) $usable($out) : ($out !== '' && !ns_denied_or_help($out));
+  if ($ok) {
+    return $out;
+  }
+  // SASL users are already identified — identify here is a rare fallback.
+  ns_identify($url, $token, $bearerB64, $account, $source);
+  return ns_cmd($url, $token, $bearerB64, $params);
 }
 
 function ns_info_cmd(string $url, string $token, bool $bearerB64, string $source): string {
@@ -373,18 +395,22 @@ try {
 
   if ($action === 'nsinfo') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
+    if ($info === '' || (ns_denied_or_help($info) && !looks_like_info($info))) {
+      ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
+      $info = ns_info_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $source);
+    }
     echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'nsalist') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
-    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
-      $source, 'NickServ', 'ALIST',
-    ]);
+    $list = ns_cmd_as(
+      $url, $token, $ANOPE_RPC_BEARER_B64, $account, $source,
+      [$source, 'NickServ', 'ALIST'],
+      static fn(string $s): bool => looks_like_alist($s) || is_alist_empty_msg($s) || ($s !== '' && !ns_denied_or_help($s)),
+    );
     if (ns_denied_or_help($list) && !looks_like_alist($list) && !is_alist_empty_msg($list)) {
       $list = '';
     }
@@ -394,10 +420,11 @@ try {
 
   if ($action === 'nsglist') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
-    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, [
-      $source, 'NickServ', 'GLIST',
-    ]);
+    $list = ns_cmd_as(
+      $url, $token, $ANOPE_RPC_BEARER_B64, $account, $source,
+      [$source, 'NickServ', 'GLIST'],
+      static fn(string $s): bool => $s !== '' && !ns_denied_or_help($s),
+    );
     if (ns_denied_or_help($list)) {
       $list = '';
     }
@@ -444,7 +471,6 @@ try {
       fail(400, 'bad_params');
     }
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     $params = [$source, 'NickServ', 'LIST', $pattern];
     $flags = $body['flags'] ?? [];
     if (is_array($flags)) {
@@ -455,14 +481,16 @@ try {
         }
       }
     }
-    $list = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
+    $list = ns_cmd_as(
+      $url, $token, $ANOPE_RPC_BEARER_B64, $account, $source, $params,
+      static fn(string $s): bool => $s !== '' && !ns_denied_or_help($s),
+    );
     echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'nshelp') {
     $source = rpc_source($body, $account);
-    ns_identify($url, $token, $ANOPE_RPC_BEARER_B64, $account, $source);
     // Optional topic (e.g. "SET LANGUAGE") — short uppercase tokens only.
     $topic = trim((string) ($body['topic'] ?? ''));
     $params = [$source, 'NickServ', 'HELP'];
@@ -478,6 +506,7 @@ try {
       }
       $params = array_merge($params, $parts);
     }
+    // HELP is public — no identify (avoids Gardian login NOTICE).
     $help = ns_cmd($url, $token, $ANOPE_RPC_BEARER_B64, $params);
     echo json_encode(['ok' => true, 'help' => $help], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;

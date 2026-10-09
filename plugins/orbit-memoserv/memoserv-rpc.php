@@ -191,7 +191,8 @@ function registered_channels(string $url, string $token, bool $bearerB64, string
   if (is_array($hit)) {
     return $hit;
   }
-  anope_rpc($url, $token, $bearerB64, 'anope.identify', [$account, $source]);
+  // No anope.identify — source is already SASL-identified on IRC; identify would
+  // re-fire Gardian login stats NOTICE on every autocomplete probe.
   $result = anope_rpc($url, $token, $bearerB64, 'anope.command', [$source, 'ChanServ', 'LIST', $prefix . '*']);
   $text = is_string($result) ? $result : flatten_rpc($result);
   $text = strip_fmt($text);
@@ -363,13 +364,23 @@ if ($command === 'LIST') {
 }
 
 try {
-  try {
-    anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.identify', [$account, $source]);
-  } catch (Throwable $e) {
-    /* The command itself reports access denied if identify did not take. */
-  }
+  // Prefer command without anope.identify (SASL session is enough). Identify only
+  // if MemoServ answers access-denied — identify re-triggers Gardian stats NOTICE.
   $params = array_merge([$source, $service, $command], $args);
   $text = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
+  $fold = strtolower($text);
+  $denied = (bool) preg_match(
+    '/access denied|permission denied|pas identifi|not identified|must be identified|vous devez.{0,40}identifi|acces refuse/',
+    $fold
+  );
+  if ($denied || trim($text) === '') {
+    try {
+      anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.identify', [$account, $source]);
+    } catch (Throwable $e) {
+      /* Command retry reports failure if identify did not take. */
+    }
+    $text = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
+  }
   echo json_encode(['ok' => true, 'text' => $text], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
   echo json_encode(['ok' => false, 'error' => 'rpc']);

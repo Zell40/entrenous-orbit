@@ -6,7 +6,7 @@ L’expéditeur et le destinataire (ou le salon) doivent être enregistrés. Le 
 
 Les commandes passent par **JSON-RPC Anope** (`memoserv-rpc.php`). Le navigateur ne parle pas à Anope : le PHP appelle `anope.identify` puis `anope.command` au nom du compte. L’adresse et le jeton sont dans `memoserv-rpc.local.php` (jamais commité, pas écrasé au déploiement), les mêmes que ChanServ. Sans ce fichier, la liste ne boucle plus : le panneau indique que le RPC n’est pas configuré.
 
-Un mémo qui arrive est toujours une notice de Message (masquée du salon) ; la liste est alors relue via RPC.
+Un mémo qui arrive est une notice de Message (masquée du salon) : pastille et bulle, sans recharger la liste. La liste se charge à l’ouverture, puis quand on utilise Mémo. Le « ? » du panneau explique la différence avec un message privé IRC.
 
 ## Dans l’interface
 
@@ -29,13 +29,13 @@ Le menu d’un pseudo et sa fiche proposent **Envoyer un mémo**. `/memo` ouvre 
 
 `SENDALL` et `STAFF` ne sont pas dans le panneau (opérateurs).
 
-Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils mettent à jour la boîte et peuvent envoyer une notification. La liste, la lecture et l’envoi passent par le RPC.
+Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils mettent à jour la pastille et la bulle, et peuvent envoyer une notification. La liste, la lecture et l’envoi passent par le RPC.
 
 ## Config
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=9"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=10"]
 ```
 
 Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.
