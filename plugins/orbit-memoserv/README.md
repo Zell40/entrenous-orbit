@@ -4,7 +4,7 @@ Boîte **Mémos** dans Orbit, branchée sur MemoServ Anope. Sur Entre Nous le ps
 
 L’expéditeur et le destinataire (ou le salon) doivent être enregistrés. Le mémo part que la personne soit en ligne ou non. Si elle est identifiée et que les notifications sont actives, Message la prévient.
 
-Les commandes passent par **JSON-RPC Anope** (`memoserv-rpc.php`, même URL et jeton que ChanServ). Le navigateur ne parle pas à Anope : le PHP appelle `anope.identify` puis `anope.command` au nom du compte. Si le RPC n’est pas configuré, le plugin retombe sur un `PRIVMSG` vers Message.
+Les commandes passent par **JSON-RPC Anope** (`memoserv-rpc.php`). Le navigateur ne parle pas à Anope : le PHP appelle `anope.identify` puis `anope.command` au nom du compte. L’adresse et le jeton sont dans `memoserv-rpc.local.php` (jamais commité, pas écrasé au déploiement), les mêmes que ChanServ. Sans ce fichier, la liste ne boucle plus : le panneau indique que le RPC n’est pas configuré.
 
 Un mémo qui arrive est toujours une notice de Message (masquée du salon) ; la liste est alors relue via RPC.
 
@@ -35,7 +35,7 @@ Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=3"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=5"]
 ```
 
 Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.

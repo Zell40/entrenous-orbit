@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=3"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=5"]
  */
 (function (factory) {
   var api = factory();
@@ -90,6 +90,30 @@
       var suggestGen = 0;
       var hideUntil = 0;
       var listTimer = 0;
+      var listStarted = 0;
+      var listDone = 0;
+      var listPauseUntil = 0;
+      var listAutos = [];
+      var lastStatus = '';
+      var sameStatus = 0;
+
+      function statusLine(text) {
+        var line = String(text || '');
+        if (!line) return;
+        if (line === lastStatus) {
+          sameStatus++;
+          if (sameStatus !== 3 && sameStatus !== 10) return;
+          line += ' ×' + sameStatus;
+        } else {
+          lastStatus = line;
+          sameStatus = 0;
+        }
+        log(line);
+        try {
+          var st = state();
+          if (st && st.pushSystem) st.pushSystem('$server', '[Mémo] ' + line);
+        } catch (e) { /* ignore */ }
+      }
 
       function bump() {
         ui.rev++;
@@ -227,6 +251,7 @@
       }
 
       function sendIrc(kind, line) {
+        if (kind === 'list') statusLine('envoi IRC LIST');
         pending.kind = kind;
         pending.lines = [];
         hideUntil = Date.now() + 5000;
@@ -268,15 +293,28 @@
           if (gen !== rpcGen) return;
           if (data && data.ok) {
             rpcState = 'on';
+            if (kind === 'list') {
+              var got = String(data.text || '').split(/\n/).filter(function (s) { return String(s).trim(); });
+              statusLine('rpc ok · ' + got.length + ' ligne' + (got.length > 1 ? 's' : '') + (got[0] ? ' · ' + got[0].slice(0, 80) : ''));
+            }
             finishRpc(kind, String(data.text || '').split(/\n/));
             return;
           }
           var err = (data && data.error) || 'rpc';
+          if (kind === 'list') statusLine('rpc ' + err);
           if (err === 'not_configured' && rpcState !== 'on') {
-            log('RPC mémos non configuré, repli IRC');
             rpcState = 'off';
             pending.kind = '';
             ui.loading = false;
+            statusLine('RPC non configuré — memoserv-rpc.local.php');
+            if (kind === 'list') {
+              setFlash(pick({
+                fr: 'RPC non configuré. Il faut memoserv-rpc.local.php (même adresse et jeton que ChanServ).',
+                en: 'RPC is not configured. memoserv-rpc.local.php needs the same URL and token as ChanServ.',
+              }), true);
+              bump();
+              return;
+            }
             sendIrc(kind, line);
             return;
           }
@@ -289,11 +327,13 @@
           bump();
           if (queueList && !pending.kind) {
             queueList = false;
-            requestList();
+            requestList(queueWhy || 'file');
+            queueWhy = '';
           }
         }).catch(function (err) {
           if (gen !== rpcGen) return;
-          log('RPC mémos KO: ' + (err && err.message ? err.message : err));
+          var detail = err && err.message ? err.message : String(err || 'reseau');
+          if (kind === 'list') statusLine('rpc injoignable · ' + detail);
           if (rpcState !== 'on') {
             rpcState = 'off';
             pending.kind = '';
@@ -312,17 +352,57 @@
       }
 
       var queueList = false;
-      function requestList() {
-        if (!myNick()) return;
-        if (pending.kind && pending.kind !== 'list') { queueList = true; return; }
-        if (pending.kind === 'list') return;
+      var queueWhy = '';
+      function requestList(why) {
+        var reason = why || 'planifié';
+        var manual = reason === 'manuel' || reason === 'suppression';
+        var live = reason.indexOf('arrivée') === 0;
+        if (!myNick()) {
+          statusLine('LIST ignoré, pas de pseudo (' + reason + ')');
+          return;
+        }
+        if (pending.kind && pending.kind !== 'list') {
+          queueList = true;
+          queueWhy = reason;
+          statusLine('LIST en attente (' + reason + ')');
+          return;
+        }
+        if (pending.kind === 'list') {
+          statusLine('LIST déjà en cours (' + reason + ')');
+          return;
+        }
+        var now = Date.now();
+        if (!manual && !live && now < listPauseUntil) {
+          statusLine('LIST en pause (' + reason + ')');
+          return;
+        }
+        if (!manual && !live && listDone && now - listDone < 8000) {
+          statusLine('LIST reporté (' + reason + ')');
+          return;
+        }
+        if (!manual) {
+          listAutos = listAutos.filter(function (t) { return now - t < 12000; });
+          if (listAutos.length >= 3) {
+            listPauseUntil = now + 20000;
+            statusLine('pause 20 s — LIST en boucle · ' + reason);
+            return;
+          }
+          listAutos.push(now);
+        }
+        if (!manual && listStarted && now - listStarted < 2500) {
+          statusLine('LIST trop tôt (' + reason + ')');
+          return;
+        }
+        listStarted = now;
+        statusLine('LIST → ' + reason + ' · rpc=' + rpcState);
         sendCmd('list', 'LIST');
       }
-      function scheduleList() {
+      function scheduleList(why) {
         if (listTimer) clearTimeout(listTimer);
+        var reason = why || 'planifié';
         listTimer = setTimeout(function () {
           listTimer = 0;
-          requestList();
+          requestList(reason);
         }, 600);
       }
 
@@ -388,7 +468,14 @@
         if (pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
         if (pending.coalesce) { clearTimeout(pending.coalesce); pending.coalesce = 0; }
 
-        if (kind === 'list') applyList(lines);
+        if (kind === 'list') {
+          applyList(lines);
+          listDone = Date.now();
+          var waited = listStarted ? (listDone - listStarted) : 0;
+          statusLine('liste affichée · ' + ui.memos.length + ' mémo' + (ui.memos.length > 1 ? 's' : '')
+            + (ui.needId ? ' · identification requise' : '')
+            + ' · ' + waited + ' ms');
+        }
         else if (kind === 'read') applyRead(lines);
         else if (kind === 'ignore') {
           var ig = parse.parseIgnore(lines);
@@ -404,7 +491,7 @@
             ui.draft = '';
             ui.screen = 'list';
           }
-          if (kind === 'del' && left && !err) requestList();
+          if (kind === 'del' && left && !err) requestList('suppression');
           if ((kind === 'ignore-add' || kind === 'ignore-del') && !err) {
             sendCmd('ignore', 'IGNORE LIST');
           }
@@ -412,7 +499,9 @@
         bump();
         if (queueList && !pending.kind) {
           queueList = false;
-          requestList();
+          var again = queueWhy || 'file';
+          queueWhy = '';
+          requestList(again);
         }
       }
 
@@ -423,11 +512,11 @@
         pending.coalesce = setTimeout(flush, COALESCE_MS);
       }
 
-      function onArrival(from) {
+      function onArrival(from, why) {
         ui.pendingArrivals += 1;
         ui.unreadHint = listedUnread() + ui.pendingArrivals;
         bump();
-        scheduleList();
+        scheduleList(why || ('arrivée' + (from ? ' de ' + from : '')));
         if (!ui.open || (typeof document !== 'undefined' && document.hidden)) {
           orbit.notify(
             pick({ fr: 'Nouveau mémo', en: 'New memo' }),
@@ -441,16 +530,23 @@
       function onRaw(msg) {
         if (!msg) return;
         var cmd = String(msg.command || '').toUpperCase();
-        if (cmd === '900') { ui.needId = false; scheduleList(); return; }
-        if (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick())) { ui.needId = false; scheduleList(); return; }
+        if (cmd === '900') { ui.needId = false; scheduleList('numérique 900'); return; }
+        if (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick())) {
+          ui.needId = false;
+          scheduleList('ACCOUNT ' + (msg.nick || myNick() || ''));
+          return;
+        }
         if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return;
         if (!isSvc(msg.nick)) return;
         var text = parse.stripIrc((msg.params && msg.params[1]) || '');
         if (!text || text.charAt(0) === '\x01') return;
+        if (ui.open || (listStarted && Date.now() - listStarted < 20000)) {
+          statusLine('notice · ' + text.slice(0, 110));
+        }
         var info = parse.classifyNotice(text);
-        if (info && info.type === 'arrival') onArrival(info.from);
+        if (info && info.type === 'arrival') onArrival(info.from, 'arrivée · ' + text.slice(0, 90));
         else if (info && info.type === 'channel') {
-          onArrival('');
+          onArrival('', 'arrivée salon · ' + text.slice(0, 90));
           if (info.channel) {
             setFlash(pick({
               fr: 'Nouveau mémo sur ' + info.channel + '.',
@@ -460,7 +556,7 @@
         } else if (info && info.type === 'count') {
           ui.unreadHint = Math.max(ui.unreadHint || 0, info.n);
           bump();
-          scheduleList();
+          scheduleList('compte ' + info.n + ' · ' + text.slice(0, 80));
         } else if (info && info.type === 'full') {
           setFlash(text, true);
           bump();
@@ -487,7 +583,7 @@
         ui.suggest = [];
         bump();
         try { orbit.emit('orbit:panel', 'orbit-memoserv'); } catch (e) { /* ignore */ }
-        if (!ui.listed) requestList();
+        if (!ui.listed) requestList('ouverture');
       }
 
       function closeView() {
@@ -627,7 +723,7 @@
             type: 'button', className: 'oms-iconbtn',
             title: pick({ fr: 'Actualiser', en: 'Refresh' }),
             'aria-label': pick({ fr: 'Actualiser les mémos', en: 'Refresh memos' }),
-            onClick: function () { requestList(); },
+            onClick: function () { listDone = 0; requestList('manuel'); },
           }, '↻'),
           h('button', {
             type: 'button', className: 'oms-iconbtn',
@@ -668,7 +764,13 @@
       }
 
       function ListScreen() {
-        if (ui.loading && !ui.memos.length) {
+        if (rpcState === 'off' && !ui.memos.length) {
+          return h('p', { className: 'oms-empty' }, pick({
+            fr: 'Le RPC n’est pas configuré. Renseignez memoserv-rpc.local.php avec la même adresse et le même jeton que ChanServ, puis redéployez.',
+            en: 'RPC is not configured. Set memoserv-rpc.local.php to the same URL and token as ChanServ, then redeploy.',
+          }));
+        }
+        if (ui.loading && !ui.memos.length && !ui.listed) {
           return h('p', { className: 'oms-empty' }, pick({ fr: 'Chargement des mémos…', en: 'Loading memos…' }));
         }
         if (ui.needId && !ui.memos.length) {
@@ -995,7 +1097,7 @@
 
       injectCss();
       orbit.on('raw', onRaw);
-      orbit.on('connected', function () { scheduleList(); });
+      orbit.on('connected', function () { scheduleList('connexion'); });
       orbit.on('orbit:panel', function (id) {
         if (id !== 'orbit-memoserv' && ui.open) closeView();
       });
@@ -1051,11 +1153,11 @@
         });
       }
       log('mémos via ' + serviceNick());
-      if (myNick()) scheduleList();
+      if (myNick()) scheduleList('démarrage');
     });
   }
 })(function () {
-  var VER = 3;
+  var VER = 5;
 
   function stripIrc(s) {
     return String(s || '')

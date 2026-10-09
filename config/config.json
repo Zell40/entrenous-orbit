@@ -216,7 +216,7 @@
     "/app/plugins/third/orbit-harrypotter/orbit-harrypotter.js?v=8",
     "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=28",
     "/app/plugins/third/orbit-asl/orbit-asl.js?v=2",
-    "/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=3"
+    "/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=5"
   ],
   "memoserv": {
     "service": "Message"

@@ -5,8 +5,9 @@
  * Same origin as Orbit:
  *   /app/plugins/third/orbit-memoserv/memoserv-rpc.php
  *
- * Reuses orbit-chanserv/chanserv-rpc.local.php (URL + token). Does not
- * copy that secret. Commands allowed: LIST, READ, SEND, RSEND, DEL,
+ * Secrets: memoserv-rpc.local.php (same URL + token as ChanServ).
+ * If that file is absent, the ChanServ local file next door is used.
+ * Commands allowed: LIST, READ, SEND, RSEND, DEL,
  * CHECK, CANCEL, IGNORE. SENDALL / STAFF stay on IRC for opers.
  * action=suggest : pseudos en ligne et identifiés, ou salons enregistrés.
  */

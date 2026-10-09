@@ -378,6 +378,21 @@ cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/orbit-memoserv.js" \
       "$WEBROOT/$MEMOSERV_DIR/"
 cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.php" \
       "$WEBROOT/$MEMOSERV_DIR/"
+if [ -f "$WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php" ]; then
+  echo "$(date -Is) keep $WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php (secrets preserved)"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.local.php" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.local.php" \
+        "$WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php"
+  echo "$(date -Is) seeded $WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php from sources clone"
+elif [ -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php" ]; then
+  cp -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.local.php" \
+        "$WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php"
+  echo "$(date -Is) seeded $WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php from ChanServ"
+elif [ -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.local.php.example" ]; then
+  cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.local.php.example" \
+        "$WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php.example"
+  echo "$(date -Is) NOTE: create $WEBROOT/$MEMOSERV_DIR/memoserv-rpc.local.php (Anope JSON-RPC URL + token = ChanServ)"
+fi
 
 # Helpdesk bottom-nav (AideMoi / SignalMoi / EcoutE)
 HELPDESK_DIR="plugins/third/orbit-helpdesk"
