@@ -1,14 +1,15 @@
 /*!
  * orbit-memoserv — boîte de mémos Anope (service « Message » sur Entre Nous).
  *
- * Envoi et lecture passent par PRIVMSG vers le pseudo MemoServ (LIST, READ,
- * SEND, RSEND, DEL, CHECK, CANCEL, IGNORE). Les notices de service sont
- * masquées du salon et affichées ici. SENDALL / STAFF restent en ligne
- * de commande (opérateurs).
+ * LIST, READ, SEND, RSEND, DEL, CHECK, CANCEL, IGNORE passent par
+ * JSON-RPC Anope (memoserv-rpc.php, même jeton que ChanServ).
+ * Repli IRC si le RPC n’est pas configuré. Les avis « nouveau mémo »
+ * restent des notices Message, masquées du salon. SENDALL / STAFF
+ * restent en ligne de commande (opérateurs).
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=1"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=3"]
  */
 (function (factory) {
   var api = factory();
@@ -29,7 +30,6 @@
   if (typeof window !== 'undefined') boot(0);
 
   function startPlugin(parse) {
-    var BUF = 'Mémos';
     var TEXT_MAX = 200;
     var COALESCE_MS = 280;
 
@@ -64,8 +64,6 @@
 
       var ui = {
         open: false,
-        prev: '',
-        closing: false,
         screen: 'list',
         memos: [],
         ignores: [],
@@ -81,10 +79,15 @@
         listed: false,
         unreadHint: 0,
         pendingArrivals: 0,
+        anchor: null,
+        suggest: [],
+        suggestHi: 0,
         rev: 0,
         subs: [],
       };
       var pending = { kind: '', lines: [], timer: 0, coalesce: 0 };
+      var suggestTimer = 0;
+      var suggestGen = 0;
       var hideUntil = 0;
       var listTimer = 0;
 
@@ -126,64 +129,56 @@
         var el = document.createElement('style');
         el.id = id;
         el.textContent = [
-          'body.oms-open .messages,body.oms-open .composer,body.oms-open .chan-hero,body.oms-open .main__room-bg,body.oms-open .empty{display:none!important}',
-          'body.oms-open .main{background:var(--bg)}',
-          'body.oms-open .topbar__sub{display:none!important}',
-          'body.oms-open .topbar__modes,body.oms-open .topbar__pill,body.oms-open .topbar__manage,body.oms-open .members{display:none!important}',
-          'body.oms-open .topbar .topbar__search:not(.topbar__hide-mobile){display:none!important}',
-          '.room__av[data-oms]{background:color-mix(in srgb,var(--accent,#2563eb) 16%,var(--bg,#fff));color:var(--accent-d,#1d4ed8)}',
-          '.oms-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg,#fff);color:var(--ink,#111)}',
-          '.oms-bar{display:flex;align-items:center;gap:.4rem;flex:none;padding:.7rem 1rem;border-bottom:1px solid var(--border,rgba(0,0,0,.08))}',
-          '.oms-bar__title{margin:0;font-size:1.02rem;font-weight:800;letter-spacing:-.02em;flex:1;min-width:0}',
-          '.oms-bar__sub{display:block;font-size:.75rem;font-weight:500;color:var(--muted,var(--faint));margin-top:.1rem}',
-          '.oms-iconbtn{border:0;background:transparent;color:var(--muted,#666);width:2rem;height:2rem;border-radius:8px;cursor:pointer;font:inherit;font-size:1rem;line-height:1}',
-          '.oms-iconbtn:hover,.oms-iconbtn:focus-visible{background:color-mix(in srgb,var(--ink,#111) 8%,transparent);color:var(--ink,#111);outline:none}',
-          '.oms-flash{margin:.75rem 1rem 0;padding:.55rem .7rem;border-radius:10px;font-size:.84rem;line-height:1.35;background:color-mix(in srgb,#16a34a 12%,var(--bg,#fff));color:var(--ink,#111)}',
-          '.oms-flash--err{background:color-mix(in srgb,#e11d48 12%,var(--bg,#fff))}',
-          '.oms-body{flex:1 1 auto;min-height:0;overflow:auto;padding:.4rem 0 1rem}',
-          '.oms-empty{padding:1.4rem 1.2rem;color:var(--muted,var(--faint));font-size:.92rem;line-height:1.45}',
-          '.oms-row{display:flex;gap:.7rem;align-items:flex-start;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border,rgba(0,0,0,.06));background:transparent;color:inherit;font:inherit;padding:.75rem 1rem;cursor:pointer}',
-          '.oms-row:hover,.oms-row:focus-visible{background:color-mix(in srgb,var(--accent,#2563eb) 8%,transparent);outline:none}',
+          '.oms-panel{display:flex;flex-direction:column;overflow:hidden;background:var(--bg,#fff);color:var(--ink,#17191c);border:1px solid var(--border,#e3e7eb);border-radius:18px;box-shadow:0 24px 60px -18px rgba(20,30,45,.35),0 8px 20px -10px rgba(20,30,45,.2)}',
+          '.oms-bar{display:flex;align-items:center;gap:.35rem;flex:none;padding:.75rem .75rem .45rem}',
+          '.oms-mark{width:2rem;height:2rem;border-radius:10px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent);color:var(--accent,#60a5fa)}',
+          '.oms-bar__title{margin:0;font-size:.98rem;font-weight:800;letter-spacing:-.03em}',
+          '.oms-bar__sub{display:block;font-size:.72rem;font-weight:500;color:var(--muted,#a1a1aa);margin-top:.05rem}',
+          '.oms-iconbtn{border:0;background:transparent;color:var(--muted,#a1a1aa);width:2rem;height:2rem;border-radius:10px;cursor:pointer;font:inherit;font-size:1rem;line-height:1}',
+          '.oms-iconbtn:hover,.oms-iconbtn:focus-visible{background:color-mix(in srgb,var(--ink,#fff) 8%,transparent);color:var(--ink,#fff);outline:none}',
+          '.oms-seg{display:flex;gap:.25rem;margin:0 .75rem .55rem;padding:.2rem;border-radius:12px;background:color-mix(in srgb,var(--ink,#fff) 6%,transparent);flex:none}',
+          '.oms-seg button{flex:1;border:0;border-radius:10px;padding:.38rem .4rem;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;background:transparent;color:var(--muted,#a1a1aa)}',
+          '.oms-seg button.is-on{background:var(--bg,#16161c);color:var(--ink,#fff);box-shadow:0 1px 2px rgba(0,0,0,.18)}',
+          '.oms-seg button:focus-visible{outline:2px solid var(--accent,#2563eb);outline-offset:1px}',
+          '.oms-flash{margin:0 .75rem .45rem;padding:.5rem .65rem;border-radius:12px;font-size:.8rem;line-height:1.35;background:color-mix(in srgb,#16a34a 16%,var(--bg,#16161c));color:var(--ink,#fff)}',
+          '.oms-flash--err{background:color-mix(in srgb,#e11d48 16%,var(--bg,#16161c))}',
+          '.oms-body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 .4rem .7rem}',
+          '.oms-empty{padding:1.1rem .85rem;color:var(--muted,#a1a1aa);font-size:.88rem;line-height:1.45}',
+          '.oms-row{display:flex;gap:.65rem;align-items:center;width:100%;text-align:left;border:0;border-radius:14px;background:transparent;color:inherit;font:inherit;padding:.55rem .55rem;cursor:pointer}',
+          '.oms-row:hover,.oms-row:focus-visible{background:color-mix(in srgb,var(--accent,#2563eb) 12%,transparent);outline:none}',
+          '.oms-av{width:2.1rem;height:2.1rem;border-radius:12px;flex:none;display:grid;place-items:center;font-size:.82rem;font-weight:800;background:color-mix(in srgb,var(--accent,#2563eb) 16%,transparent);color:var(--accent,#93c5fd)}',
+          '.oms-row.is-unread .oms-av{background:var(--accent,#2563eb);color:#fff}',
+          '.oms-row__from{font-size:.92rem;font-weight:650}',
           '.oms-row.is-unread .oms-row__from{font-weight:800}',
-          '.oms-dot{width:.55rem;height:.55rem;border-radius:50%;margin-top:.4rem;flex:none;background:transparent}',
-          '.oms-row.is-unread .oms-dot{background:var(--accent,#2563eb)}',
-          '.oms-row__from{font-size:.95rem;font-weight:700}',
-          '.oms-row__when{display:block;font-size:.75rem;color:var(--muted,var(--faint));margin-top:.12rem}',
-          '.oms-read{padding:1rem 1.15rem 1.4rem}',
-          '.oms-read__who{margin:0;font-size:1.05rem;font-weight:800}',
-          '.oms-read__when{margin:.2rem 0 .8rem;color:var(--muted,var(--faint));font-size:.8rem}',
-          '.oms-read__text{margin:0;white-space:pre-wrap;word-break:break-word;font-size:.98rem;line-height:1.45}',
-          '.oms-actions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:1rem}',
-          '.oms-btn{border:0;border-radius:10px;padding:.5rem .8rem;font:inherit;font-size:.86rem;font-weight:700;cursor:pointer;background:var(--bg-soft,#f3f4f6);color:var(--ink,#111)}',
-          '.oms-btn:hover,.oms-btn:focus-visible{filter:brightness(.97);outline:none}',
+          '.oms-row__when{display:block;font-size:.72rem;color:var(--muted,#a1a1aa);margin-top:.08rem}',
+          '.oms-pill{margin-left:auto;flex:none;font-size:.65rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--accent,#93c5fd)}',
+          '.oms-read{padding:.35rem .7rem .9rem}',
+          '.oms-read__who{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}',
+          '.oms-read__when{margin:.15rem 0 .75rem;color:var(--muted,#a1a1aa);font-size:.78rem}',
+          '.oms-read__text{margin:0;white-space:pre-wrap;word-break:break-word;font-size:.95rem;line-height:1.5;padding:.75rem .8rem;border-radius:14px;background:color-mix(in srgb,var(--ink,#fff) 5%,transparent)}',
+          '.oms-actions{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.85rem}',
+          '.oms-btn{border:0;border-radius:11px;padding:.48rem .75rem;font:inherit;font-size:.82rem;font-weight:700;cursor:pointer;background:color-mix(in srgb,var(--ink,#fff) 8%,transparent);color:var(--ink,#fff)}',
+          '.oms-btn:hover,.oms-btn:focus-visible{filter:brightness(1.06);outline:none}',
+          '.oms-btn:disabled{opacity:.55;cursor:default}',
           '.oms-btn--go{background:var(--accent,#2563eb);color:#fff}',
-          '.oms-btn--warn{color:var(--danger,#be123c);background:color-mix(in srgb,#e11d48 10%,var(--bg,#fff))}',
-          '.oms-form{display:flex;flex-direction:column;gap:.55rem;padding:1rem 1.15rem 1.3rem}',
-          '.oms-form label{display:flex;flex-direction:column;gap:.25rem;font-size:.78rem;font-weight:700;color:var(--muted,var(--faint))}',
-          '.oms-form input[type=text],.oms-form textarea{font:inherit;font-size:.95rem;font-weight:500;color:var(--ink,#111);background:var(--bg,#fff);border:1px solid var(--border,rgba(0,0,0,.15));border-radius:10px;padding:.55rem .7rem}',
-          '.oms-form textarea{min-height:7rem;resize:vertical}',
-          '.oms-check{flex-direction:row!important;align-items:center;gap:.45rem;font-size:.86rem!important;font-weight:600!important;color:var(--ink,#111)!important}',
-          '.oms-hint{margin:0;font-size:.78rem;color:var(--muted,var(--faint));line-height:1.4}',
-          '.oms-count{align-self:flex-end;font-size:.72rem;color:var(--muted,var(--faint))}',
-          '.oms-ign{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.55rem 1rem;border-bottom:1px solid var(--border,rgba(0,0,0,.06))}',
+          '.oms-btn--warn{color:var(--danger,#d6465f);background:color-mix(in srgb,var(--danger,#d6465f) 12%,transparent)}',
+          '.oms-form{display:flex;flex-direction:column;gap:.5rem;padding:.2rem .7rem .85rem}',
+          '.oms-form label{display:flex;flex-direction:column;gap:.25rem;font-size:.72rem;font-weight:700;letter-spacing:.02em;color:var(--muted,#a1a1aa)}',
+          '.oms-form input[type=text],.oms-form textarea{font:inherit;font-size:.92rem;font-weight:500;color:var(--ink,#fff);background:color-mix(in srgb,var(--ink,#fff) 5%,transparent);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;padding:.55rem .7rem}',
+          '.oms-form input:focus,.oms-form textarea:focus{outline:2px solid color-mix(in srgb,var(--accent,#2563eb) 55%,transparent);border-color:transparent}',
+          '.oms-form textarea{min-height:6.5rem;resize:vertical}',
+          '.oms-ac{position:relative}',
+          '.oms-ac__list{position:absolute;z-index:2;left:0;right:0;top:calc(100% + 4px);margin:0;padding:.25rem;list-style:none;border-radius:12px;background:var(--bg,#fff);color:var(--ink,#17191c);border:1px solid var(--border,#e3e7eb);box-shadow:0 12px 30px -12px rgba(0,0,0,.28);max-height:11rem;overflow:auto}',
+          '.oms-ac__opt{display:block;width:100%;text-align:left;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:.88rem;font-weight:650;padding:.4rem .5rem;cursor:pointer}',
+          '.oms-ac__opt.is-on,.oms-ac__opt:hover{background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent)}',
+          '.oms-check{flex-direction:row!important;align-items:center;gap:.45rem;font-size:.82rem!important;font-weight:600!important;color:var(--ink,#fff)!important;letter-spacing:0!important}',
+          '.oms-hint{margin:0;font-size:.74rem;color:var(--muted,#a1a1aa);line-height:1.4}',
+          '.oms-count{align-self:flex-end;font-size:.7rem;color:var(--muted,#a1a1aa)}',
+          '.oms-ign{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.15rem .35rem;padding:.45rem .55rem;border-radius:12px}',
+          '.oms-ign:hover{background:color-mix(in srgb,var(--ink,#fff) 5%,transparent)}',
           '.oms-ign span{font-weight:700}',
         ].join('');
         document.head.appendChild(el);
-      }
-
-      function hideNativeRow() {
-        try {
-          var rooms = document.querySelector('.rooms');
-          if (!rooms) return;
-          rooms.querySelectorAll('.room:not(.oms-room)').forEach(function (row) {
-            var nm = row.querySelector('.room__name');
-            var label = nm ? String(nm.textContent || '').trim() : '';
-            if (fold(label) === fold(BUF)) {
-              row.hidden = true;
-              row.setAttribute('data-oms-hide', '1');
-            }
-          });
-        } catch (e) { /* ignore */ }
       }
 
       function validTarget(raw) {
@@ -199,18 +194,121 @@
         return String(raw || '').replace(/[\r\n\x01]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX);
       }
 
-      function sendCmd(kind, line) {
+      var RPC_PATH = '/app/plugins/third/orbit-memoserv/memoserv-rpc.php';
+      var rpcState = 'try';
+      var rpcGen = 0;
+
+      function splitCmd(line) {
+        var m = String(line || '').match(/^(\S+)(?:\s+([\s\S]*))?$/);
+        var command = (m && m[1] ? m[1] : '').toUpperCase();
+        var rest = (m && m[2] ? m[2] : '').trim();
+        if (command === 'SEND' || command === 'RSEND') {
+          var sp = rest.indexOf(' ');
+          return { command: command, args: sp < 0 ? [rest] : [rest.slice(0, sp), rest.slice(sp + 1)] };
+        }
+        if (!rest) return { command: command, args: [] };
+        return { command: command, args: rest.split(/\s+/) };
+      }
+
+      function rpcPost(body) {
+        return fetch(RPC_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        }).then(function (r) {
+          return r.text().then(function (txt) {
+            var data = null;
+            try { data = txt ? JSON.parse(txt) : null; } catch (e) { return { ok: false, error: 'bad_json' }; }
+            if (!data || typeof data !== 'object') return { ok: false, error: 'empty' };
+            if (!r.ok && data.ok !== true) data.error = data.error || ('http_' + r.status);
+            return data;
+          });
+        });
+      }
+
+      function sendIrc(kind, line) {
         pending.kind = kind;
         pending.lines = [];
         hideUntil = Date.now() + 5000;
         ui.loading = true;
         bump();
         try { orbit.irc.msg(serviceNick(), line); }
-        catch (e) { log('send failed', e); }
+        catch (e) { log('irc send failed', e); }
         if (pending.timer) clearTimeout(pending.timer);
         pending.timer = setTimeout(function () {
           if (pending.kind === kind) flush();
         }, 4500);
+      }
+
+      function finishRpc(kind, lines) {
+        pending.kind = kind;
+        pending.lines = lines;
+        flush();
+      }
+
+      function sendCmd(kind, line) {
+        var account = myAccount();
+        if (rpcState === 'off' || !account || typeof fetch !== 'function') {
+          sendIrc(kind, line);
+          return;
+        }
+        var parts = splitCmd(line);
+        var gen = ++rpcGen;
+        pending.kind = kind;
+        pending.lines = [];
+        ui.loading = true;
+        bump();
+        rpcPost({
+          account: account,
+          nick: myNick(),
+          service: serviceNick(),
+          command: parts.command,
+          args: parts.args,
+        }).then(function (data) {
+          if (gen !== rpcGen) return;
+          if (data && data.ok) {
+            rpcState = 'on';
+            finishRpc(kind, String(data.text || '').split(/\n/));
+            return;
+          }
+          var err = (data && data.error) || 'rpc';
+          if (err === 'not_configured' && rpcState !== 'on') {
+            log('RPC mémos non configuré, repli IRC');
+            rpcState = 'off';
+            pending.kind = '';
+            ui.loading = false;
+            sendIrc(kind, line);
+            return;
+          }
+          pending.kind = '';
+          ui.loading = false;
+          setFlash(pick({
+            fr: 'Le service des mémos ne répond pas.',
+            en: 'Memo service did not answer.',
+          }), true);
+          bump();
+          if (queueList && !pending.kind) {
+            queueList = false;
+            requestList();
+          }
+        }).catch(function (err) {
+          if (gen !== rpcGen) return;
+          log('RPC mémos KO: ' + (err && err.message ? err.message : err));
+          if (rpcState !== 'on') {
+            rpcState = 'off';
+            pending.kind = '';
+            ui.loading = false;
+            sendIrc(kind, line);
+            return;
+          }
+          pending.kind = '';
+          ui.loading = false;
+          setFlash(pick({
+            fr: 'Le service des mémos ne répond pas.',
+            en: 'Memo service did not answer.',
+          }), true);
+          bump();
+        });
       }
 
       var queueList = false;
@@ -384,36 +482,28 @@
 
       function openView(screen) {
         injectCss();
-        var st = state();
-        var cur = '';
-        try { cur = orbit.state.active() || ''; } catch (e) { /* ignore */ }
-        if (cur && fold(cur) !== fold(BUF)) ui.prev = cur;
         ui.open = true;
         if (screen) ui.screen = screen;
-        try { document.body.classList.add('oms-open'); } catch (e2) { /* ignore */ }
+        ui.suggest = [];
         bump();
-        try { if (st && st.setActive) st.setActive(BUF); } catch (e3) { /* ignore */ }
-        hideNativeRow();
+        try { orbit.emit('orbit:panel', 'orbit-memoserv'); } catch (e) { /* ignore */ }
         if (!ui.listed) requestList();
       }
 
       function closeView() {
-        if (!ui.open && !ui.closing) {
-          try { document.body.classList.remove('oms-open'); } catch (e) { /* ignore */ }
-        }
         if (!ui.open) return;
-        ui.closing = true;
-        var prev = ui.prev;
         ui.open = false;
-        ui.prev = '';
-        try { document.body.classList.remove('oms-open'); } catch (e2) { /* ignore */ }
+        ui.suggest = [];
         bump();
-        var st = state();
-        try { if (st && st.closeBuffer) st.closeBuffer(BUF); } catch (e3) { /* ignore */ }
-        if (prev && fold(prev) !== fold(BUF)) {
-          try { if (st && st.setActive) st.setActive(prev); } catch (e4) { /* ignore */ }
+      }
+
+      function toggleView(anchor) {
+        if (ui.open) {
+          closeView();
+          return;
         }
-        ui.closing = false;
+        ui.anchor = anchor || null;
+        openView(ui.screen === 'read' ? 'list' : (ui.screen || 'list'));
       }
 
       function openCompose(nick) {
@@ -467,9 +557,10 @@
         sendCmd('del', 'DEL ' + id);
       }
 
-      function IconMail() {
+      function IconMail(props) {
+        var size = (props && props.size) || 18;
         return h('svg', {
-          width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none',
+          width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
           stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
           'aria-hidden': true,
         },
@@ -478,72 +569,93 @@
         );
       }
 
-      function MemoRoomRow() {
+      function MemoTab() {
         useSyncExternalStore(subscribe, snap, snap);
         var n = badgeCount();
-        var sub = !ui.listed
-          ? pick({ fr: 'Messages hors ligne', en: 'Offline messages' })
-          : n
-            ? (n > 1
-              ? pick({ fr: n + ' non lus', en: n + ' unread' })
-              : pick({ fr: '1 non lu', en: '1 unread' }))
-            : pick({ fr: 'Aucun mémo', en: 'No memos' });
-        return h('div', {
-          className: 'room oms-room' + (ui.open ? ' is-active' : '') + (n ? ' has-unread' : ''),
-          role: 'button',
-          tabIndex: 0,
-          title: pick({ fr: 'Mémos', en: 'Memos' }),
-          onClick: function () { if (ui.open) openView(); else openView('list'); },
-          onKeyDown: function (e) {
-            if (e.key === 'Enter' || e.key === ' ') {
-              try { e.preventDefault(); } catch (err) { /* ignore */ }
-              openView(ui.open ? ui.screen : 'list');
-            }
+        var label = pick({ fr: 'Mémo', en: 'Memo' });
+        return h('button', {
+          type: 'button',
+          className: 'tab' + (ui.open ? ' is-active' : ''),
+          title: label,
+          'aria-label': label,
+          'aria-expanded': ui.open ? 'true' : 'false',
+          onClick: function (e) {
+            var rect = null;
+            try { rect = e.currentTarget.getBoundingClientRect(); } catch (err) { rect = null; }
+            toggleView(rect);
           },
         },
-          h('span', { className: 'room__av', 'data-oms': '1', 'aria-hidden': true }, h(IconMail)),
-          h('span', { className: 'room__body' },
-            h('span', { className: 'room__name' }, pick({ fr: 'Mémos', en: 'Memos' })),
-            h('span', { className: 'room__sub' }, sub)
+          h('span', { className: 'tab__ic' },
+            h(IconMail, { size: 22 }),
+            n ? h('span', { className: 'tab__badge' }, n > 99 ? '99+' : String(n)) : null
           ),
-          n ? h('span', { className: 'room__badge' }, n > 99 ? '99+' : String(n)) : null,
-          ui.open ? h('button', {
-            type: 'button',
-            className: 'room__close',
-            title: pick({ fr: 'Fermer', en: 'Close' }),
-            'aria-label': pick({ fr: 'Fermer les mémos', en: 'Close memos' }),
-            onClick: function (e) {
-              try { e.stopPropagation(); } catch (err) { /* ignore */ }
-              closeView();
-            },
-          }, '✕') : null
+          h('span', { className: 'tab__lb' }, label)
         );
       }
 
-      function bar(title, sub) {
+      function goScreen(name) {
+        ui.screen = name;
+        ui.suggest = [];
+        setFlash('', false);
+        bump();
+        if (name === 'ignore') sendCmd('ignore', 'IGNORE LIST');
+      }
+
+      function bar() {
+        var n = badgeCount();
+        var sub = ui.screen === 'read'
+          ? pick({ fr: 'Lecture', en: 'Reading' })
+          : !ui.listed
+            ? pick({ fr: 'Messages hors ligne', en: 'Offline messages' })
+            : n
+              ? (n > 1
+                ? pick({ fr: n + ' non lus', en: n + ' unread' })
+                : pick({ fr: '1 non lu', en: '1 unread' }))
+              : pick({ fr: 'Aucun mémo en attente', en: 'No memo waiting' });
         return h('div', { className: 'oms-bar' },
-          h('div', { style: { flex: 1, minWidth: 0 } },
-            h('h2', { className: 'oms-bar__title' }, title),
-            sub ? h('span', { className: 'oms-bar__sub' }, sub) : null
-          ),
-          ui.screen !== 'list' ? h('button', {
+          ui.screen === 'read' ? h('button', {
             type: 'button', className: 'oms-iconbtn',
             title: pick({ fr: 'Retour', en: 'Back' }),
             'aria-label': pick({ fr: 'Retour à la liste', en: 'Back to the list' }),
-            onClick: function () { ui.screen = 'list'; setFlash('', false); bump(); },
-          }, '←') : null,
+            onClick: function () { goScreen('list'); },
+          }, '←') : h('span', { className: 'oms-mark', 'aria-hidden': true }, h(IconMail, { size: 16 })),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('h2', { className: 'oms-bar__title' }, pick({ fr: 'Mémo', en: 'Memo' })),
+            h('span', { className: 'oms-bar__sub' }, sub)
+          ),
           h('button', {
             type: 'button', className: 'oms-iconbtn',
             title: pick({ fr: 'Actualiser', en: 'Refresh' }),
             'aria-label': pick({ fr: 'Actualiser les mémos', en: 'Refresh memos' }),
             onClick: function () { requestList(); },
           }, '↻'),
-          ui.screen !== 'write' ? h('button', {
+          h('button', {
             type: 'button', className: 'oms-iconbtn',
-            title: pick({ fr: 'Nouveau mémo', en: 'New memo' }),
-            'aria-label': pick({ fr: 'Nouveau mémo', en: 'New memo' }),
-            onClick: function () { ui.screen = 'write'; setFlash('', false); bump(); },
-          }, '+') : null
+            title: pick({ fr: 'Fermer', en: 'Close' }),
+            'aria-label': pick({ fr: 'Fermer', en: 'Close' }),
+            onClick: function () { closeView(); },
+          }, '✕')
+        );
+      }
+
+      function segments() {
+        if (ui.screen === 'read') return null;
+        var items = [
+          ['list', pick({ fr: 'Reçus', en: 'Inbox' })],
+          ['write', pick({ fr: 'Écrire', en: 'Write' })],
+          ['ignore', pick({ fr: 'Ignorés', en: 'Ignored' })],
+        ];
+        return h('div', { className: 'oms-seg', role: 'tablist' },
+          items.map(function (it) {
+            return h('button', {
+              type: 'button',
+              key: it[0],
+              role: 'tab',
+              'aria-selected': ui.screen === it[0] ? 'true' : 'false',
+              className: ui.screen === it[0] ? 'is-on' : '',
+              onClick: function () { goScreen(it[0]); },
+            }, it[1]);
+          })
         );
       }
 
@@ -584,11 +696,13 @@
             className: 'oms-row' + (m.unread ? ' is-unread' : ''),
             onClick: function () { readMemo(m.id); },
           },
-            h('span', { className: 'oms-dot', 'aria-hidden': true }),
-            h('span', null,
+            h('span', { className: 'oms-av', 'aria-hidden': true },
+              String(m.sender || '?').replace(/^[#&]/, '').charAt(0).toUpperCase() || '?'),
+            h('span', { style: { minWidth: 0, flex: 1 } },
               h('span', { className: 'oms-row__from' }, m.sender),
               h('span', { className: 'oms-row__when' }, m.when)
-            )
+            ),
+            m.unread ? h('span', { className: 'oms-pill' }, pick({ fr: 'Nouveau', en: 'New' })) : null
           );
         }));
       }
@@ -624,6 +738,47 @@
         );
       }
 
+      function queueSuggest(raw) {
+        ui.to = raw;
+        ui.suggestHi = 0;
+        var q = String(raw || '');
+        var chan = q.charAt(0) === '#';
+        var ready = chan ? q.length >= 2 : q.length >= 1;
+        if (!ready || /\s/.test(q) || !myAccount()) {
+          ui.suggest = [];
+          if (suggestTimer) clearTimeout(suggestTimer);
+          bump();
+          return;
+        }
+        bump();
+        if (suggestTimer) clearTimeout(suggestTimer);
+        var gen = ++suggestGen;
+        suggestTimer = setTimeout(function () {
+          rpcPost({
+            action: 'suggest',
+            account: myAccount(),
+            nick: myNick(),
+            q: q,
+          }).then(function (data) {
+            if (gen !== suggestGen || ui.to !== q) return;
+            ui.suggest = (data && data.ok && Array.isArray(data.items)) ? data.items.slice(0, 12) : [];
+            ui.suggestHi = 0;
+            bump();
+          }).catch(function () {
+            if (gen !== suggestGen) return;
+            ui.suggest = [];
+            bump();
+          });
+        }, 200);
+      }
+
+      function pickSuggest(name) {
+        ui.to = name;
+        ui.suggest = [];
+        ui.suggestHi = 0;
+        bump();
+      }
+
       function WriteScreen() {
         var self = fold(ui.to) === fold(myNick()) || (myAccount() && fold(ui.to) === fold(myAccount()));
         var channel = ui.to.charAt(0) === '#' || ui.to.charAt(0) === '&';
@@ -631,19 +786,62 @@
           className: 'oms-form',
           onSubmit: function (e) {
             try { e.preventDefault(); } catch (err) { /* ignore */ }
+            var viaSend = false;
+            try { viaSend = !!(e.nativeEvent && e.nativeEvent.submitter && e.nativeEvent.submitter.getAttribute('data-send')); } catch (err2) { viaSend = false; }
+            if (ui.suggest.length && !viaSend) {
+              pickSuggest(ui.suggest[ui.suggestHi] || ui.suggest[0]);
+              return;
+            }
             sendMemo();
           },
         },
           h('label', null,
             pick({ fr: 'Destinataire', en: 'Recipient' }),
-            h('input', {
-              type: 'text',
-              name: 'memo-to',
-              autoComplete: 'off',
-              value: ui.to,
-              placeholder: pick({ fr: 'Pseudo ou #salon', en: 'Nick or #channel' }),
-              onChange: function (e) { ui.to = e.target.value; bump(); },
-            })
+            h('div', { className: 'oms-ac' },
+              h('input', {
+                type: 'text',
+                name: 'memo-to',
+                autoComplete: 'off',
+                role: 'combobox',
+                'aria-autocomplete': 'list',
+                'aria-expanded': ui.suggest.length ? 'true' : 'false',
+                value: ui.to,
+                placeholder: pick({ fr: 'Pseudo ou #salon', en: 'Nick or #channel' }),
+                onChange: function (e) { queueSuggest(e.target.value); },
+                onKeyDown: function (e) {
+                  if (!ui.suggest.length) return;
+                  if (e.key === 'ArrowDown') {
+                    try { e.preventDefault(); } catch (err) { /* ignore */ }
+                    ui.suggestHi = Math.min(ui.suggest.length - 1, ui.suggestHi + 1);
+                    bump();
+                  } else if (e.key === 'ArrowUp') {
+                    try { e.preventDefault(); } catch (err2) { /* ignore */ }
+                    ui.suggestHi = Math.max(0, ui.suggestHi - 1);
+                    bump();
+                  } else if (e.key === 'Escape') {
+                    try { e.preventDefault(); e.stopPropagation(); } catch (err3) { /* ignore */ }
+                    ui.suggest = [];
+                    bump();
+                  }
+                },
+              }),
+              ui.suggest.length ? h('ul', { className: 'oms-ac__list', role: 'listbox' },
+                ui.suggest.map(function (name, i) {
+                  return h('li', { key: name },
+                    h('button', {
+                      type: 'button',
+                      className: 'oms-ac__opt' + (i === ui.suggestHi ? ' is-on' : ''),
+                      role: 'option',
+                      'aria-selected': i === ui.suggestHi ? 'true' : 'false',
+                      onMouseDown: function (e) {
+                        try { e.preventDefault(); } catch (err) { /* ignore */ }
+                        pickSuggest(name);
+                      },
+                    }, name)
+                  );
+                })
+              ) : null
+            )
           ),
           h('label', null,
             pick({ fr: 'Message', en: 'Message' }),
@@ -669,7 +867,7 @@
             en: 'The recipient must be registered. If they are online, ' + serviceNick() + ' notifies them.',
           })),
           h('div', { className: 'oms-actions' },
-            h('button', { type: 'submit', className: 'oms-btn oms-btn--go', disabled: ui.loading },
+            h('button', { type: 'submit', 'data-send': '1', className: 'oms-btn oms-btn--go', disabled: ui.loading },
               pick({ fr: 'Envoyer', en: 'Send' })),
             !channel && validTarget(ui.to) ? h('button', {
               type: 'button', className: 'oms-btn',
@@ -727,87 +925,82 @@
         );
       }
 
+      function panelBox() {
+        var W = 400;
+        var H = 640;
+        var left = 8;
+        var bottom = 74;
+        try {
+          W = Math.min(400, window.innerWidth - 16);
+          var A = ui.anchor;
+          if (A && A.width) {
+            left = Math.round(Math.min(Math.max(A.left + A.width / 2 - W / 2, 8), window.innerWidth - W - 8));
+            bottom = Math.round(window.innerHeight - A.top + 10);
+          } else {
+            left = Math.max(8, Math.round((window.innerWidth - W) / 2));
+          }
+          H = Math.min(640, Math.max(220, window.innerHeight - bottom - 12));
+        } catch (e) { /* ignore */ }
+        return {
+          position: 'fixed',
+          left: left + 'px',
+          bottom: bottom + 'px',
+          zIndex: 60,
+          width: W + 'px',
+          maxHeight: H + 'px',
+        };
+      }
+
       function MemoPane() {
         useSyncExternalStore(subscribe, snap, snap);
         useEffect(function () {
-          try { document.body.classList.toggle('oms-open', !!ui.open); } catch (e) { /* ignore */ }
-          return function () {
-            try { document.body.classList.remove('oms-open'); } catch (e2) { /* ignore */ }
-          };
-        }, [ui.open]);
-        useEffect(function () {
           if (!ui.open) return undefined;
-          hideNativeRow();
-          var root = document.querySelector('.rooms');
-          if (!root || typeof MutationObserver === 'undefined') return undefined;
-          var mo = new MutationObserver(function () { hideNativeRow(); });
-          mo.observe(root, { childList: true, subtree: true });
-          return function () { mo.disconnect(); };
+          function onKey(e) {
+            if (e.key !== 'Escape' || !ui.open) return;
+            if (ui.suggest.length) {
+              ui.suggest = [];
+              bump();
+              return;
+            }
+            if (ui.screen === 'read') goScreen('list');
+            else closeView();
+          }
+          window.addEventListener('keydown', onKey);
+          return function () { window.removeEventListener('keydown', onKey); };
         }, [ui.open]);
         if (!ui.open) return null;
-        var sub = serviceNick();
-        var title = ui.screen === 'write'
-          ? pick({ fr: 'Nouveau mémo', en: 'New memo' })
-          : ui.screen === 'ignore'
-            ? pick({ fr: 'Ignorés', en: 'Ignored' })
-            : ui.screen === 'read'
-              ? pick({ fr: 'Mémo', en: 'Memo' })
-              : pick({ fr: 'Mémos', en: 'Memos' });
-        return h('div', {
-          className: 'oms-view',
-          role: 'region',
-          'aria-label': pick({ fr: 'Mémos', en: 'Memos' }),
-          onKeyDown: function (e) {
-            if (e.key !== 'Escape') return;
-            if (ui.screen !== 'list') { ui.screen = 'list'; bump(); }
-            else closeView();
+        return h('div', null,
+          h('div', {
+            style: { position: 'fixed', inset: 0, zIndex: 59 },
+            onClick: function () { closeView(); },
+          }),
+          h('div', {
+            className: 'oms-panel',
+            role: 'dialog',
+            'aria-label': pick({ fr: 'Mémo', en: 'Memo' }),
+            style: panelBox(),
           },
-        },
-          bar(title, pick({
-            fr: 'Via ' + sub + ' · pseudo enregistré',
-            en: 'Via ' + sub + ' · registered nick',
-          })),
-          flashEl(),
-          h('div', { className: 'oms-body' },
-            ui.screen === 'write' ? h(WriteScreen)
-              : ui.screen === 'read' ? h(ReadScreen)
-                : ui.screen === 'ignore' ? h(IgnoreScreen)
-                  : h(ListScreen)
-          ),
-          ui.screen === 'list' ? h('div', { className: 'oms-actions', style: { padding: '0 1rem .9rem', flex: 'none' } },
-            h('button', {
-              type: 'button', className: 'oms-btn',
-              onClick: function () {
-                ui.screen = 'ignore';
-                setFlash('', false);
-                bump();
-                sendCmd('ignore', 'IGNORE LIST');
-              },
-            }, pick({ fr: 'Pseudos ignorés', en: 'Ignored nicks' }))
-          ) : null
+            bar(),
+            segments(),
+            flashEl(),
+            h('div', { className: 'oms-body' },
+              ui.screen === 'write' ? h(WriteScreen)
+                : ui.screen === 'read' ? h(ReadScreen)
+                  : ui.screen === 'ignore' ? h(IgnoreScreen)
+                    : h(ListScreen)
+            )
+          )
         );
       }
 
       injectCss();
       orbit.on('raw', onRaw);
       orbit.on('connected', function () { scheduleList(); });
-      orbit.on('buffer.active', function (name) {
-        if (ui.closing || !ui.open) return;
-        if (fold(name) === fold(BUF)) return;
-        ui.open = false;
-        ui.prev = '';
-        try { document.body.classList.remove('oms-open'); } catch (e) { /* ignore */ }
-        bump();
-        ui.closing = true;
-        try {
-          var st = state();
-          if (st && st.closeBuffer) st.closeBuffer(BUF);
-        } catch (e2) { /* ignore */ }
-        ui.closing = false;
-        hideNativeRow();
+      orbit.on('orbit:panel', function (id) {
+        if (id !== 'orbit-memoserv' && ui.open) closeView();
       });
       if (typeof orbit.addMessageFilter === 'function') orbit.addMessageFilter(shouldHide);
-      orbit.addUi('sidebar_room', function () { return h(MemoRoomRow); });
+      orbit.addUi('nav_item', function () { return h(MemoTab); });
       orbit.addUi('overlay', function () { return h(MemoPane); });
       if (typeof orbit.addMemberMenu === 'function') {
         orbit.addMemberMenu(function (ctx) {
@@ -862,7 +1055,7 @@
     });
   }
 })(function () {
-  var VER = 1;
+  var VER = 3;
 
   function stripIrc(s) {
     return String(s || '')

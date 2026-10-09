@@ -4,11 +4,17 @@ Boîte **Mémos** dans Orbit, branchée sur MemoServ Anope. Sur Entre Nous le ps
 
 L’expéditeur et le destinataire (ou le salon) doivent être enregistrés. Le mémo part que la personne soit en ligne ou non. Si elle est identifiée et que les notifications sont actives, Message la prévient.
 
+Les commandes passent par **JSON-RPC Anope** (`memoserv-rpc.php`, même URL et jeton que ChanServ). Le navigateur ne parle pas à Anope : le PHP appelle `anope.identify` puis `anope.command` au nom du compte. Si le RPC n’est pas configuré, le plugin retombe sur un `PRIVMSG` vers Message.
+
+Un mémo qui arrive est toujours une notice de Message (masquée du salon) ; la liste est alors relue via RPC.
+
 ## Dans l’interface
 
-Une ligne **Mémos** en haut de la liste des salons (pastille si non lu).
+Un onglet **Mémo** dans le menu du bas (pastille si non lu). Il ouvre un panneau : reçus, lecture, écriture, ignorés. Le salon en cours reste affiché.
 
-| Action | Commande envoyée |
+Dans « Écrire », le destinataire se complète dès la première lettre : pseudos **en ligne et identifiés** (`anope.listUsers`), ou, si le texte commence par `#`, salons **enregistrés** (`ChanServ LIST`, sans le `#`).
+
+| Action | Commande RPC |
 | --- | --- |
 | Ouvrir / actualiser | `LIST` |
 | Lire | `READ numéro` |
@@ -23,13 +29,13 @@ Le menu d’un pseudo et sa fiche proposent **Envoyer un mémo**. `/memo` ouvre 
 
 `SENDALL` et `STAFF` ne sont pas dans le panneau (opérateurs).
 
-Les notices de Message (nouveau mémo, liste, lecture) ne s’affichent pas dans le salon en cours : elles alimentent cette boîte. Un nouveau mémo prévient aussi par notification.
+Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils mettent à jour la boîte et peuvent envoyer une notification. La liste, la lecture et l’envoi passent par le RPC.
 
 ## Config
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=1"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=3"]
 ```
 
-Incrémenter `?v=` après une modification du JS. Le client Orbit doit lister `orbit-memoserv` parmi les panneaux de la colonne centrale (même traitement que la liste blanche).
+Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.

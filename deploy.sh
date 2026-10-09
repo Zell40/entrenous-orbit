@@ -376,6 +376,8 @@ MEMOSERV_DIR="plugins/third/orbit-memoserv"
 mkdir -p "$WEBROOT/$MEMOSERV_DIR"
 cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/orbit-memoserv.js" \
       "$WEBROOT/$MEMOSERV_DIR/"
+cp -f "$PLUGINS_REPO/plugins/orbit-memoserv/memoserv-rpc.php" \
+      "$WEBROOT/$MEMOSERV_DIR/"
 
 # Helpdesk bottom-nav (AideMoi / SignalMoi / EcoutE)
 HELPDESK_DIR="plugins/third/orbit-helpdesk"
