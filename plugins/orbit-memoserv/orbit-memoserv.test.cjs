@@ -39,6 +39,21 @@ assert.strictEqual(tight.rows[0].unread, true);
 assert.strictEqual(tight.rows[0].sender, 'Bob');
 assert.strictEqual(tight.rows[0].id, 1);
 
+const phrase = p.parseList([
+  '1: envoyé par Quen le ven. 09 oct. 2026 07:36:47 (il y a 1 heure, 14 minutes)',
+]);
+assert.strictEqual(phrase.rows.length, 1);
+assert.strictEqual(phrase.rows[0].id, 1);
+assert.strictEqual(phrase.rows[0].unread, false);
+assert.strictEqual(phrase.rows[0].sender, 'Quen');
+assert.strictEqual(phrase.rows[0].when, 'ven. 09 oct. 2026 07:36:47 (il y a 1 heure, 14 minutes)');
+assert.strictEqual(phrase.note, '');
+
+const phraseNew = p.parseList(['* 2: sent by Bob on Oct 09 2026']);
+assert.strictEqual(phraseNew.rows.length, 1);
+assert.strictEqual(phraseNew.rows[0].unread, true);
+assert.strictEqual(phraseNew.rows[0].sender, 'Bob');
+
 const glued = p.parseList(['Mémos pour Zell :\r*1 Bob ' + date]);
 assert.strictEqual(glued.rows.length, 1);
 assert.strictEqual(glued.rows[0].sender, 'Bob');

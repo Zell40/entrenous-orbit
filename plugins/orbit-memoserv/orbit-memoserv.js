@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=12"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=14"]
  */
 (function (factory) {
   var api = factory();
@@ -328,6 +328,13 @@
           if (gen !== rpcGen) return;
           if (data && data.ok) {
             rpcState = 'on';
+            var reply = String((data && data.text) || '');
+            if (kind === 'send' && !reply.trim()) {
+              var raw = data && data.raw ? String(data.raw) : '';
+              statusLine('envoi RPC sans réponse' + (raw ? ' · ' + raw.slice(0, 80) : '') + ', repli IRC');
+              sendIrc(kind, line);
+              return;
+            }
             if (kind === 'list') {
               var got = rpcLines(data.text).filter(function (s) { return String(s).trim(); });
               var preview = got.slice(0, 3).map(function (s) { return String(s).trim().slice(0, 70); }).join(' | ');
@@ -1489,7 +1496,7 @@
     });
   }
 })(function () {
-  var VER = 12;
+  var VER = 14;
 
   function stripIrc(s) {
     return String(s || '')
@@ -1561,6 +1568,19 @@
       if (/^(num[eé]ro|number)\b/i.test(trimmed)) { sawHeader = true; return; }
       var row = line.match(/^\s*(\*)?\s*(\d+)\s+(\S+)\s+(.+)$/);
       if (!row) row = line.match(/^\s*(\*?)(\d+)\s+(\S+)\s+(.+)$/);
+      if (!row) {
+        var phrase = trimmed.match(/^(?:\*|★)?\s*(\d+)\s*:\s*(?:envoy[ée]e?\s+par|sent\s+by)\s+(\S+)\s+(?:le|on)\s+(.+)$/i);
+        if (phrase) {
+          rows.push({
+            id: parseInt(phrase[1], 10),
+            unread: /^\s*(?:\*|★)/.test(line),
+            sender: phrase[2],
+            when: phrase[3].trim(),
+            text: '',
+          });
+          return;
+        }
+      }
       if (row) {
         rows.push({
           id: parseInt(row[2], 10),

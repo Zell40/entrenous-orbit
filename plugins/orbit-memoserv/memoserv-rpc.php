@@ -510,8 +510,23 @@ try {
     /* The command itself reports access denied if identify did not take. */
   }
   $params = array_merge([$source, $service, $command], $args);
-  $text = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
-  echo json_encode(['ok' => true, 'text' => $text], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  if ($command === 'SEND' || $command === 'RSEND') {
+    // One line: a 5th JSON parameter (the memo text) never reached MemoServ.
+    $params = [$source, $service, $command . ' ' . implode(' ', $args)];
+  }
+  $result = anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params);
+  $text = flatten_rpc($result);
+  $raw = '';
+  if ($text === '') {
+    $raw = is_array($result) ? 'array' : gettype($result);
+    if (is_array($result)) {
+      $encoded = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (is_string($encoded) && $encoded !== '' && $encoded !== '[]' && $encoded !== '{}') {
+        $raw .= ' ' . substr($encoded, 0, 160);
+      }
+    }
+  }
+  echo json_encode(['ok' => true, 'text' => $text, 'raw' => $raw], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
   echo json_encode(['ok' => false, 'error' => 'rpc']);
 }
