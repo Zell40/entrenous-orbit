@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=10"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=11"]
  */
 (function (factory) {
   var api = factory();
@@ -84,6 +84,8 @@
         suggestHi: 0,
         presence: '',
         presenceNick: '',
+        group: null,
+        pendingSend: false,
         popups: [],
         help: false,
         rev: 0,
@@ -92,6 +94,7 @@
       var pending = { kind: '', lines: [], timer: 0, coalesce: 0 };
       var suggestTimer = 0;
       var suggestGen = 0;
+      var groupGen = 0;
       var popupSeq = 0;
       var hideUntil = 0;
       var listStarted = 0;
@@ -210,6 +213,10 @@
           '.oms-ac__list{position:absolute;z-index:2;left:0;right:0;top:calc(100% + 4px);margin:0;padding:.25rem;list-style:none;border-radius:12px;background:var(--bg,#fff);color:var(--ink,#17191c);border:1px solid var(--border,#e3e7eb);box-shadow:0 12px 30px -12px rgba(0,0,0,.28);max-height:11rem;overflow:auto}',
           '.oms-ac__opt{display:block;width:100%;text-align:left;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:.88rem;font-weight:650;padding:.4rem .5rem;cursor:pointer}',
           '.oms-ac__opt.is-on,.oms-ac__opt:hover{background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent)}',
+          '.oms-ac__acc{display:block;margin-top:.05rem;font-size:.68rem;font-weight:650;color:var(--muted,#5e6973)}',
+          '.oms-acct{margin:0;padding:.65rem .75rem;border-radius:12px;background:color-mix(in srgb,var(--accent,#2563eb) 10%,transparent);font-size:.8rem;line-height:1.45}',
+          '.oms-acct p{margin:0 0 .35rem}',
+          '.oms-acct p:last-child{margin:0}',
           '.oms-check{flex-direction:row!important;align-items:center;gap:.45rem;font-size:.82rem!important;font-weight:600!important;color:var(--ink,#fff)!important;letter-spacing:0!important}',
           '.oms-hint{margin:0;font-size:.74rem;color:var(--muted,#a1a1aa);line-height:1.4}',
           '.oms-count{align-self:flex-end;font-size:.7rem;color:var(--muted,#a1a1aa)}',
@@ -672,6 +679,25 @@
           bump();
           return;
         }
+        var channel = target.charAt(0) === '#' || target.charAt(0) === '&';
+        if (!channel) {
+          var g = currentGroup();
+          if (!g) {
+            ui.pendingSend = true;
+            fetchGroup(target);
+            return;
+          }
+          if (groupShared(g) && !g.registered && g.account) {
+            target = g.account;
+            ui.to = g.account;
+            ui.group = {
+              nick: g.account,
+              account: g.account,
+              nicks: g.nicks,
+              registered: true,
+            };
+          }
+        }
         var self = fold(target) === fold(myNick()) || (myAccount() && fold(target) === fold(myAccount()));
         var cmd = (ui.receipt && !self) ? 'RSEND' : 'SEND';
         sendCmd('send', cmd + ' ' + target + ' ' + text);
@@ -933,6 +959,65 @@
         ui.presenceNick = nick;
       }
 
+      function clearGroup() {
+        groupGen += 1;
+        ui.group = null;
+        ui.pendingSend = false;
+      }
+
+      function sugNick(item) {
+        if (typeof item === 'string') return item;
+        return (item && item.nick) ? String(item.nick) : '';
+      }
+
+      function groupShared(g) {
+        if (!g || !g.account) return false;
+        return !g.registered || (g.nicks && g.nicks.length > 1);
+      }
+
+      function currentGroup() {
+        var g = ui.group;
+        if (!g || fold(g.nick) !== fold(ui.to)) return null;
+        return g;
+      }
+
+      function fetchGroup(q) {
+        var nick = String(q || '').trim();
+        if (nick.length < 2 || nick.charAt(0) === '#' || nick.charAt(0) === '&' || !myAccount()) {
+          clearGroup();
+          return;
+        }
+        var gen = ++groupGen;
+        rpcPost({
+          action: 'group',
+          account: myAccount(),
+          nick: myNick(),
+          q: nick,
+        }).then(function (data) {
+          if (gen !== groupGen || fold(ui.to) !== fold(nick)) return;
+          var account = (data && data.account) ? String(data.account) : '';
+          var nicks = (data && Array.isArray(data.nicks)) ? data.nicks.filter(Boolean).slice(0, 16) : [];
+          var registered = !!(data && data.registered);
+          ui.group = {
+            nick: nick,
+            account: account,
+            nicks: nicks,
+            registered: registered,
+          };
+          var sendNow = ui.pendingSend && !groupShared(ui.group);
+          ui.pendingSend = false;
+          bump();
+          if (sendNow) sendMemo();
+        }).catch(function () {
+          if (gen !== groupGen) return;
+          ui.group = { nick: nick, account: '', nicks: [], registered: true };
+          var sendNow = ui.pendingSend;
+          ui.pendingSend = false;
+          bump();
+          if (sendNow) sendMemo();
+        });
+      }
+
       function resolvePresence(q, items) {
         if (!q || q.charAt(0) === '#' || q.charAt(0) === '&') {
           clearPresence();
@@ -940,7 +1025,9 @@
         }
         var exact = '';
         var longer = false;
-        (items || []).forEach(function (name) {
+        (items || []).forEach(function (item) {
+          var name = sugNick(item);
+          if (!name) return;
           if (fold(name) === fold(q)) exact = name;
           else if (fold(name).indexOf(fold(q)) === 0) longer = true;
         });
@@ -959,11 +1046,13 @@
         if (!ready || /\s/.test(q) || !myAccount()) {
           ui.suggest = [];
           clearPresence();
+          clearGroup();
           if (suggestTimer) clearTimeout(suggestTimer);
           bump();
           return;
         }
         if (fold(ui.presenceNick) !== fold(q)) clearPresence();
+        if (!ui.group || fold(ui.group.nick) !== fold(q)) ui.group = null;
         bump();
         if (suggestTimer) clearTimeout(suggestTimer);
         var gen = ++suggestGen;
@@ -977,8 +1066,14 @@
             if (gen !== suggestGen || ui.to !== q) return;
             ui.suggest = (data && data.ok && Array.isArray(data.items)) ? data.items.slice(0, 12) : [];
             ui.suggestHi = 0;
-            if (!chan) resolvePresence(q, ui.suggest);
-            else clearPresence();
+            if (!chan) {
+              resolvePresence(q, ui.suggest);
+              if (fold(ui.presenceNick) === fold(q) && q.length >= 2) fetchGroup(q);
+              else clearGroup();
+            } else {
+              clearPresence();
+              clearGroup();
+            }
             bump();
           }).catch(function () {
             if (gen !== suggestGen) return;
@@ -988,13 +1083,73 @@
         }, 200);
       }
 
-      function pickSuggest(name) {
+      function pickSuggest(item) {
+        var name = sugNick(item);
+        if (!name) return;
         ui.to = name;
         ui.suggest = [];
         ui.suggestHi = 0;
-        if (name.charAt(0) === '#') clearPresence();
-        else setPresence(name, true);
+        if (name.charAt(0) === '#') {
+          clearPresence();
+          clearGroup();
+        } else {
+          setPresence(name, true);
+          fetchGroup(name);
+        }
         bump();
+      }
+
+      function memoDest() {
+        var target = validTarget(ui.to);
+        if (!target) return '';
+        var g = currentGroup();
+        if (g && groupShared(g) && !g.registered && g.account) return g.account;
+        return target;
+      }
+
+      function sendLabel() {
+        var g = currentGroup();
+        if (g && groupShared(g) && !g.registered && g.account) {
+          return pick({ fr: 'Envoyer sur ' + g.account, en: 'Send to ' + g.account });
+        }
+        return pick({ fr: 'Envoyer', en: 'Send' });
+      }
+
+      function accountBox() {
+        var g = currentGroup();
+        if (!g || !groupShared(g) || !g.account) return null;
+        var account = g.account;
+        var names = (g.nicks || []).slice(0, 8);
+        var list = names.join(', ');
+        if ((g.nicks || []).length > names.length) list += '…';
+        var same = fold(ui.to) === fold(account);
+        var lead = !g.registered
+          ? pick({
+            fr: ui.to + ' n’est pas un pseudo enregistré. Cette personne est identifiée sur le compte NickServ ' + account + '.',
+            en: ui.to + ' is not a registered nick. This person is identified on the NickServ account ' + account + '.',
+          })
+          : same
+            ? pick({
+              fr: 'Le compte ' + account + ' regroupe plusieurs pseudos. MemoServ ne peut pas écrire à un seul d’entre eux.',
+              en: 'The account ' + account + ' has several nicks. MemoServ cannot address only one of them.',
+            })
+            : pick({
+              fr: ui.to + ' fait partie du compte NickServ ' + account + '. MemoServ ne peut pas écrire à un seul pseudo de ce compte.',
+              en: ui.to + ' belongs to the NickServ account ' + account + '. MemoServ cannot address only one nick of that account.',
+            });
+        var share = list
+          ? pick({
+            fr: 'Le mémo sera déposé sur le compte ' + account + ', donc lisible par tous ses pseudos : ' + list + '.',
+            en: 'The memo is stored on the account ' + account + ', so every nick of that account can read it: ' + list + '.',
+          })
+          : pick({
+            fr: 'Le mémo sera déposé sur le compte ' + account + ', donc lisible par tous les pseudos de ce compte.',
+            en: 'The memo is stored on the account ' + account + ', so every nick of that account can read it.',
+          });
+        return h('div', { className: 'oms-acct' },
+          h('p', null, lead),
+          h('p', null, share)
+        );
       }
 
       function presenceEl() {
@@ -1053,7 +1208,10 @@
                   },
                 }),
                 ui.suggest.length ? h('ul', { className: 'oms-ac__list', role: 'listbox' },
-                  ui.suggest.map(function (name, i) {
+                  ui.suggest.map(function (item, i) {
+                    var name = sugNick(item);
+                    var acc = (item && typeof item === 'object' && item.account) ? String(item.account) : '';
+                    if (!name) return null;
                     return h('li', { key: name },
                       h('button', {
                         type: 'button',
@@ -1062,9 +1220,14 @@
                         'aria-selected': i === ui.suggestHi ? 'true' : 'false',
                         onMouseDown: function (e) {
                           try { e.preventDefault(); } catch (err) { /* ignore */ }
-                          pickSuggest(name);
+                          pickSuggest(item);
                         },
-                      }, name)
+                      },
+                        name,
+                        acc && fold(acc) !== fold(name)
+                          ? h('span', { className: 'oms-ac__acc' }, pick({ fr: 'compte ' + acc, en: 'account ' + acc }))
+                          : null
+                      )
                     );
                   })
                 ) : null
@@ -1072,6 +1235,7 @@
               presenceEl()
             )
           ),
+          accountBox(),
           h('label', null,
             pick({ fr: 'Message', en: 'Message' }),
             h('textarea', {
@@ -1097,14 +1261,14 @@
           })),
           h('div', { className: 'oms-actions' },
             h('button', { type: 'submit', 'data-send': '1', className: 'oms-btn oms-btn--go', disabled: ui.loading },
-              pick({ fr: 'Envoyer', en: 'Send' })),
-            !channel && validTarget(ui.to) ? h('button', {
+              sendLabel()),
+            !channel && memoDest() ? h('button', {
               type: 'button', className: 'oms-btn',
-              onClick: function () { sendCmd('check', 'CHECK ' + validTarget(ui.to)); },
+              onClick: function () { sendCmd('check', 'CHECK ' + memoDest()); },
             }, pick({ fr: 'Déjà lu ?', en: 'Already read?' })) : null,
-            validTarget(ui.to) ? h('button', {
+            memoDest() ? h('button', {
               type: 'button', className: 'oms-btn',
-              onClick: function () { sendCmd('cancel', 'CANCEL ' + validTarget(ui.to)); },
+              onClick: function () { sendCmd('cancel', 'CANCEL ' + memoDest()); },
             }, pick({ fr: 'Annuler le dernier', en: 'Cancel the last one' })) : null
           )
         );
@@ -1329,7 +1493,7 @@
     });
   }
 })(function () {
-  var VER = 10;
+  var VER = 11;
 
   function stripIrc(s) {
     return String(s || '')

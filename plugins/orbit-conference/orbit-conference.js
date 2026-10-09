@@ -564,9 +564,17 @@
     return cfg.maxParticipantsChannel;
   }
 
+  /** Server console / notice inboxes — not places where people talk (no visio). */
+  function isConsoleOrPseudo(name) {
+    var n = String(name || '');
+    if (!n || n === 'Status' || n === '$server') return true;
+    if (n === '$notices' || n.indexOf('$notice:') === 0) return true;
+    return false;
+  }
+
   function bufferAllowed(orbit, name) {
     var cfg = confCfg(orbit);
-    if (!name || name === 'Status') return false;
+    if (!name || isConsoleOrPseudo(name)) return false;
     var chan = isChannelName(name);
     if (chan && !cfg.channels) return false;
     if (!chan && !cfg.queries) return false;
@@ -1664,8 +1672,8 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
-    // Never on Status / server console.
-    if (!activeBuf || activeBuf === 'Status') return null;
+    // Never on Status / server console / notice inboxes.
+    if (!activeBuf || isConsoleOrPseudo(activeBuf)) return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
@@ -1707,7 +1715,7 @@
     var activeBuf = useActiveBuffer(orbit);
     useSyncExternalStore(subscribeSessions, getSessionsRev, getSessionsRev);
     useSyncExternalStore(subscribeInvites, getInvitesSnap, getInvitesSnap);
-    if (!activeBuf || activeBuf === 'Status') return null;
+    if (!activeBuf || isConsoleOrPseudo(activeBuf)) return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
     var anyOpen = listSessions().length > 0;
@@ -2764,7 +2772,7 @@
       help: 'Ouvre / quitte la conférence vidéo (sans l’arrêter pour les autres)',
       run: function () {
         var buf = orbit.state.active();
-        if (!buf || buf === 'Status') {
+        if (!buf || isConsoleOrPseudo(buf)) {
           orbit.notify('Visio', 'Ouvre un canal ou un MP d’abord.');
           return;
         }
@@ -2775,7 +2783,7 @@
       help: 'Arrête la conférence vidéo pour tout le salon',
       run: function () {
         var buf = orbit.state.active();
-        if (!buf || buf === 'Status') {
+        if (!buf || isConsoleOrPseudo(buf)) {
           orbit.notify('Visio', 'Ouvre un canal ou un MP d’abord.');
           return;
         }

@@ -12,7 +12,7 @@ Un mémo qui arrive est une notice de Message (masquée du salon) : pastille et 
 
 Un onglet **Mémo** dans le menu du bas (pastille si non lu). Il ouvre un panneau : reçus, lecture, écriture, ignorés. Le salon en cours reste affiché.
 
-Dans « Écrire », le destinataire se complète dès la première lettre : pseudos **en ligne et identifiés** (`anope.listUsers`), ou, si le texte commence par `#`, salons **enregistrés** (`ChanServ LIST`, sans le `#`).
+Dans « Écrire », le destinataire se complète dès la première lettre : pseudos **en ligne et identifiés** (`anope.listUsers`), ou, si le texte commence par `#`, salons **enregistrés** (`ChanServ LIST`, sans le `#`). Si le pseudo appartient à un compte NickServ (plusieurs pseudos, ou un pseudo non enregistré comme un suffixe BNC), le panneau l’indique : le mémo est déposé sur le compte, lisible par tous ses pseudos, et le bouton propose d’envoyer sur ce compte.
 
 | Action | Commande RPC |
 | --- | --- |
@@ -35,7 +35,7 @@ Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=10"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=11"]
 ```
 
 Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.

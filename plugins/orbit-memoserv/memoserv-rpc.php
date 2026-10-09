@@ -9,7 +9,8 @@
  * If that file is absent, the ChanServ local file next door is used.
  * Commands allowed: LIST, READ, SEND, RSEND, DEL,
  * CHECK, CANCEL, IGNORE. SENDALL / STAFF stay on IRC for opers.
- * action=suggest : pseudos en ligne et identifiés, ou salons enregistrés.
+ * action=suggest : pseudos en ligne et identifiés (avec leur compte), ou salons enregistrés.
+ * action=group : compte NickServ d’un pseudo, et les pseudos de ce compte.
  */
 declare(strict_types=1);
 
@@ -138,7 +139,22 @@ function memo_cache_get(string $key, int $ttl): ?array {
 }
 
 function memo_cache_put(string $key, array $data): void {
-  @file_put_contents(memo_cache_path($key), json_encode(array_values($data), JSON_UNESCAPED_UNICODE));
+  @file_put_contents(memo_cache_path($key), json_encode($data, JSON_UNESCAPED_UNICODE));
+}
+
+function account_label($acc): string {
+  if (is_string($acc) || is_numeric($acc)) {
+    return trim((string) $acc);
+  }
+  if (!is_array($acc)) {
+    return '';
+  }
+  foreach (['display', 'name', 'account'] as $k) {
+    if (isset($acc[$k]) && is_string($acc[$k]) && trim($acc[$k]) !== '') {
+      return trim($acc[$k]);
+    }
+  }
+  return '';
 }
 
 function starts_ci(string $value, string $prefix): bool {
@@ -150,7 +166,7 @@ function starts_ci(string $value, string $prefix): bool {
 
 /** Pseudos présents et identifiés (compte Anope), sans les services. */
 function online_identified_nicks(string $url, string $token, bool $bearerB64): array {
-  $hit = memo_cache_get('identified-online', 20);
+  $hit = memo_cache_get('identified-online-v2', 20);
   if (is_array($hit)) {
     return $hit;
   }
@@ -161,8 +177,8 @@ function online_identified_nicks(string $url, string $token, bool $bearerB64): a
       if (!is_array($info)) {
         continue;
       }
-      $acc = $info['account'] ?? null;
-      if ($acc === null || $acc === false || $acc === '' || $acc === []) {
+      $acc = account_label($info['account'] ?? null);
+      if ($acc === '') {
         continue;
       }
       $nick = '';
@@ -175,13 +191,116 @@ function online_identified_nicks(string $url, string $token, bool $bearerB64): a
       if ($nick === '' || is_service_nick($nick)) {
         continue;
       }
-      $nicks[$nick] = $nick;
+      $nicks[$nick] = ['nick' => $nick, 'account' => $acc];
     }
   }
   $list = array_values($nicks);
-  sort($list, SORT_FLAG_CASE | SORT_STRING);
-  memo_cache_put('identified-online', $list);
+  usort($list, static function ($a, $b) {
+    return strcasecmp((string) ($a['nick'] ?? ''), (string) ($b['nick'] ?? ''));
+  });
+  memo_cache_put('identified-online-v2', $list);
   return $list;
+}
+
+/** Noms de pseudos d’un compte Anope, sans e-mail ni autre champ. */
+function account_nicks($info): array {
+  $display = '';
+  $names = [];
+  if (is_array($info)) {
+    $display = trim((string) ($info['display'] ?? ''));
+    $raw = $info['nicks'] ?? [];
+    if (is_array($raw)) {
+      foreach ($raw as $key => $val) {
+        $name = '';
+        if (is_string($key) && !preg_match('/^\d+$/', $key)) {
+          $name = $key;
+        } elseif (is_array($val) && isset($val['nick']) && is_string($val['nick'])) {
+          $name = $val['nick'];
+        } elseif (is_string($val)) {
+          $name = $val;
+        }
+        $name = trim($name);
+        if ($name !== '' && !is_service_nick($name)) {
+          $names[$name] = $name;
+        }
+      }
+    }
+  }
+  if ($display === '' && $names) {
+    $display = array_values($names)[0];
+  }
+  $list = array_values($names);
+  sort($list, SORT_FLAG_CASE | SORT_STRING);
+  return ['display' => $display, 'nicks' => $list];
+}
+
+function group_lookup(string $url, string $token, bool $bearerB64, string $q): array {
+  $onlineAccount = '';
+  foreach (online_identified_nicks($url, $token, $bearerB64) as $row) {
+    if (is_array($row) && strcasecmp((string) ($row['nick'] ?? ''), $q) === 0) {
+      $onlineAccount = trim((string) ($row['account'] ?? ''));
+      break;
+    }
+  }
+  $try = [];
+  if ($onlineAccount !== '') {
+    $try[] = $onlineAccount;
+  }
+  if ($onlineAccount === '' || strcasecmp($onlineAccount, $q) !== 0) {
+    $try[] = $q;
+  }
+  $found = ['display' => '', 'nicks' => []];
+  foreach ($try as $name) {
+    if ($name === '' || !valid_account($name)) {
+      continue;
+    }
+    $cacheKey = 'acct:' . strtolower($name);
+    $hit = memo_cache_get($cacheKey, 20);
+    if (is_array($hit) && array_key_exists('display', $hit)) {
+      $parsed = [
+        'display' => trim((string) ($hit['display'] ?? '')),
+        'nicks' => is_array($hit['nicks'] ?? null) ? $hit['nicks'] : [],
+      ];
+    } else {
+      try {
+        $parsed = account_nicks(anope_rpc($url, $token, $bearerB64, 'anope.account', [$name]));
+      } catch (Throwable $e) {
+        $parsed = ['display' => '', 'nicks' => []];
+      }
+      memo_cache_put($cacheKey, $parsed);
+    }
+    if ($parsed['display'] !== '' || $parsed['nicks']) {
+      $found = $parsed;
+      break;
+    }
+  }
+  $display = (string) $found['display'];
+  if ($display === '' && $onlineAccount !== '') {
+    $display = $onlineAccount;
+  }
+  $nicks = [];
+  foreach ($found['nicks'] as $name) {
+    $name = trim((string) $name);
+    if ($name !== '') {
+      $nicks[] = $name;
+    }
+  }
+  $registered = false;
+  foreach ($nicks as $name) {
+    if (strcasecmp($name, $q) === 0) {
+      $registered = true;
+      break;
+    }
+  }
+  if (!$registered && $display !== '' && strcasecmp($display, $q) === 0) {
+    $registered = true;
+  }
+  return [
+    'nick' => $q,
+    'account' => $display,
+    'registered' => $registered,
+    'nicks' => array_slice($nicks, 0, 16),
+  ];
 }
 
 /** Salons enregistrés dont le nom commence par # + préfixe (ChanServ LIST, sans le #). */
@@ -296,10 +415,14 @@ if ($action === 'suggest') {
       }
     } elseif (preg_match('/^[A-Za-z0-9_\\-\\[\\]\\\\`^{}|]{1,32}$/', $q)) {
       foreach (online_identified_nicks($url, $token, (bool) $ANOPE_RPC_BEARER_B64) as $cand) {
-        if (!starts_ci($cand, $q)) {
+        $name = is_array($cand) ? trim((string) ($cand['nick'] ?? '')) : trim((string) $cand);
+        if ($name === '' || !starts_ci($name, $q)) {
           continue;
         }
-        $items[] = $cand;
+        $items[] = [
+          'nick' => $name,
+          'account' => is_array($cand) ? trim((string) ($cand['account'] ?? '')) : '',
+        ];
         if (count($items) >= 12) {
           break;
         }
@@ -309,6 +432,20 @@ if ($action === 'suggest') {
     $items = [];
   }
   echo json_encode(['ok' => true, 'items' => $items], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
+if ($action === 'group') {
+  $q = trim((string) ($body['q'] ?? ''));
+  $out = ['ok' => true, 'nick' => $q, 'account' => '', 'registered' => false, 'nicks' => []];
+  try {
+    if (preg_match('/^[A-Za-z0-9_\\-\\[\\]\\\\`^{}|]{2,32}$/', $q)) {
+      $out = array_merge(['ok' => true], group_lookup($url, $token, (bool) $ANOPE_RPC_BEARER_B64, $q));
+    }
+  } catch (Throwable $e) {
+    $out = ['ok' => true, 'nick' => $q, 'account' => '', 'registered' => false, 'nicks' => []];
+  }
+  echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
   exit;
 }
 
