@@ -30,6 +30,20 @@ assert.strictEqual(fr.rows.length, 2);
 assert.strictEqual(fr.rows[1].unread, true);
 assert.strictEqual(fr.rows[1].sender, 'Carol');
 
+const tight = p.parseList([
+  'Mémos pour Zell :',
+  '* 1 Bob ' + date,
+]);
+assert.strictEqual(tight.rows.length, 1);
+assert.strictEqual(tight.rows[0].unread, true);
+assert.strictEqual(tight.rows[0].sender, 'Bob');
+assert.strictEqual(tight.rows[0].id, 1);
+
+const glued = p.parseList(['Mémos pour Zell :\r*1 Bob ' + date]);
+assert.strictEqual(glued.rows.length, 1);
+assert.strictEqual(glued.rows[0].sender, 'Bob');
+assert.strictEqual(glued.sawHeader, true);
+
 const empty = p.parseList(["Vous n'avez pas de mémo."]);
 assert.strictEqual(empty.ok, true);
 assert.strictEqual(empty.empty, true);

@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=5"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=8"]
  */
 (function (factory) {
   var api = factory();
@@ -82,17 +82,23 @@
         anchor: null,
         suggest: [],
         suggestHi: 0,
+        presence: '',
+        presenceNick: '',
+        popups: [],
         rev: 0,
         subs: [],
       };
       var pending = { kind: '', lines: [], timer: 0, coalesce: 0 };
       var suggestTimer = 0;
       var suggestGen = 0;
+      var popupSeq = 0;
       var hideUntil = 0;
       var listTimer = 0;
       var listStarted = 0;
       var listDone = 0;
       var listPauseUntil = 0;
+      var listDeferTimer = 0;
+      var listProbe = '';
       var listAutos = [];
       var lastStatus = '';
       var sameStatus = 0;
@@ -191,7 +197,12 @@
           '.oms-form input[type=text],.oms-form textarea{font:inherit;font-size:.92rem;font-weight:500;color:var(--ink,#fff);background:color-mix(in srgb,var(--ink,#fff) 5%,transparent);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;padding:.55rem .7rem}',
           '.oms-form input:focus,.oms-form textarea:focus{outline:2px solid color-mix(in srgb,var(--accent,#2563eb) 55%,transparent);border-color:transparent}',
           '.oms-form textarea{min-height:6.5rem;resize:vertical}',
-          '.oms-ac{position:relative}',
+          '.oms-ac{position:relative;flex:1;min-width:0}',
+          '.oms-ac input{width:100%;box-sizing:border-box}',
+          '.oms-to{display:flex;align-items:center;gap:.4rem}',
+          '.oms-pres{flex:none;font-size:.68rem;font-weight:800;letter-spacing:.01em;padding:.22rem .5rem;border-radius:999px;white-space:nowrap}',
+          '.oms-pres--on{color:#15803d;background:color-mix(in srgb,#16a34a 16%,transparent)}',
+          '.oms-pres--off{color:var(--muted,#5e6973);background:color-mix(in srgb,var(--ink,#111) 7%,transparent)}',
           '.oms-ac__list{position:absolute;z-index:2;left:0;right:0;top:calc(100% + 4px);margin:0;padding:.25rem;list-style:none;border-radius:12px;background:var(--bg,#fff);color:var(--ink,#17191c);border:1px solid var(--border,#e3e7eb);box-shadow:0 12px 30px -12px rgba(0,0,0,.28);max-height:11rem;overflow:auto}',
           '.oms-ac__opt{display:block;width:100%;text-align:left;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:.88rem;font-weight:650;padding:.4rem .5rem;cursor:pointer}',
           '.oms-ac__opt.is-on,.oms-ac__opt:hover{background:color-mix(in srgb,var(--accent,#2563eb) 18%,transparent)}',
@@ -201,6 +212,15 @@
           '.oms-ign{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.15rem .35rem;padding:.45rem .55rem;border-radius:12px}',
           '.oms-ign:hover{background:color-mix(in srgb,var(--ink,#fff) 5%,transparent)}',
           '.oms-ign span{font-weight:700}',
+          '@keyframes oms-pop{from{transform:translateY(10px) scale(.92);opacity:0}to{transform:none;opacity:1}}',
+          '.oms-pop{position:fixed;z-index:70;top:4.6rem;right:.85rem;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;width:min(250px,74vw);pointer-events:none}',
+          '.oms-pop__card{pointer-events:auto;width:100%;display:flex;align-items:center;min-height:64px;border-radius:999px;border:3px solid var(--accent,#2563eb);background:linear-gradient(90deg,rgba(255,255,255,.94) 0%,rgba(255,255,255,.72) 100%);color:#1e293b;box-shadow:0 10px 18px -10px rgba(0,0,0,.55);animation:oms-pop .35s ease both}',
+          '.oms-pop__main{flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;padding:.4rem .2rem .4rem .9rem}',
+          '.oms-pop__t{display:block;font-size:.78rem;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+          '.oms-pop__s{display:block;margin-top:.08rem;font-size:.68rem;font-weight:700;line-height:1.2;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+          '.oms-pop__x{flex:none;width:1.35rem;height:1.35rem;margin-right:.45rem;border:0;border-radius:999px;background:rgba(15,23,42,.08);color:#1e293b;cursor:pointer;font-size:.9rem;line-height:1}',
+          '.oms-pop__x:hover{background:rgba(15,23,42,.16)}',
+          '@media(max-width:880px){.oms-pop{top:3.6rem;right:.45rem;width:min(200px,58vw)}}',
         ].join('');
         document.head.appendChild(el);
       }
@@ -265,6 +285,10 @@
         }, 4500);
       }
 
+      function rpcLines(text) {
+        return String(text || '').split(/\r\n|\n|\r/);
+      }
+
       function finishRpc(kind, lines) {
         pending.kind = kind;
         pending.lines = lines;
@@ -294,10 +318,11 @@
           if (data && data.ok) {
             rpcState = 'on';
             if (kind === 'list') {
-              var got = String(data.text || '').split(/\n/).filter(function (s) { return String(s).trim(); });
-              statusLine('rpc ok · ' + got.length + ' ligne' + (got.length > 1 ? 's' : '') + (got[0] ? ' · ' + got[0].slice(0, 80) : ''));
+              var got = rpcLines(data.text).filter(function (s) { return String(s).trim(); });
+              var preview = got.slice(0, 3).map(function (s) { return String(s).trim().slice(0, 70); }).join(' | ');
+              statusLine('rpc ok · ' + got.length + ' ligne' + (got.length > 1 ? 's' : '') + (preview ? ' · ' + preview : ''));
             }
-            finishRpc(kind, String(data.text || '').split(/\n/));
+            finishRpc(kind, rpcLines(data.text));
             return;
           }
           var err = (data && data.error) || 'rpc';
@@ -356,6 +381,7 @@
       function requestList(why) {
         var reason = why || 'planifié';
         var manual = reason === 'manuel' || reason === 'suppression';
+        if (manual) listProbe = '';
         var live = reason.indexOf('arrivée') === 0;
         if (!myNick()) {
           statusLine('LIST ignoré, pas de pseudo (' + reason + ')');
@@ -378,6 +404,13 @@
         }
         if (!manual && !live && listDone && now - listDone < 8000) {
           statusLine('LIST reporté (' + reason + ')');
+          if (!listDeferTimer) {
+            var wait = Math.max(300, 8000 - (now - listDone));
+            listDeferTimer = setTimeout(function () {
+              listDeferTimer = 0;
+              requestList(reason);
+            }, wait);
+          }
           return;
         }
         if (!manual) {
@@ -417,7 +450,7 @@
           return;
         }
         ui.needId = false;
-        if (parsed.ok) {
+        if (parsed.rows.length) {
           var kept = {};
           ui.memos.forEach(function (m) { if (m.text) kept[m.id] = m.text; });
           ui.memos = parsed.rows.map(function (r) {
@@ -427,34 +460,67 @@
           ui.listed = true;
           ui.pendingArrivals = 0;
           ui.unreadHint = 0;
+          listProbe = '';
           if (ui.reading && !findMemo(ui.reading)) ui.reading = 0;
+          setFlash('', false);
+          return;
         }
-        if (parsed.denied) setFlash(parsed.note, true);
-        else if (parsed.ok) setFlash('', false);
+        if (parsed.denied) {
+          listProbe = '';
+          setFlash(parsed.note, true);
+          return;
+        }
+        if (parsed.empty) {
+          ui.memos = [];
+          ui.listed = true;
+          ui.pendingArrivals = 0;
+          ui.unreadHint = 0;
+          listProbe = '';
+          setFlash('', false);
+          return;
+        }
+        if (parsed.sawHeader && listProbe !== 'read') {
+          listProbe = 'read';
+          var brut = (lines || []).map(function (s) { return String(s).trim(); }).filter(Boolean).slice(0, 4).join(' | ').slice(0, 160);
+          statusLine('liste sans ligne reconnue · ' + brut);
+          sendCmd('read-new', 'READ NEW');
+          return;
+        }
+        if (parsed.note) setFlash(parsed.note, false);
       }
 
-      function applyRead(lines) {
+      function applyRead(lines, fromList) {
         var reads = parse.parseRead(lines);
         if (!reads.length) {
           var note = parse.leftover(lines);
+          if (fromList) {
+            statusLine('READ NEW sans mémo · ' + String(note || '').slice(0, 120));
+          }
           setFlash(note || pick({ fr: 'Mémo introuvable.', en: 'Memo not found.' }), true);
           return;
         }
         reads.forEach(function (r) {
           var m = findMemo(r.id);
           if (!m) {
-            m = { id: r.id, sender: r.sender, when: r.when, unread: false, text: r.text };
+            m = { id: r.id, sender: r.sender, when: r.when, unread: !!fromList, text: r.text };
             ui.memos.push(m);
           }
           m.sender = r.sender || m.sender;
           m.when = r.when || m.when;
           m.text = r.text;
-          m.unread = false;
+          if (!fromList) m.unread = false;
           ui.reading = r.id;
         });
-        ui.screen = 'read';
-        ui.pendingArrivals = 0;
-        ui.unreadHint = listedUnread();
+        if (fromList) {
+          ui.listed = true;
+          ui.pendingArrivals = 0;
+          ui.unreadHint = listedUnread();
+          if (ui.screen === 'read') ui.screen = 'list';
+        } else {
+          ui.screen = 'read';
+          ui.pendingArrivals = 0;
+          ui.unreadHint = listedUnread();
+        }
         setFlash('', false);
       }
 
@@ -468,7 +534,7 @@
         if (pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
         if (pending.coalesce) { clearTimeout(pending.coalesce); pending.coalesce = 0; }
 
-        if (kind === 'list') {
+        if (kind === 'list' || kind === 'list-new') {
           applyList(lines);
           listDone = Date.now();
           var waited = listStarted ? (listDone - listStarted) : 0;
@@ -476,7 +542,7 @@
             + (ui.needId ? ' · identification requise' : '')
             + ' · ' + waited + ' ms');
         }
-        else if (kind === 'read') applyRead(lines);
+        else if (kind === 'read' || kind === 'read-new') applyRead(lines, kind === 'read-new');
         else if (kind === 'ignore') {
           var ig = parse.parseIgnore(lines);
           if (ig.ok) ui.ignores = ig.masks;
@@ -512,17 +578,43 @@
         pending.coalesce = setTimeout(flush, COALESCE_MS);
       }
 
-      function onArrival(from, why) {
+      function dismissPopup(id) {
+        var next = ui.popups.filter(function (p) { return p.id !== id; });
+        if (next.length === ui.popups.length) return;
+        ui.popups = next;
+        bump();
+      }
+
+      function showMemoPopup(from, channel) {
+        var id = ++popupSeq;
+        ui.popups = ui.popups.concat([{
+          id: id,
+          from: from || '',
+          channel: channel || '',
+        }]).slice(-3);
+        bump();
+        setTimeout(function () { dismissPopup(id); }, 14000);
+      }
+
+      function openFromPopup(id) {
+        dismissPopup(id);
+        openView('list');
+      }
+
+      function onArrival(from, why, channel) {
         ui.pendingArrivals += 1;
         ui.unreadHint = listedUnread() + ui.pendingArrivals;
         bump();
         scheduleList(why || ('arrivée' + (from ? ' de ' + from : '')));
+        showMemoPopup(from, channel);
         if (!ui.open || (typeof document !== 'undefined' && document.hidden)) {
           orbit.notify(
             pick({ fr: 'Nouveau mémo', en: 'New memo' }),
             from
               ? pick({ fr: 'De ' + from, en: 'From ' + from })
-              : pick({ fr: 'Vous avez un nouveau mémo.', en: 'You have a new memo.' })
+              : channel
+                ? pick({ fr: 'Sur ' + channel, en: 'On ' + channel })
+                : pick({ fr: 'Vous avez un nouveau mémo.', en: 'You have a new memo.' })
           );
         }
       }
@@ -546,13 +638,7 @@
         var info = parse.classifyNotice(text);
         if (info && info.type === 'arrival') onArrival(info.from, 'arrivée · ' + text.slice(0, 90));
         else if (info && info.type === 'channel') {
-          onArrival('', 'arrivée salon · ' + text.slice(0, 90));
-          if (info.channel) {
-            setFlash(pick({
-              fr: 'Nouveau mémo sur ' + info.channel + '.',
-              en: 'New memo on ' + info.channel + '.',
-            }), false);
-          }
+          onArrival('', 'arrivée salon · ' + text.slice(0, 90), info.channel);
         } else if (info && info.type === 'count') {
           ui.unreadHint = Math.max(ui.unreadHint || 0, info.n);
           bump();
@@ -603,9 +689,9 @@
       }
 
       function openCompose(nick) {
-        ui.to = nick || ui.to || '';
         ui.screen = 'write';
         ui.receipt = false;
+        if (nick) queueSuggest(nick);
         openView('write');
       }
 
@@ -824,12 +910,11 @@
             h('button', {
               type: 'button', className: 'oms-btn oms-btn--go',
               onClick: function () {
-                ui.to = m.sender;
                 ui.draft = '';
                 ui.receipt = false;
                 ui.screen = 'write';
                 setFlash('', false);
-                bump();
+                queueSuggest(m.sender);
               },
             }, pick({ fr: 'Répondre', en: 'Reply' })),
             h('button', {
@@ -840,6 +925,33 @@
         );
       }
 
+      function clearPresence() {
+        ui.presence = '';
+        ui.presenceNick = '';
+      }
+
+      function setPresence(nick, online) {
+        ui.presence = online ? 'on' : 'off';
+        ui.presenceNick = nick;
+      }
+
+      function resolvePresence(q, items) {
+        if (!q || q.charAt(0) === '#' || q.charAt(0) === '&') {
+          clearPresence();
+          return;
+        }
+        var exact = '';
+        var longer = false;
+        (items || []).forEach(function (name) {
+          if (fold(name) === fold(q)) exact = name;
+          else if (fold(name).indexOf(fold(q)) === 0) longer = true;
+        });
+        if (exact) { setPresence(exact, true); return; }
+        if (longer) { clearPresence(); return; }
+        if (validTarget(q) && q.length >= 2) setPresence(q, false);
+        else clearPresence();
+      }
+
       function queueSuggest(raw) {
         ui.to = raw;
         ui.suggestHi = 0;
@@ -848,10 +960,12 @@
         var ready = chan ? q.length >= 2 : q.length >= 1;
         if (!ready || /\s/.test(q) || !myAccount()) {
           ui.suggest = [];
+          clearPresence();
           if (suggestTimer) clearTimeout(suggestTimer);
           bump();
           return;
         }
+        if (fold(ui.presenceNick) !== fold(q)) clearPresence();
         bump();
         if (suggestTimer) clearTimeout(suggestTimer);
         var gen = ++suggestGen;
@@ -865,6 +979,8 @@
             if (gen !== suggestGen || ui.to !== q) return;
             ui.suggest = (data && data.ok && Array.isArray(data.items)) ? data.items.slice(0, 12) : [];
             ui.suggestHi = 0;
+            if (!chan) resolvePresence(q, ui.suggest);
+            else clearPresence();
             bump();
           }).catch(function () {
             if (gen !== suggestGen) return;
@@ -878,7 +994,17 @@
         ui.to = name;
         ui.suggest = [];
         ui.suggestHi = 0;
+        if (name.charAt(0) === '#') clearPresence();
+        else setPresence(name, true);
         bump();
+      }
+
+      function presenceEl() {
+        if (!ui.presence || fold(ui.presenceNick) !== fold(ui.to)) return null;
+        if (ui.to.charAt(0) === '#' || ui.to.charAt(0) === '&') return null;
+        var on = ui.presence === 'on';
+        return h('span', { className: 'oms-pres ' + (on ? 'oms-pres--on' : 'oms-pres--off') },
+          on ? pick({ fr: 'en ligne', en: 'online' }) : pick({ fr: 'hors ligne', en: 'offline' }));
       }
 
       function WriteScreen() {
@@ -899,50 +1025,53 @@
         },
           h('label', null,
             pick({ fr: 'Destinataire', en: 'Recipient' }),
-            h('div', { className: 'oms-ac' },
-              h('input', {
-                type: 'text',
-                name: 'memo-to',
-                autoComplete: 'off',
-                role: 'combobox',
-                'aria-autocomplete': 'list',
-                'aria-expanded': ui.suggest.length ? 'true' : 'false',
-                value: ui.to,
-                placeholder: pick({ fr: 'Pseudo ou #salon', en: 'Nick or #channel' }),
-                onChange: function (e) { queueSuggest(e.target.value); },
-                onKeyDown: function (e) {
-                  if (!ui.suggest.length) return;
-                  if (e.key === 'ArrowDown') {
-                    try { e.preventDefault(); } catch (err) { /* ignore */ }
-                    ui.suggestHi = Math.min(ui.suggest.length - 1, ui.suggestHi + 1);
-                    bump();
-                  } else if (e.key === 'ArrowUp') {
-                    try { e.preventDefault(); } catch (err2) { /* ignore */ }
-                    ui.suggestHi = Math.max(0, ui.suggestHi - 1);
-                    bump();
-                  } else if (e.key === 'Escape') {
-                    try { e.preventDefault(); e.stopPropagation(); } catch (err3) { /* ignore */ }
-                    ui.suggest = [];
-                    bump();
-                  }
-                },
-              }),
-              ui.suggest.length ? h('ul', { className: 'oms-ac__list', role: 'listbox' },
-                ui.suggest.map(function (name, i) {
-                  return h('li', { key: name },
-                    h('button', {
-                      type: 'button',
-                      className: 'oms-ac__opt' + (i === ui.suggestHi ? ' is-on' : ''),
-                      role: 'option',
-                      'aria-selected': i === ui.suggestHi ? 'true' : 'false',
-                      onMouseDown: function (e) {
-                        try { e.preventDefault(); } catch (err) { /* ignore */ }
-                        pickSuggest(name);
-                      },
-                    }, name)
-                  );
-                })
-              ) : null
+            h('div', { className: 'oms-to' },
+              h('div', { className: 'oms-ac' },
+                h('input', {
+                  type: 'text',
+                  name: 'memo-to',
+                  autoComplete: 'off',
+                  role: 'combobox',
+                  'aria-autocomplete': 'list',
+                  'aria-expanded': ui.suggest.length ? 'true' : 'false',
+                  value: ui.to,
+                  placeholder: pick({ fr: 'Pseudo ou #salon', en: 'Nick or #channel' }),
+                  onChange: function (e) { queueSuggest(e.target.value); },
+                  onKeyDown: function (e) {
+                    if (!ui.suggest.length) return;
+                    if (e.key === 'ArrowDown') {
+                      try { e.preventDefault(); } catch (err) { /* ignore */ }
+                      ui.suggestHi = Math.min(ui.suggest.length - 1, ui.suggestHi + 1);
+                      bump();
+                    } else if (e.key === 'ArrowUp') {
+                      try { e.preventDefault(); } catch (err2) { /* ignore */ }
+                      ui.suggestHi = Math.max(0, ui.suggestHi - 1);
+                      bump();
+                    } else if (e.key === 'Escape') {
+                      try { e.preventDefault(); e.stopPropagation(); } catch (err3) { /* ignore */ }
+                      ui.suggest = [];
+                      bump();
+                    }
+                  },
+                }),
+                ui.suggest.length ? h('ul', { className: 'oms-ac__list', role: 'listbox' },
+                  ui.suggest.map(function (name, i) {
+                    return h('li', { key: name },
+                      h('button', {
+                        type: 'button',
+                        className: 'oms-ac__opt' + (i === ui.suggestHi ? ' is-on' : ''),
+                        role: 'option',
+                        'aria-selected': i === ui.suggestHi ? 'true' : 'false',
+                        onMouseDown: function (e) {
+                          try { e.preventDefault(); } catch (err) { /* ignore */ }
+                          pickSuggest(name);
+                        },
+                      }, name)
+                    );
+                  })
+                ) : null
+              ),
+              presenceEl()
             )
           ),
           h('label', null,
@@ -1053,6 +1182,38 @@
         };
       }
 
+      function MemoToasts() {
+        if (!ui.popups.length) return null;
+        return h('div', { className: 'oms-pop', 'aria-live': 'polite' },
+          ui.popups.map(function (p) {
+            var sub = p.channel
+              ? pick({ fr: 'Sur ' + p.channel, en: 'On ' + p.channel })
+              : p.from
+                ? pick({ fr: 'De ' + p.from, en: 'From ' + p.from })
+                : pick({ fr: 'Vous avez un nouveau mémo.', en: 'You have a new memo.' });
+            return h('div', { key: p.id, className: 'oms-pop__card' },
+              h('button', {
+                type: 'button',
+                className: 'oms-pop__main',
+                onClick: function () { openFromPopup(p.id); },
+              },
+                h('span', { className: 'oms-pop__t' }, pick({ fr: 'Nouveau mémo', en: 'New memo' })),
+                h('span', { className: 'oms-pop__s' }, sub)
+              ),
+              h('button', {
+                type: 'button',
+                className: 'oms-pop__x',
+                'aria-label': pick({ fr: 'Fermer', en: 'Close' }),
+                onClick: function (e) {
+                  try { e.stopPropagation(); } catch (err) { /* ignore */ }
+                  dismissPopup(p.id);
+                },
+              }, '×')
+            );
+          })
+        );
+      }
+
       function MemoPane() {
         useSyncExternalStore(subscribe, snap, snap);
         useEffect(function () {
@@ -1070,8 +1231,10 @@
           window.addEventListener('keydown', onKey);
           return function () { window.removeEventListener('keydown', onKey); };
         }, [ui.open]);
-        if (!ui.open) return null;
+        var toasts = h(MemoToasts);
+        if (!ui.open) return toasts;
         return h('div', null,
+          toasts,
           h('div', {
             style: { position: 'fixed', inset: 0, zIndex: 59 },
             onClick: function () { closeView(); },
@@ -1157,7 +1320,7 @@
     });
   }
 })(function () {
-  var VER = 5;
+  var VER = 8;
 
   function stripIrc(s) {
     return String(s || '')
@@ -1209,7 +1372,12 @@
     var note = '';
     var denied = false;
     var empty = false;
+    var sawHeader = false;
+    var flat = [];
     (lines || []).forEach(function (raw) {
+      String(raw || '').split(/\r\n|\n|\r/).forEach(function (part) { flat.push(part); });
+    });
+    flat.forEach(function (raw) {
       var line = stripIrc(raw).replace(/\s+$/g, '');
       var trimmed = line.trim();
       if (!trimmed) return;
@@ -1220,9 +1388,10 @@
         note = trimmed;
         return;
       }
-      if (/^m[eé]mos pour\b|^memos for\b/i.test(trimmed)) return;
-      if (/^(num[eé]ro|number)\b/i.test(trimmed)) return;
-      var row = line.match(/^\s*(\*)?\s*(\d+)\s{2,}(\S+)\s{2,}(.+)$/);
+      if (/^m[eé]mos pour\b|^memos for\b/i.test(trimmed)) { sawHeader = true; return; }
+      if (/^(num[eé]ro|number)\b/i.test(trimmed)) { sawHeader = true; return; }
+      var row = line.match(/^\s*(\*)?\s*(\d+)\s+(\S+)\s+(.+)$/);
+      if (!row) row = line.match(/^\s*(\*?)(\d+)\s+(\S+)\s+(.+)$/);
       if (row) {
         rows.push({
           id: parseInt(row[2], 10),
@@ -1244,6 +1413,7 @@
       rows: rows,
       empty: empty && !rows.length,
       denied: denied,
+      sawHeader: sawHeader,
       note: note,
     };
   }
