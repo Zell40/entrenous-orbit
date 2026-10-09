@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=16"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=17"]
  */
 (function (factory) {
   var api = factory();
@@ -329,11 +329,18 @@
           if (data && data.ok) {
             rpcState = 'on';
             var reply = String((data && data.text) || '');
-            if (kind === 'send' && !reply.trim()) {
-              var raw = data && data.raw ? String(data.raw) : '';
-              statusLine('envoi RPC sans réponse' + (raw ? ' · ' + raw.slice(0, 80) : '') + ', repli IRC');
-              sendIrc(kind, line);
-              return;
+            if (kind === 'send') {
+              var usable = parse.leftover(rpcLines(reply)).trim();
+              var brut = reply.replace(/\s+/g, ' ').trim().slice(0, 160);
+              var raw = data && data.raw ? String(data.raw).replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+              if (!usable || parse.looksError(usable)) {
+                statusLine('envoi RPC ' + (usable
+                  ? ('refusé · ' + usable.slice(0, 120))
+                  : ('sans confirmation · ' + (brut || raw || 'vide')))
+                  + ', repli IRC');
+                sendIrc(kind, line);
+                return;
+              }
             }
             if (kind === 'list') {
               var got = rpcLines(data.text).filter(function (s) { return String(s).trim(); });
@@ -528,7 +535,14 @@
           setFlash(left, err && !!left);
           if (kind === 'send' || kind === 'check' || kind === 'cancel') {
             var label = kind === 'send' ? 'envoi' : kind === 'check' ? 'vérification' : 'annulation';
-            statusLine(label + (err ? ' refusé · ' : ' ok · ') + String(left || 'réponse vide').slice(0, 160));
+            var shown = left || lines.map(function (s) { return parse.stripIrc(s).trim(); }).filter(Boolean).join(' | ');
+            statusLine(label + (err ? ' refusé · ' : ' ok · ') + String(shown || 'vide').slice(0, 160));
+            if (kind === 'send' && !left) {
+              setFlash(pick({
+                fr: 'L’envoi n’a pas été confirmé.' + (shown ? ' ' + shown : ''),
+                en: 'The send was not confirmed.' + (shown ? ' ' + shown : ''),
+              }), true);
+            }
           }
           if (kind === 'send' && left && !err) {
             ui.draft = '';
@@ -1500,7 +1514,7 @@
     });
   }
 })(function () {
-  var VER = 16;
+  var VER = 17;
 
   function stripIrc(s) {
     return String(s || '')
