@@ -364,23 +364,16 @@ if ($command === 'LIST') {
 }
 
 try {
-  // Prefer command without anope.identify (SASL session is enough). Identify only
-  // if MemoServ answers access-denied — identify re-triggers Gardian stats NOTICE.
+  // MemoServ SEND/LIST need anope.identify for the source nick — SASL alone is
+  // not enough on this Anope setup. Duplicate Gardian login stats from identify
+  // are swallowed client-side (once per Orbit session).
+  try {
+    anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.identify', [$account, $source]);
+  } catch (Throwable $e) {
+    /* The command itself reports access denied if identify did not take. */
+  }
   $params = array_merge([$source, $service, $command], $args);
   $text = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
-  $fold = strtolower($text);
-  $denied = (bool) preg_match(
-    '/access denied|permission denied|pas identifi|not identified|must be identified|vous devez.{0,40}identifi|acces refuse/',
-    $fold
-  );
-  if ($denied || trim($text) === '') {
-    try {
-      anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.identify', [$account, $source]);
-    } catch (Throwable $e) {
-      /* Command retry reports failure if identify did not take. */
-    }
-    $text = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params));
-  }
   echo json_encode(['ok' => true, 'text' => $text], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
   echo json_encode(['ok' => false, 'error' => 'rpc']);
