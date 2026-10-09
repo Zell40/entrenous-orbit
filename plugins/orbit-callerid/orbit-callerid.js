@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=28"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=29"]
  */
 (function () {
   'use strict';
@@ -321,7 +321,8 @@
     if (hideChannelWarnPref(orbit)) return;
     channelWarned[key] = true;
     var text = warnText(orbit, chan);
-    pushLocalLine(orbit, chan, text.replace(/\n\n/g, ' — ').replace(/\n/g, ' '), 'system');
+    // \x01SAFE\x01 → Orbit sysline--safe (fond bleu + triangle rouge), lisible sur fond salon.
+    pushLocalLine(orbit, chan, '\x01SAFE\x01' + text.replace(/\n\n/g, ' — ').replace(/\n/g, ' '), 'system');
     orbit.notify(
       pick(orbit, { fr: 'Contrôle parental', en: 'Parental controls' }),
       pick(orbit, {
