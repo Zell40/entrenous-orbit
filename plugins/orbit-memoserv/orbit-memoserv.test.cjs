@@ -64,6 +64,22 @@ assert.strictEqual(empty.ok, true);
 assert.strictEqual(empty.empty, true);
 assert.strictEqual(empty.rows.length, 0);
 
+const noNew = p.parseList(["Vous n'avez pas de nouveau mémo."]);
+assert.strictEqual(noNew.empty, false);
+assert.strictEqual(noNew.rows.length, 0);
+assert.strictEqual(noNew.note, '');
+
+const kept = p.parseList([
+  'Mémos pour Quen :',
+  '1: envoyé par Zell le ven. 09 oct. 2026 07:36:47',
+  "Vous n'avez pas de nouveau mémo.",
+]);
+assert.strictEqual(kept.rows.length, 1);
+assert.strictEqual(kept.empty, false);
+assert.strictEqual(kept.rows[0].sender, 'Zell');
+assert.strictEqual(p.classifyNotice("Vous n'avez pas de nouveau mémo.").type, 'quiet');
+assert.strictEqual(p.isQuietNotice("Vous n'avez pas de nouveau mémo."), true);
+
 const denied = p.parseList(['Accès refusé.']);
 assert.strictEqual(denied.denied, true);
 

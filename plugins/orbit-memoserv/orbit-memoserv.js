@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=15"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=16"]
  */
 (function (factory) {
   var api = factory();
@@ -466,7 +466,9 @@
           var note = parse.leftover(lines);
           if (fromList) {
             statusLine('READ NEW sans mémo · ' + String(note || '').slice(0, 120));
+            return;
           }
+          if (parse.isNoNewMemo(note)) return;
           setFlash(note || pick({ fr: 'Mémo introuvable.', en: 'Memo not found.' }), true);
           return;
         }
@@ -613,14 +615,14 @@
         var text = parse.stripIrc((msg.params && msg.params[1]) || '');
         if (!text || text.charAt(0) === '\x01') return;
         var info = parse.classifyNotice(text);
-        if (info && info.type === 'arrival') onArrival(info.from, info.channel || '');
-        else if (info && info.type === 'channel') {
+        var echoing = !!pending.kind;
+        if (info && info.type === 'arrival' && !echoing) onArrival(info.from, info.channel || '');
+        else if (info && info.type === 'channel' && !echoing) {
           onArrival('', info.channel);
         } else if (info && info.type === 'count') {
           ui.unreadHint = Math.max(ui.unreadHint || 0, info.n);
           bump();
-          if (info.n > 0) showMemoPopup('', '');
-        } else if (info && info.type === 'full') {
+        } else if (info && info.type === 'full' && !echoing) {
           setFlash(text, true);
           bump();
         }
@@ -1492,12 +1494,13 @@
           run: function () { openView('list'); },
         });
       }
-      log('mémos via ' + serviceNick());
+      console.info('[orbit-memoserv] loaded v' + parse.VER);
+      log('mémos v' + parse.VER + ' via ' + serviceNick());
       setTimeout(bootList, 600);
     });
   }
 })(function () {
-  var VER = 15;
+  var VER = 16;
 
   function stripIrc(s) {
     return String(s || '')
@@ -1525,7 +1528,19 @@
     }
     var n = t.match(/\byou have\s+(\d+)\s+new memos?\b/i) || t.match(/\bvous avez\s+(\d+)\s+nouveaux? m[eé]mos?\b/i);
     if (n) return { type: 'count', n: parseInt(n[1], 10) };
+    if (isNoNewMemo(t) || isEmptyInbox(t)) return { type: 'quiet' };
     return null;
+  }
+
+  function isNoNewMemo(line) {
+    var t = stripIrc(line).trim();
+    return /you have no new memos|pas de nouveau m[eé]mo|aucun nouveau m[eé]mo/i.test(t);
+  }
+
+  function isEmptyInbox(line) {
+    var t = stripIrc(line).trim();
+    if (isNoNewMemo(t)) return false;
+    return /you have no memos|n'avez pas de m[eé]mo|aucun m[eé]mo/i.test(t);
   }
 
   function isQuietNotice(line) {
@@ -1558,13 +1573,11 @@
       var line = stripIrc(raw).replace(/\s+$/g, '');
       var trimmed = line.trim();
       if (!trimmed) return;
-      if (classifyNotice(trimmed)) return;
-      if (looksDenied(trimmed)) { denied = true; note = trimmed; return; }
-      if (/you have no (new )?memos|pas de (nouveau )?m[eé]mo|aucun m[eé]mo/i.test(trimmed)) {
-        empty = true;
-        note = trimmed;
+      if (classifyNotice(trimmed)) {
+        if (isEmptyInbox(trimmed)) empty = true;
         return;
       }
+      if (looksDenied(trimmed)) { denied = true; note = trimmed; return; }
       if (/^m[eé]mos pour\b|^memos for\b/i.test(trimmed)) { sawHeader = true; return; }
       if (/^(num[eé]ro|number)\b/i.test(trimmed)) { sawHeader = true; return; }
       var row = line.match(/^\s*(\*)?\s*(\d+)\s+(\S+)\s+(.+)$/);
@@ -1671,6 +1684,7 @@
     VER: VER,
     stripIrc: stripIrc,
     classifyNotice: classifyNotice,
+    isNoNewMemo: isNoNewMemo,
     isQuietNotice: isQuietNotice,
     looksError: looksError,
     parseList: parseList,

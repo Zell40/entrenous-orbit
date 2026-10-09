@@ -1182,10 +1182,10 @@
     return new Promise(function (resolve) {
       try {
         if (orbit.irc && orbit.irc.send) {
-          // Same WHOX token as Orbit core (152) so 354 updates the member list.
-          if (isChannelName(buffer)) orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+          // Same WHOX token/fields as Orbit core (152 + tcnuhfar).
+          if (isChannelName(buffer)) orbit.irc.send('WHO ' + buffer + ' %tcnuhfar,152');
           else {
-            orbit.irc.send('WHO ' + buffer + ' %tcnfar,152');
+            orbit.irc.send('WHO ' + buffer + ' %tcnuhfar,152');
             orbit.irc.send('WHOIS ' + buffer);
           }
         }
