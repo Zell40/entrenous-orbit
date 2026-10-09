@@ -66,10 +66,14 @@ function valid_account(string $s): bool {
 }
 
 function valid_target(string $s): bool {
-  if (preg_match('/^[#&][^\x00-\x20\x07,]{1,50}$/', $s)) {
+  if (is_channel($s)) {
     return true;
   }
   return (bool) preg_match('/^[A-Za-z0-9_\\-\\[\\]\\\\^{}|`]{1,32}$/', $s);
+}
+
+function is_channel(string $s): bool {
+  return (bool) preg_match('/^[#&][^\x00-\x20\x07,]{1,50}$/', $s);
 }
 
 function valid_service(string $s): bool {
@@ -460,18 +464,25 @@ if (!in_array($command, $allowed, true)) {
 }
 
 if ($command === 'LIST') {
-  if (count($args) > 1 || (isset($args[0]) && $args[0] !== '' && !preg_match('/^(NEW|\d{1,4}(?:-\d{1,4})?(?:,\d{1,4}(?:-\d{1,4})?)*)$/i', $args[0]))) {
+  if (count($args) === 1 && is_channel($args[0])) {
+    // Mémos du salon, si l'utilisateur a le privilège MEMO.
+  } elseif (count($args) === 2 && is_channel($args[0]) && valid_numlist($args[1], true)) {
+    // LIST #salon NEW
+  } elseif (count($args) > 1 || (isset($args[0]) && $args[0] !== '' && !preg_match('/^(NEW|\d{1,4}(?:-\d{1,4})?(?:,\d{1,4}(?:-\d{1,4})?)*)$/i', $args[0]))) {
     fail(400, 'bad_params');
-  }
-  if (isset($args[0]) && $args[0] === '') {
+  } elseif (isset($args[0]) && $args[0] === '') {
     $args = [];
   }
 } elseif ($command === 'READ') {
-  if (count($args) !== 1 || !valid_numlist($args[0], true)) {
+  if (count($args) === 2 && is_channel($args[0]) && valid_numlist($args[1], true)) {
+    // READ #salon numéro
+  } elseif (count($args) !== 1 || !valid_numlist($args[0], true)) {
     fail(400, 'bad_params');
   }
 } elseif ($command === 'DEL') {
-  if (count($args) !== 1 || !valid_numlist($args[0], false)) {
+  if (count($args) === 2 && is_channel($args[0]) && valid_numlist($args[1], false)) {
+    // DEL #salon numéro
+  } elseif (count($args) !== 1 || !valid_numlist($args[0], false)) {
     fail(400, 'bad_params');
   }
 } elseif ($command === 'SEND' || $command === 'RSEND') {
@@ -510,8 +521,15 @@ try {
     /* The command itself reports access denied if identify did not take. */
   }
   $params = array_merge([$source, $service, $command], $args);
-  if ($command === 'SEND' || $command === 'RSEND') {
-    // One line: a 5th JSON parameter (the memo text) never reached MemoServ.
+  $hasChan = false;
+  foreach ($args as $arg) {
+    if (is_channel($arg)) {
+      $hasChan = true;
+      break;
+    }
+  }
+  if ($command === 'SEND' || $command === 'RSEND' || $hasChan) {
+    // Une seule ligne : un paramètre de plus (texte, ou numéro après #salon) n'arrivait pas à MemoServ.
     $params = [$source, $service, $command . ' ' . implode(' ', $args)];
   }
   $result = anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params);

@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=19"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=20"]
  */
 (function (factory) {
   var api = factory();
@@ -111,6 +111,11 @@
       var lastPopupAt = 0;
       var lastStatus = '';
       var sameStatus = 0;
+      var chanLeft = [];
+      var listChannel = '';
+      var focusKey = '';
+      var watchedChans = {};
+      var scanning = false;
 
       function statusLine(text) {
         var line = String(text || '');
@@ -146,11 +151,72 @@
       function badgeCount() {
         return Math.max(listedUnread(), ui.unreadHint || 0);
       }
-      function findMemo(id) {
+      function memoKey(m) {
+        return (m && m.channel ? m.channel : '') + ':' + (m ? m.id : '');
+      }
+      function findMemo(key) {
+        var want = String(key || '');
         for (var i = 0; i < ui.memos.length; i++) {
-          if (ui.memos[i].id === id) return ui.memos[i];
+          if (memoKey(ui.memos[i]) === want) return ui.memos[i];
         }
         return null;
+      }
+      function findPersonal(id) {
+        for (var i = 0; i < ui.memos.length; i++) {
+          if (!ui.memos[i].channel && ui.memos[i].id === id) return ui.memos[i];
+        }
+        return null;
+      }
+      function putMemos(channel, rows) {
+        var kept = {};
+        ui.memos.forEach(function (m) {
+          if ((m.channel || '') === channel && m.text) kept[m.id] = m.text;
+        });
+        var next = ui.memos.filter(function (m) { return (m.channel || '') !== channel; });
+        (rows || []).forEach(function (r) {
+          r.channel = channel;
+          r.text = kept[r.id] || r.text || '';
+          next.push(r);
+        });
+        next.sort(function (a, b) {
+          var ca = a.channel || '';
+          var cb = b.channel || '';
+          if (ca !== cb) {
+            if (!ca) return -1;
+            if (!cb) return 1;
+            return ca < cb ? -1 : 1;
+          }
+          return a.id - b.id;
+        });
+        ui.memos = next;
+        if (ui.reading && !findMemo(ui.reading)) ui.reading = '';
+      }
+      function watchChan(name) {
+        var ch = String(name || '').trim();
+        if (ch.charAt(0) !== '#' && ch.charAt(0) !== '&') return;
+        watchedChans[fold(ch)] = ch;
+      }
+      function channelTargets() {
+        var seen = {};
+        var out = [];
+        function add(name) {
+          var ch = String(name || '').trim();
+          if (ch.charAt(0) !== '#' && ch.charAt(0) !== '&') return;
+          var k = fold(ch);
+          if (seen[k]) return;
+          seen[k] = true;
+          out.push(ch);
+        }
+        var st = state();
+        var buffers = (st && st.buffers) || {};
+        Object.keys(buffers).forEach(function (key) {
+          var b = buffers[key];
+          if (!b || !b.isChannel || !b.joined) return;
+          add(b.name || key);
+        });
+        Object.keys(watchedChans).forEach(function (k) { add(watchedChans[k]); });
+        ui.memos.forEach(function (m) { if (m.channel) add(m.channel); });
+        return out.slice(0, 20);
       }
 
       function setFlash(text, err) {
@@ -159,7 +225,7 @@
       }
 
       function injectCss() {
-        var id = 'orbit-memoserv-css';
+        var id = 'orbit-memoserv-css-20';
         if (document.getElementById(id)) return;
         var el = document.createElement('style');
         el.id = id;
@@ -191,6 +257,7 @@
           '.oms-row__from{font-size:.92rem;font-weight:650}',
           '.oms-row.is-unread .oms-row__from{font-weight:800}',
           '.oms-row__when{display:block;font-size:.72rem;color:var(--muted,#a1a1aa);margin-top:.08rem}',
+          '.oms-row__chan{display:block;font-size:.68rem;font-weight:700;color:var(--accent,#2563eb);margin-top:.12rem}',
           '.oms-pill{margin-left:auto;flex:none;font-size:.65rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--accent,#93c5fd)}',
           '.oms-read{padding:.35rem .7rem .9rem}',
           '.oms-read__who{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}',
@@ -416,8 +483,33 @@
           return;
         }
         listStarted = Date.now();
+        chanLeft = channelTargets();
+        scanning = chanLeft.length > 0;
+        listChannel = '';
+        focusKey = '';
         statusLine('LIST → ' + reason);
         sendCmd('list', 'LIST');
+      }
+
+      function nextChannel() {
+        if (rpcState !== 'on' || !chanLeft.length) {
+          scanning = false;
+          chanLeft = [];
+          return false;
+        }
+        scanning = true;
+        listChannel = chanLeft.shift();
+        sendCmd('list-chan', 'LIST ' + listChannel);
+        return true;
+      }
+
+      function finishListPass() {
+        scanning = false;
+        listDone = Date.now();
+        var waited = listStarted ? (listDone - listStarted) : 0;
+        statusLine('liste affichée · ' + ui.memos.length + ' mémo' + (ui.memos.length > 1 ? 's' : '')
+          + (ui.needId ? ' · identification requise' : '')
+          + ' · ' + waited + ' ms');
       }
 
       function applyList(lines) {
@@ -428,46 +520,45 @@
             fr: 'Identifiez-vous auprès de NickServ pour utiliser les mémos.',
             en: 'Identify with NickServ to use memos.',
           }), true);
-          return;
+          return 'stop';
         }
         ui.needId = false;
         if (parsed.rows.length) {
-          var kept = {};
-          ui.memos.forEach(function (m) { if (m.text) kept[m.id] = m.text; });
-          ui.memos = parsed.rows.map(function (r) {
-            r.text = kept[r.id] || '';
-            return r;
-          });
+          putMemos('', parsed.rows);
           ui.listed = true;
           ui.pendingArrivals = 0;
           ui.unreadHint = 0;
           listProbe = '';
-          if (ui.reading && !findMemo(ui.reading)) ui.reading = 0;
           setFlash('', false);
-          return;
-        }
-        if (parsed.denied) {
-          listProbe = '';
-          setFlash(parsed.note, true);
-          return;
+          return 'ok';
         }
         if (parsed.empty) {
-          ui.memos = [];
+          putMemos('', []);
           ui.listed = true;
           ui.pendingArrivals = 0;
           ui.unreadHint = 0;
           listProbe = '';
           setFlash('', false);
-          return;
+          return 'ok';
         }
         if (parsed.sawHeader && listProbe !== 'read') {
           listProbe = 'read';
           var brut = (lines || []).map(function (s) { return String(s).trim(); }).filter(Boolean).slice(0, 4).join(' | ').slice(0, 160);
           statusLine('liste sans ligne reconnue · ' + brut);
+          focusKey = '';
           sendCmd('read-new', 'READ NEW');
-          return;
+          return 'probe';
         }
         if (parsed.note) setFlash(parsed.note, false);
+        return 'ok';
+      }
+
+      function applyChanList(lines, channel) {
+        if (!channel) return;
+        var parsed = parse.parseList(lines);
+        if (parsed.denied || !parsed.rows.length) putMemos(channel, []);
+        else putMemos(channel, parsed.rows);
+        ui.listed = true;
       }
 
       function applyRead(lines, fromList) {
@@ -483,16 +574,16 @@
           return;
         }
         reads.forEach(function (r) {
-          var m = findMemo(r.id);
+          var m = focusKey ? findMemo(focusKey) : findPersonal(r.id);
           if (!m) {
-            m = { id: r.id, sender: r.sender, when: r.when, unread: !!fromList, text: r.text };
+            m = { id: r.id, sender: r.sender, when: r.when, unread: !!fromList, text: r.text, channel: '' };
             ui.memos.push(m);
           }
           m.sender = r.sender || m.sender;
           m.when = r.when || m.when;
           m.text = r.text;
           if (!fromList) m.unread = false;
-          ui.reading = r.id;
+          ui.reading = memoKey(m);
         });
         if (fromList) {
           ui.listed = true;
@@ -517,15 +608,21 @@
         if (pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
         if (pending.coalesce) { clearTimeout(pending.coalesce); pending.coalesce = 0; }
 
-        if (kind === 'list' || kind === 'list-new') {
-          applyList(lines);
-          listDone = Date.now();
-          var waited = listStarted ? (listDone - listStarted) : 0;
-          statusLine('liste affichée · ' + ui.memos.length + ' mémo' + (ui.memos.length > 1 ? 's' : '')
-            + (ui.needId ? ' · identification requise' : '')
-            + ' · ' + waited + ' ms');
+        if (kind === 'list' || kind === 'list-chan') {
+          var step = kind === 'list-chan' ? 'ok' : applyList(lines);
+          if (kind === 'list-chan') applyChanList(lines, listChannel);
+          if (step === 'ok' && !queueList && nextChannel()) {
+            /* La liste des salons accessibles continue. */
+          } else if (step !== 'probe') {
+            finishListPass();
+          }
         }
-        else if (kind === 'read' || kind === 'read-new') applyRead(lines, kind === 'read-new');
+        else if (kind === 'read' || kind === 'read-new') {
+          applyRead(lines, kind === 'read-new');
+          if (kind === 'read-new' && !queueList) {
+            if (!nextChannel()) finishListPass();
+          }
+        }
         else if (kind === 'ignore') {
           var ig = parse.parseIgnore(lines);
           if (ig.ok) ui.ignores = ig.masks;
@@ -603,6 +700,7 @@
       }
 
       function onArrival(from, channel) {
+        if (channel) watchChan(channel);
         ui.pendingArrivals += 1;
         ui.unreadHint = listedUnread() + ui.pendingArrivals;
         bump();
@@ -728,27 +826,36 @@
         sendCmd('send', cmd + ' ' + target + ' ' + text);
       }
 
-      function readMemo(id) {
-        var m = findMemo(id);
-        ui.reading = id;
+      function readMemo(key) {
+        var m = findMemo(key);
+        if (!m) return;
+        ui.reading = key;
         ui.screen = 'read';
         bump();
-        if (m && m.text && !m.unread) return;
-        sendCmd('read', 'READ ' + id);
+        if (m.text && !m.unread) return;
+        focusKey = key;
+        sendCmd('read', 'READ ' + (m.channel ? m.channel + ' ' : '') + m.id);
       }
 
-      function deleteMemo(id) {
+      function deleteMemo(key) {
+        var m = findMemo(key);
+        if (!m) return;
         var ok = true;
         try {
-          ok = window.confirm(pick({
-            fr: 'Supprimer le mémo ' + id + ' ?',
-            en: 'Delete memo ' + id + '?',
-          }));
+          ok = window.confirm(m.channel
+            ? pick({
+              fr: 'Supprimer le mémo de ' + m.channel + ' ? Il disparaît pour toutes les personnes qui y ont accès.',
+              en: 'Delete the memo on ' + m.channel + '? It disappears for everyone who can see it.',
+            })
+            : pick({
+              fr: 'Supprimer le mémo ' + m.id + ' ?',
+              en: 'Delete memo ' + m.id + '?',
+            }));
         } catch (e) { ok = true; }
         if (!ok) return;
         ui.screen = 'list';
-        ui.reading = 0;
-        sendCmd('del', 'DEL ' + id);
+        ui.reading = '';
+        sendCmd('del', 'DEL ' + (m.channel ? m.channel + ' ' : '') + m.id);
       }
 
       function IconMail(props) {
@@ -858,8 +965,8 @@
               en: 'It stays until they read or delete it.',
             })),
             h('li', null, pick({
-              fr: 'On peut aussi laisser un mémo sur un salon enregistré, pour ceux qui n’étaient pas là.',
-              en: 'You can also leave a memo on a registered channel, for people who were away.',
+              fr: 'Un mémo laissé sur un salon apparaît ici pour les personnes qui ont l’accès Mémo. Le supprimer le retire pour tout le monde.',
+              en: 'A memo left on a channel shows up here for people with Memo access. Deleting it removes it for everyone.',
             })),
             canReceipt() ? h('li', null, pick({
               fr: 'L’accusé de lecture prévient quand le mémo a été ouvert.',
@@ -905,7 +1012,7 @@
             en: 'RPC is not configured. Set memoserv-rpc.local.php to the same URL and token as ChanServ, then redeploy.',
           }));
         }
-        if (ui.loading && !ui.memos.length && !ui.listed) {
+        if (ui.loading && !ui.memos.length && (!ui.listed || scanning)) {
           return h('p', { className: 'oms-empty' }, pick({ fr: 'Chargement des mémos…', en: 'Loading memos…' }));
         }
         if (ui.needId && !ui.memos.length) {
@@ -927,16 +1034,18 @@
           );
         }
         return h('div', null, ui.memos.map(function (m) {
+          var key = memoKey(m);
           return h('button', {
             type: 'button',
-            key: m.id,
+            key: key,
             className: 'oms-row' + (m.unread ? ' is-unread' : ''),
-            onClick: function () { readMemo(m.id); },
+            onClick: function () { readMemo(key); },
           },
             h('span', { className: 'oms-av', 'aria-hidden': true },
               String(m.sender || '?').replace(/^[#&]/, '').charAt(0).toUpperCase() || '?'),
             h('span', { style: { minWidth: 0, flex: 1 } },
               h('span', { className: 'oms-row__from' }, m.sender),
+              m.channel ? h('span', { className: 'oms-row__chan' }, m.channel) : null,
               h('span', { className: 'oms-row__when' }, m.when)
             ),
             m.unread ? h('span', { className: 'oms-pill' }, pick({ fr: 'Nouveau', en: 'New' })) : null
@@ -951,6 +1060,7 @@
         }
         return h('div', { className: 'oms-read' },
           h('p', { className: 'oms-read__who' }, m.sender),
+          m.channel ? h('p', { className: 'oms-row__chan' }, m.channel) : null,
           h('p', { className: 'oms-read__when' }, m.when || ''),
           ui.loading && !m.text
             ? h('p', { className: 'oms-hint' }, pick({ fr: 'Lecture…', en: 'Reading…' }))
@@ -965,10 +1075,12 @@
                 setFlash('', false);
                 queueSuggest(m.sender);
               },
-            }, pick({ fr: 'Répondre', en: 'Reply' })),
+            }, m.channel
+              ? pick({ fr: 'Répondre à ' + m.sender, en: 'Reply to ' + m.sender })
+              : pick({ fr: 'Répondre', en: 'Reply' })),
             h('button', {
               type: 'button', className: 'oms-btn oms-btn--warn',
-              onClick: function () { deleteMemo(m.id); },
+              onClick: function () { deleteMemo(memoKey(m)); },
             }, pick({ fr: 'Supprimer', en: 'Delete' }))
           )
         );
@@ -1517,7 +1629,7 @@
     });
   }
 })(function () {
-  var VER = 19;
+  var VER = 20;
 
   function stripIrc(s) {
     return String(s || '')

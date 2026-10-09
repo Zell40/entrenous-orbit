@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=29"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=30"]
  */
 (function () {
   'use strict';
@@ -987,9 +987,16 @@
     silenceNick(orbit, n, false);
 
     openPm(orbit, n);
-    pushLocalLine(orbit, n, pick(orbit, {
-      fr: 'Vous avez accepté la conversation avec ' + n + '.',
-      en: 'You accepted the conversation with ' + n + '.',
+    // \x01ACTION:allowlist\x01…\x01ICON\x01… → bandeau bleu Orbit + bouclier cliquable (sysline:action).
+    pushLocalLine(orbit, n, '\x01ACTION:allowlist\x01' + pick(orbit, {
+      fr: 'Vous avez accepté la conversation avec ' + n + '. '
+        + n + ' a été ajouté à votre liste blanche. '
+        + 'Vous pouvez gérer votre liste blanche en cliquant sur l’icône \x01ICON\x01 dans le menu du haut '
+        + 'ou en appuyant sur l’icône dans ce message.',
+      en: 'You accepted the conversation with ' + n + '. '
+        + n + ' was added to your allow list. '
+        + 'You can manage your allow list by clicking the \x01ICON\x01 icon in the top bar, '
+        + 'or by tapping the icon in this message.',
     }), 'system');
 
     var acceptMsg = pick(orbit, {
@@ -2244,6 +2251,11 @@
           setOutgoing(msg.nick, null);
         }
       }
+    });
+
+    orbit.on('sysline:action', function (ev) {
+      var action = ev && typeof ev === 'object' ? ev.action : ev;
+      if (action === 'allowlist') openListView(orbit);
     });
 
     orbit.addUi('sidebar_item', function () { return h(SideBadge, { orbit: orbit }); });

@@ -59,6 +59,15 @@ assert.strictEqual(glued.rows.length, 1);
 assert.strictEqual(glued.rows[0].sender, 'Bob');
 assert.strictEqual(glued.sawHeader, true);
 
+const chan = p.parseList([
+  'Mémos pour #Aide.chat :',
+  '* 1 Quen ven. 09 oct. 2026 11:18:42',
+]);
+assert.strictEqual(chan.rows.length, 1);
+assert.strictEqual(chan.rows[0].sender, 'Quen');
+assert.strictEqual(chan.rows[0].unread, true);
+assert.strictEqual(chan.sawHeader, true);
+
 const empty = p.parseList(["Vous n'avez pas de mémo."]);
 assert.strictEqual(empty.ok, true);
 assert.strictEqual(empty.empty, true);
