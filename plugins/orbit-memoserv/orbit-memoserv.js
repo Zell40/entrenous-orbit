@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=14"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=15"]
  */
 (function (factory) {
   var api = factory();
@@ -223,15 +223,15 @@
           '.oms-ign{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:.15rem .35rem;padding:.45rem .55rem;border-radius:12px}',
           '.oms-ign:hover{background:color-mix(in srgb,var(--ink,#fff) 5%,transparent)}',
           '.oms-ign span{font-weight:700}',
-          '@keyframes oms-pop{from{transform:translateY(10px) scale(.92);opacity:0}to{transform:none;opacity:1}}',
-          '.oms-pop{position:fixed;z-index:70;top:4.6rem;right:.85rem;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;width:min(250px,74vw);pointer-events:none}',
-          '.oms-pop__card{pointer-events:auto;width:100%;display:flex;align-items:center;min-height:64px;border-radius:999px;border:3px solid var(--accent,#2563eb);background:linear-gradient(90deg,rgba(255,255,255,.94) 0%,rgba(255,255,255,.72) 100%);color:#1e293b;box-shadow:0 10px 18px -10px rgba(0,0,0,.55);animation:oms-pop .35s ease both}',
-          '.oms-pop__main{flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;padding:.4rem .2rem .4rem .9rem}',
-          '.oms-pop__t{display:block;font-size:.78rem;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-          '.oms-pop__s{display:block;margin-top:.08rem;font-size:.68rem;font-weight:700;line-height:1.2;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-          '.oms-pop__x{flex:none;width:1.35rem;height:1.35rem;margin-right:.45rem;border:0;border-radius:999px;background:rgba(15,23,42,.08);color:#1e293b;cursor:pointer;font-size:.9rem;line-height:1}',
-          '.oms-pop__x:hover{background:rgba(15,23,42,.16)}',
-          '@media(max-width:880px){.oms-pop{top:3.6rem;right:.45rem;width:min(200px,58vw)}}',
+          '@keyframes oms-pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}',
+          '.oms-pop{position:fixed;z-index:150;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:stretch;gap:.55rem;width:min(420px,94vw);pointer-events:none}',
+          '.oms-pop__card{pointer-events:auto;display:flex;align-items:flex-start;gap:.75rem;padding:1rem 1.05rem 1rem 1rem;background:var(--bg,#fff);color:var(--ink,#17191c);border:1px solid var(--border,#e3e7eb);border-left:4px solid var(--accent,#2563eb);border-radius:16px;box-shadow:0 24px 64px -20px rgba(15,23,42,.45);animation:oms-pop .22s cubic-bezier(.2,.8,.2,1) both}',
+          '.oms-pop__badge{flex:none;width:2.35rem;height:2.35rem;border-radius:50%;display:grid;place-items:center;color:var(--accent,#2563eb);background:color-mix(in srgb,var(--accent,#2563eb) 14%,var(--bg,#fff))}',
+          '.oms-pop__main{flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;padding:.12rem 0 0}',
+          '.oms-pop__t{display:block;font-size:.95rem;font-weight:700;line-height:1.25;color:var(--ink,#17191c)}',
+          '.oms-pop__s{display:block;margin-top:.28rem;font-size:.8rem;font-weight:500;line-height:1.35;color:var(--muted,#5e6973)}',
+          '.oms-pop__x{flex:none;width:1.75rem;height:1.75rem;border:0;border-radius:8px;background:transparent;color:var(--muted,#5e6973);cursor:pointer;font-size:1.15rem;line-height:1}',
+          '.oms-pop__x:hover{color:var(--ink,#17191c);background:var(--bg-soft,rgba(0,0,0,.05))}',
         ].join('');
         document.head.appendChild(el);
       }
@@ -1356,7 +1356,8 @@
               : p.from
                 ? pick({ fr: 'De ' + p.from, en: 'From ' + p.from })
                 : pick({ fr: 'Vous avez un nouveau mémo.', en: 'You have a new memo.' });
-            return h('div', { key: p.id, className: 'oms-pop__card' },
+            return h('div', { key: p.id, className: 'oms-pop__card', role: 'alert' },
+              h('span', { className: 'oms-pop__badge', 'aria-hidden': true }, h(IconMail, { size: 20 })),
               h('button', {
                 type: 'button',
                 className: 'oms-pop__main',
@@ -1496,7 +1497,7 @@
     });
   }
 })(function () {
-  var VER = 14;
+  var VER = 15;
 
   function stripIrc(s) {
     return String(s || '')
