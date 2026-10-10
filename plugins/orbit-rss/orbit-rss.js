@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 29;
+  var ORX_VER = 30;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -23,7 +23,7 @@
     window.__ORBIT_RSS__ = ORX_VER;
 
     var pluginOrbit = null;
-    var db = { seen: {}, items: {} };
+    var db = { seen: {}, items: {}, gone: {} };
     var imgWait = {};
     var imgReady = {};
     var imgMiss = {};
@@ -69,6 +69,10 @@
       if (!isFinite(n) || n < 1) n = 10;
       if (n > MAX_ITEMS) n = MAX_ITEMS;
       return n;
+    }
+
+    function archMax() {
+      return isNarrow() ? Math.min(5, listMax()) : listMax();
     }
 
     function botNick() {
@@ -126,9 +130,10 @@
       try {
         if (pluginOrbit && pluginOrbit.storage) stored = pluginOrbit.storage.get('feeds', null);
       } catch (e) { stored = null; }
-      if (!stored || typeof stored !== 'object') stored = { seen: {}, items: {} };
+      if (!stored || typeof stored !== 'object') stored = { seen: {}, items: {}, gone: {} };
       if (!stored.seen || typeof stored.seen !== 'object') stored.seen = {};
       if (!stored.items || typeof stored.items !== 'object') stored.items = {};
+      if (!stored.gone || typeof stored.gone !== 'object') stored.gone = {};
       db = stored;
       var changed = false;
       Object.keys(db.items).forEach(function (key) {
@@ -160,8 +165,21 @@
       return itemTime(b) - itemTime(a);
     }
 
+    function goneMap(chan) {
+      if (!db.gone || typeof db.gone !== 'object') db.gone = {};
+      var key = chanKey(chan);
+      if (!db.gone[key] || typeof db.gone[key] !== 'object') db.gone[key] = {};
+      return db.gone[key];
+    }
+
+    function isGone(chan, id) {
+      return !!(id && goneMap(chan)[id]);
+    }
+
     function itemsOf(chan) {
-      return (db.items[chanKey(chan)] || []).filter(hasLink).slice().sort(byDateDesc);
+      return (db.items[chanKey(chan)] || []).filter(function (it) {
+        return hasLink(it) && !isGone(chan, it.id);
+      }).slice().sort(byDateDesc);
     }
 
     function seenMap(chan) {
@@ -174,6 +192,24 @@
       return !!(id && seenMap(chan)[id]);
     }
 
+    function forget(chan, id) {
+      if (!id) return;
+      var key = chanKey(chan);
+      goneMap(chan)[id] = Date.now();
+      db.items[key] = (db.items[key] || []).filter(function (it) { return it.id !== id; });
+      if (db.seen[key]) delete db.seen[key][id];
+      var gone = db.gone[key];
+      var ids = Object.keys(gone);
+      if (ids.length > 80) {
+        ids.sort(function (a, b) { return gone[a] - gone[b]; });
+        ids.slice(0, ids.length - 80).forEach(function (old) { delete gone[old]; });
+      }
+      saveDb();
+      if (ui.expanded === id) ui.expanded = '';
+      if (ui.archiveId === id) ui.archiveId = '';
+      ui.rev++;
+    }
+
     function markSeen(chan, id) {
       if (!id) return;
       seenMap(chan)[id] = Date.now();
@@ -182,7 +218,7 @@
     }
 
     function remember(chan, item) {
-      if (!hasLink(item)) return false;
+      if (!hasLink(item) || isGone(chan, item && item.id)) return false;
       var key = chanKey(chan);
       var list = db.items[key] ? db.items[key].slice() : [];
       for (var i = 0; i < list.length; i++) {
@@ -426,10 +462,12 @@
         '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .28rem 0 0;visibility:hidden}',
         '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set,.ohp-head__actions > .orx.orx--set,.oec-head__actions > .orx.orx--set,.opbac-head__actions > .orx.orx--set{visibility:visible}',
         '.orx--game .orx__stack,.orx--game .orx__arch{display:none}',
-        '.orx-arch-layer{position:fixed;z-index:400;box-sizing:border-box;width:min(360px,92vw);max-height:min(70vh,520px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0;pointer-events:auto;background:transparent;border:0;box-shadow:none}',
+        '.orx-arch-layer{position:fixed;z-index:400;box-sizing:border-box;width:min(360px,92vw);max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem 0 0;-webkit-overflow-scrolling:touch;pointer-events:auto;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
+        '.orx-arch-layer::-webkit-scrollbar{width:7px}',
+        '.orx-arch-layer::-webkit-scrollbar-thumb{background:rgba(15,23,42,.4);border-radius:999px}',
         '.orx-arch-layer .orx__arch{width:100%;max-height:none;overflow:visible;padding:0}',
         '.orx-arch-layer[hidden]{display:none!important}',
-        '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none}.ohp-head__actions>.orx .orx__chip,.oec-head__actions>.orx .orx__chip,.opbac-head__actions>.orx .orx__chip,.ohp-head>.orx .orx__chip,.oec-head>.orx .orx__chip,.opbac-head>.orx .orx__chip{padding:.22rem .5rem;font-size:.66rem;max-width:36vw}.main>.orx{width:min(168px,52vw);right:.4rem;max-height:min(38%,240px)}.main>.orx:has(.is-open){width:min(92vw,340px);max-height:min(72%,520px);overflow:auto}.main>.orx .orx__chip{padding:.2rem .5rem;font-size:.64rem}.main>.orx .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.main>.orx .orx__bubble:first-child{margin-top:0}.main>.orx .orx__bubble.is-open{height:auto;min-height:8.5rem;margin-top:8px;border-radius:18px}.main>.orx .orx__row{min-height:40px}.main>.orx .orx__bubble.is-open .orx__row{min-height:auto;align-items:flex-start}.main>.orx .orx__main{padding:.16rem .15rem .16rem .5rem}.main>.orx .orx__bubble.is-open .orx__main{padding:.45rem .2rem .2rem .7rem}.main>.orx .orx__title{font-size:.64rem}.main>.orx .orx__bubble.is-open .orx__title{font-size:.8rem;white-space:normal}.main>.orx .orx__date{font-size:.52rem}.main>.orx .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.main>.orx .orx__spin{right:1.45rem;width:.8rem;height:.8rem;margin-top:-.4rem}.main>.orx .orx__full{padding:.15rem .7rem .7rem;font-size:.76rem}.main>.orx .orx__link{display:inline-flex;align-items:center;justify-content:center;margin-top:.4rem;padding:.45rem .85rem;min-height:2.2rem;border-radius:999px;background:#fff;color:#1d4ed8;text-decoration:none;font-size:.74rem;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.18)}.main>.orx .orx__bubble.is-photo .orx__link{background:#fff;color:#1d4ed8;text-shadow:none}}',
+        '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none;max-height:min(42vh,280px)}.ohp-head__actions>.orx .orx__chip,.oec-head__actions>.orx .orx__chip,.opbac-head__actions>.orx .orx__chip,.ohp-head>.orx .orx__chip,.oec-head>.orx .orx__chip,.opbac-head>.orx .orx__chip{padding:.22rem .5rem;font-size:.66rem;max-width:36vw}.main>.orx{width:min(168px,52vw);right:.4rem;max-height:min(38%,240px)}.main>.orx:has(.is-open){width:min(92vw,340px);max-height:min(72%,520px);overflow:auto}.main>.orx .orx__chip{padding:.2rem .5rem;font-size:.64rem}.main>.orx .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.main>.orx .orx__bubble:first-child{margin-top:0}.main>.orx .orx__bubble.is-open{height:auto;min-height:8.5rem;margin-top:8px;border-radius:18px}.main>.orx .orx__row{min-height:40px}.main>.orx .orx__bubble.is-open .orx__row{min-height:auto;align-items:flex-start}.main>.orx .orx__main{padding:.16rem .15rem .16rem .5rem}.main>.orx .orx__bubble.is-open .orx__main{padding:.45rem .2rem .2rem .7rem}.main>.orx .orx__title{font-size:.64rem}.main>.orx .orx__bubble.is-open .orx__title{font-size:.8rem;white-space:normal}.main>.orx .orx__date{font-size:.52rem}.main>.orx .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.main>.orx .orx__spin{right:1.45rem;width:.8rem;height:.8rem;margin-top:-.4rem}.main>.orx .orx__full{padding:.15rem .7rem .7rem;font-size:.76rem}.main>.orx .orx__link{display:inline-flex;align-items:center;justify-content:center;margin-top:.4rem;padding:.45rem .85rem;min-height:2.2rem;border-radius:999px;background:#fff;color:#1d4ed8;text-decoration:none;font-size:.74rem;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.18)}.main>.orx .orx__bubble.is-photo .orx__link{background:#fff;color:#1d4ed8;text-shadow:none}}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
         '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
         '.main > .orx .orx__chip{touch-action:none;cursor:grab}',
@@ -472,9 +510,9 @@
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
         '.orx__chip-x{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;border-radius:999px;background:rgba(255,255,255,.22);font-size:.88rem;line-height:1;font-weight:800}',
         '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
-        '.orx__arch{width:100%;max-height:min(62vh,460px);overflow:auto;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .15rem .15rem 0;background:transparent;border:0;box-shadow:none}',
-        '.orx__arch::-webkit-scrollbar{width:6px}',
-        '.orx__arch::-webkit-scrollbar-thumb{background:rgba(15,23,42,.28);border-radius:999px}',
+        '.orx__arch{width:100%;max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem .15rem 0;-webkit-overflow-scrolling:touch;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
+        '.orx__arch::-webkit-scrollbar{width:7px}',
+        '.orx__arch::-webkit-scrollbar-thumb{background:rgba(15,23,42,.4);border-radius:999px}',
         '.orx__bubble--list{margin-top:0;height:64px;flex:none;animation:none}',
         '.orx__bubble--list.is-open{height:auto;min-height:64px;margin-top:0;border-radius:22px}',
         '.orx__empty{padding:.55rem .8rem;font-size:.74rem;font-weight:700;color:#fff;background:#0f172a;border-radius:999px}'
@@ -702,20 +740,34 @@
       });
     }
 
+    function sameText(a, b) {
+      return String(a || '').replace(/\s+/g, ' ').trim().toLowerCase() ===
+        String(b || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function expandHtml(it, withId) {
+      var label = bubbleLabel(it);
+      var title = String((it && it.title) || '').trim();
+      var desc = String((it && it.desc) || '').trim();
+      var bits = [];
+      if (title && !sameText(title, label)) bits.push('<div class="orx__headline">' + esc(title) + '</div>');
+      if (desc && !sameText(desc, title) && !sameText(desc, label)) {
+        bits.push('<div class="orx__desc">' + esc(desc) + '</div>');
+      }
+      if (it && it.link) {
+        bits.push('<a class="orx__link" data-act="link"' + (withId ? ' data-id="' + esc(it.id) + '"' : '') +
+          ' href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
+          pick({ fr: 'Voir sur le site', en: 'Open article' }) + '</a>');
+      }
+      return bits.length ? '<div class="orx__full">' + bits.join('') + '</div>' : '';
+    }
+
     function bubbleHtml(chan, it, i) {
       var open = ui.expanded === it.id;
       var when = whenLabel(it);
       var label = bubbleLabel(it);
       var img = cssUrl(it.img);
-      var full = '';
-      if (open) {
-        full = '<div class="orx__full">' +
-          (it.title ? '<div class="orx__headline">' + esc(it.title) + '</div>' : '') +
-          (it.desc ? '<div class="orx__desc">' + esc(it.desc) + '</div>' : '') +
-          (it.link ? '<a class="orx__link" data-act="link" data-id="' + esc(it.id) + '" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
-            pick({ fr: 'Voir sur le site', en: 'Open article' }) + '</a>' : '') +
-          '</div>';
-      }
+      var full = open ? expandHtml(it, true) : '';
       return '<article class="orx__bubble' + bubbleState(it) + (open ? ' is-open' : '') + '" data-id="' + esc(it.id) + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
         '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
         '<span class="orx__spin" aria-hidden="true"></span>' +
@@ -731,7 +783,7 @@
 
     function archiveHtml(chan) {
       if (!ui.archive) return '';
-      var list = itemsOf(chan).slice(0, listMax());
+      var list = itemsOf(chan).slice(0, archMax());
       list.forEach(function (it) { fillImage(chan, it); });
       if (!list.length) {
         return '<div class="orx__arch"><div class="orx__empty">' +
@@ -743,15 +795,7 @@
         var when = whenLabel(it);
         var label = bubbleLabel(it);
         var img = cssUrl(it.img);
-        var full = '';
-        if (open) {
-          full = '<div class="orx__full">' +
-            (it.title ? '<div class="orx__headline">' + esc(it.title) + '</div>' : '') +
-            (it.desc ? '<div class="orx__desc">' + esc(it.desc) + '</div>' : '') +
-            (it.link ? '<a class="orx__link" data-act="link" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">' +
-              pick({ fr: 'Voir sur le site', en: 'Open article' }) + '</a>' : '') +
-            '</div>';
-        }
+        var full = open ? expandHtml(it, false) : '';
         return '<article class="orx__bubble orx__bubble--list' + bubbleState(it) + (open ? ' is-open' : '') + '" data-id="' + esc(it.id) + '" data-img="' + esc(img) + '" style="' + esc(bubbleStyle(it, i)) + '">' +
           '<span class="orx__bg" style="' + esc(bgStyle(it)) + '"></span>' +
           '<span class="orx__spin" aria-hidden="true"></span>' +
@@ -760,6 +804,8 @@
               '<span class="orx__title">' + esc(label) + '</span>' +
               (when ? '<span class="orx__date">' + esc(when) + '</span>' : '') +
             '</button>' +
+            '<button type="button" class="orx__x" data-act="close" data-id="' + esc(it.id) + '" aria-label="' +
+              esc(pick({ fr: 'Retirer', en: 'Remove' })) + '">×</button>' +
           '</div>' + full + '</article>';
       }).join('');
       return '<div class="orx__arch">' + rows + '</div>';
@@ -810,8 +856,8 @@
       if (act === 'close') {
         ev.preventDefault();
         ev.stopPropagation();
-        if (ui.expanded === id) ui.expanded = '';
-        markSeen(chan, id);
+        if (ui.archive) forget(chan, id);
+        else markSeen(chan, id);
         paint();
         return;
       }
@@ -844,6 +890,22 @@
       return window.innerWidth < 880;
     }
 
+    function navOpen() {
+      var app = document.querySelector('.app');
+      if (app && (app.classList.contains('nav-open') || app.classList.contains('members-open'))) return true;
+      return !!document.querySelector('.nav-backdrop');
+    }
+
+    function watchNav() {
+      var appEl = document.querySelector('.app');
+      if (!appEl || !window.MutationObserver || appEl.__orxNavWatch) return;
+      appEl.__orxNavWatch = new MutationObserver(function () {
+        if (navOpen()) hideArchLayer();
+        else if (ui.archive) paint();
+      });
+      appEl.__orxNavWatch.observe(appEl, { attributes: true, attributeFilter: ['class'] });
+    }
+
     function hideArchLayer() {
       if (!archLayer) return;
       archLayer.hidden = true;
@@ -864,7 +926,7 @@
         archLayer.addEventListener('click', onRootClick);
         document.body.appendChild(archLayer);
       }
-      if (!ui.archive || !root || !useArchLayer()) {
+      if (!ui.archive || !root || !useArchLayer() || navOpen()) {
         hideArchLayer();
         return;
       }
@@ -888,7 +950,9 @@
       var head = root.closest('.ohp-head, .oec-head, .opbac-head');
       var headBox = shownBox(head);
       var top = Math.round((headBox ? headBox.bottom : box.bottom) + 8);
-      var maxH = Math.max(140, vh + topOff - top - 16);
+      var room = Math.max(120, vh + topOff - top - 16);
+      var cap = isNarrow() ? Math.min(Math.round(vh * 0.42), 280) : Math.min(Math.round(vh * 0.52), 380);
+      var maxH = Math.max(120, Math.min(room, cap));
       archLayer.hidden = false;
       archLayer.style.top = top + 'px';
       archLayer.style.maxHeight = maxH + 'px';
@@ -1183,6 +1247,7 @@
 
     function paint() {
       if (!pluginOrbit) return;
+      watchNav();
       var hero = document.querySelector('.chan-hero');
       var main = hero && hero.closest ? hero.closest('.main') : null;
       var chan = hero ? (hero.getAttribute('data-chan') || activeChan()) : '';
@@ -1237,6 +1302,7 @@
       loadDb();
       injectStyles();
       console.info('[orbit-rss] loaded v' + ORX_VER);
+      watchNav();
 
       if (orbit.addMessageFilter) {
         orbit.addMessageFilter(function (m) {

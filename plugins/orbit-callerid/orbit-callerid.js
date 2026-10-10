@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=30"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=31"]
  */
 (function () {
   'use strict';
@@ -67,6 +67,9 @@
   var outboundText = Object.create(null);
   /** Nicks we already told « blocked » after a refuse (session). */
   var refuseNotified = Object.create(null);
+  /** Blocker-side banner dismissed for these nicks (session). */
+  var dismissedWeBlocked = Object.create(null);
+  var STATUS_BUF = '$server';
 
   /** Incoming requests (718): nick → { nick, host, ts } */
   var pending = { map: Object.create(null), rev: 0, listeners: new Set() };
@@ -461,6 +464,7 @@
       outgoing.listeners.forEach(function (l) { l(); });
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
+      dismissedWeBlocked = Object.create(null);
       outboundText = Object.create(null);
       bumpDeny();
       if (log) log('callerid: compte changé (' + prev + ' → ' + owner + '), listes isolées');
@@ -968,6 +972,24 @@
     try { orbit.irc.send('NOTICE ' + nick + ' :' + text); } catch (e) { /* ignore */ }
   }
 
+  /** Log a short line on the Status console (not in the PM). */
+  function pushStatus(orbit, text) {
+    var body = String(text || '').trim();
+    if (!body) return;
+    try {
+      var st = orbit.state.get();
+      if (st && typeof st.pushSystem === 'function') {
+        st.pushSystem(STATUS_BUF, body);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    pushLocalLine(orbit, STATUS_BUF, body, 'system');
+  }
+
+  function isCalleridControlNotice(text) {
+    return isRefuseNotice(text) || isRevokedNotice(text) || isBlockNotice(text);
+  }
+
   function silenceNick(orbit, nick, add) {
     var n = String(nick || '').trim();
     if (!n) return;
@@ -1049,19 +1071,25 @@
         fr: MARK_REFUSE_FR + '. ' + MARK_BLOCK_FR + '.',
         en: MARK_REFUSE_EN + '. ' + MARK_BLOCK_EN + '.',
       });
-    noticePeer(orbit, n, refuseMsg);
-    refuseNotified[key] = true;
+    if (!refuseNotified[key]) {
+      noticePeer(orbit, n, refuseMsg);
+      refuseNotified[key] = true;
+    }
+    delete dismissedWeBlocked[key];
+
+    var statusLine = pick(orbit, {
+      fr: revoke
+        ? 'Vous avez bloqué ' + n + ' : cette personne ne pourra plus vous écrire en privé.'
+        : 'Demande de ' + n + ' refusée : cette personne ne pourra plus vous écrire en privé.',
+      en: revoke
+        ? 'You blocked ' + n + ': they can no longer private-message you.'
+        : 'Request from ' + n + ' declined: they can no longer private-message you.',
+    });
+    pushStatus(orbit, statusLine);
 
     orbit.notify(
       pick(orbit, { fr: 'Messages privés', en: 'Private messages' }),
-      pick(orbit, {
-        fr: revoke
-          ? n + ' a été bloqué. Il ne pourra plus vous écrire en privé.'
-          : 'Demande de ' + n + ' refusée. Il ne pourra plus vous écrire en privé.',
-        en: revoke
-          ? n + ' was blocked. They can no longer private-message you.'
-          : 'Request from ' + n + ' declined. They can no longer private-message you.',
-      })
+      statusLine
     );
     window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
   }
@@ -1119,19 +1147,21 @@
     if (isRefuseNotice(text) || isRevokedNotice(text) || isBlockNotice(text)) {
       markPeerBlockedUs(orbit, fromNick);
       var revoked = isRevokedNotice(text) || (isBlockNotice(text) && !isRefuseNotice(text));
+      var peerLine = pick(orbit, {
+        fr: fromNick + (revoked
+          ? ' vous a bloqué : impossible de lui envoyer des messages privés.'
+          : ' a refusé votre demande : impossible de lui envoyer des messages privés.'),
+        en: fromNick + (revoked
+          ? ' blocked you: you cannot send them private messages.'
+          : ' declined your request: you cannot send them private messages.'),
+      });
+      pushStatus(orbit, peerLine);
       orbit.notify(
         pick(orbit, {
           fr: revoked ? 'Conversation bloquée' : 'Conversation refusée',
           en: revoked ? 'Conversation blocked' : 'Conversation declined',
         }),
-        pick(orbit, {
-          fr: fromNick + (revoked
-            ? ' a bloqué la conversation. Impossible de lui envoyer des messages privés.'
-            : ' a refusé votre demande. Impossible de lui envoyer des messages privés.'),
-          en: fromNick + (revoked
-            ? ' blocked the conversation. You cannot send them private messages.'
-            : ' declined your request. You cannot send them private messages.'),
-        })
+        peerLine
       );
     }
   }
@@ -1493,6 +1523,8 @@
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribeOutgoing, getOutgoingSnap, getOutgoingSnap);
     useSyncExternalStore(subscribePeers, getPeersSnap, getPeersSnap);
+    useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
+    var [, bumpDismiss] = useState(0);
     var active = useSyncExternalStore(
       function (cb) { return orbit.on('buffer.active', cb); },
       function () { return orbit.state.active(); },
@@ -1538,7 +1570,36 @@
       // a protected (often underage) account. Neutral callerid wording only.
       var peerCallerid = !!(peer && (peer.g || peer.group));
       var blockedByPeer = isBlockedBy(orbit, active) || !!(wait && wait.refused);
-      if (wait || peerCallerid || blockedByPeer) {
+      var weBlocked = isDenied(orbit, active);
+      var weKey = pendingKey(active);
+
+      if (weBlocked && !dismissedWeBlocked[weKey]) {
+        nodes.push(h('div', { key: 'we-block-' + weKey, className: 'ocid-banner ocid-banner--blocked', role: 'status' },
+          h('span', { className: 'ocid-banner__txt' },
+            pick(orbit, {
+              fr: 'Vous avez bloqué ' + active + ' : cette personne ne peut plus vous écrire en privé.',
+              en: 'You blocked ' + active + ': they can no longer private-message you.',
+            })
+          ),
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn',
+            onClick: function () {
+              dismissedWeBlocked[weKey] = true;
+              bumpDismiss(function (n) { return n + 1; });
+            },
+          }, pick(orbit, { fr: 'Masquer', en: 'Dismiss' })),
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn ocid-banner__btn--ok',
+            onClick: function () {
+              unblockNick(orbit, active);
+              delete dismissedWeBlocked[weKey];
+              bumpDismiss(function (n) { return n + 1; });
+            },
+          }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
+        ));
+      } else if (wait || peerCallerid || blockedByPeer) {
         var waitTxt;
         if (blockedByPeer) {
           waitTxt = pick(orbit, {
@@ -1958,6 +2019,7 @@
       restoreDone = false;
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
+      dismissedWeBlocked = Object.create(null);
       outboundText = Object.create(null);
       peers.probedAt = Object.create(null);
       peers.loading = Object.create(null);
@@ -2175,12 +2237,19 @@
         var fromHost = params[2] || '';
         if (!fromNick) return;
         if (isDenied(orbit, fromNick)) {
-          // Already refused — remind the requester they are blocked (each retry).
-          noticePeer(orbit, fromNick, pick(orbit, {
-            fr: MARK_REVOKED_FR + '. ' + MARK_BLOCK_FR + '.',
-            en: MARK_REVOKED_EN + '. ' + MARK_BLOCK_EN + '.',
-          }));
-          refuseNotified[pendingKey(fromNick)] = true;
+          // Already refused — one reminder max (Orbit shows a banner; Status keeps a log).
+          var deniedKey = pendingKey(fromNick);
+          if (!refuseNotified[deniedKey]) {
+            noticePeer(orbit, fromNick, pick(orbit, {
+              fr: MARK_REVOKED_FR + '. ' + MARK_BLOCK_FR + '.',
+              en: MARK_REVOKED_EN + '. ' + MARK_BLOCK_EN + '.',
+            }));
+            refuseNotified[deniedKey] = true;
+            pushStatus(orbit, pick(orbit, {
+              fr: fromNick + ' a réessayé de vous écrire (toujours bloqué).',
+              en: fromNick + ' tried to message you again (still blocked).',
+            }));
+          }
           return;
         }
         activateCallerid(orbit, log, '718');
@@ -2257,6 +2326,14 @@
       var action = ev && typeof ev === 'object' ? ev.action : ev;
       if (action === 'allowlist') openListView(orbit);
     });
+
+    // Hide refuse/block NOTICEs from the PM (banner + Status are enough on Orbit).
+    if (typeof orbit.addMessageFilter === 'function') {
+      orbit.addMessageFilter(function (m) {
+        if (!m || String(m.command || '').toUpperCase() !== 'NOTICE') return false;
+        return isCalleridControlNotice(m.text);
+      });
+    }
 
     orbit.addUi('sidebar_item', function () { return h(SideBadge, { orbit: orbit }); });
     orbit.addUi('sidebar_room', function () { return h(WhitelistRoomRow, { orbit: orbit }); });
