@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=20"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=22"]
  */
 (function (factory) {
   var api = factory();
@@ -111,6 +111,8 @@
       var lastPopupAt = 0;
       var lastStatus = '';
       var sameStatus = 0;
+      var lastMirror = '';
+      var echoHideUntil = 0;
       var chanLeft = [];
       var listChannel = '';
       var focusKey = '';
@@ -129,6 +131,24 @@
           sameStatus = 0;
         }
         log(line);
+      }
+
+      function statusOpen() {
+        var st = state();
+        return !!(st && st.prefs && st.prefs.showStatus);
+      }
+
+      function mirrorService(lines) {
+        if (!statusOpen()) return;
+        var st = state();
+        if (!st || typeof st.pushLocal !== 'function') return;
+        var who = serviceNick();
+        (lines || []).forEach(function (raw) {
+          var line = parse.stripIrc(String(raw || '')).trim();
+          if (!line || line === lastMirror) return;
+          lastMirror = line;
+          try { st.pushLocal('$server', line, who, 'notice'); } catch (e) { /* ignore */ }
+        });
       }
 
       function bump() {
@@ -604,9 +624,11 @@
         pending.kind = '';
         pending.lines = [];
         hideUntil = 0;
+        echoHideUntil = Date.now() + 2500;
         ui.loading = false;
         if (pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
         if (pending.coalesce) { clearTimeout(pending.coalesce); pending.coalesce = 0; }
+        if (kind) mirrorService(lines);
 
         if (kind === 'list' || kind === 'list-chan') {
           var step = kind === 'list-chan' ? 'ok' : applyList(lines);
@@ -752,7 +774,7 @@
         var text = parse.stripIrc(m.text || '');
         if (!text || text.charAt(0) === '\x01') return false;
         if (parse.isQuietNotice(text)) return true;
-        if (pending.kind && Date.now() < hideUntil) return true;
+        if (pending.kind || Date.now() < echoHideUntil) return true;
         return false;
       }
 
@@ -1629,7 +1651,7 @@
     });
   }
 })(function () {
-  var VER = 20;
+  var VER = 22;
 
   function stripIrc(s) {
     return String(s || '')
