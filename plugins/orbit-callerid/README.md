@@ -45,7 +45,7 @@ Côté demandeur : textes neutres (jamais « contrôle parental »).
     "officialSuffix": ".chat"
   },
   "plugins": [
-    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=31"
+    "/app/plugins/third/orbit-callerid/orbit-callerid.js?v=32"
   ]
 }
 ```

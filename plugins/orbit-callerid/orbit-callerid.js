@@ -13,7 +13,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=31"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=32"]
  */
 (function () {
   'use strict';
@@ -1308,14 +1308,21 @@
       '.ocid-card__count{font-size:.75rem;font-weight:700;padding:.12rem .45rem;border-radius:999px;background:color-mix(in srgb,#0ea5e9 16%,var(--bg));color:#0369a1}',
       '.ocid-card__count--warn{background:color-mix(in srgb,#f59e0b 20%,var(--bg));color:#b45309}',
       '.ocid-card__count--danger{background:color-mix(in srgb,#ef4444 16%,var(--bg));color:#b91c1c}',
-      '.ocid-card__bd{padding:.35rem .55rem .55rem}',
-      '.ocid-card__hint{margin:0;padding:.55rem .35rem .25rem;font-size:.82rem;opacity:.72;line-height:1.35}',
-      '.ocid-row{display:flex;align-items:center;justify-content:space-between;gap:.65rem;padding:.55rem .4rem;border-radius:8px}',
-      '.ocid-row:hover{background:var(--bg-soft,rgba(0,0,0,.03))}',
-      '.ocid-row__nick{font-weight:650;font-size:.95rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.ocid-row__meta{font-size:.75rem;opacity:.65;margin-top:.1rem}',
+      '.ocid-card__bd{padding:.55rem .65rem .7rem;display:flex;flex-direction:column;gap:.45rem}',
+      '.ocid-card__hint{margin:0;padding:.45rem .55rem;font-size:.8rem;line-height:1.4;color:var(--muted,inherit);opacity:.9;background:var(--bg-soft,rgba(0,0,0,.03));border-radius:8px;border:1px dashed var(--border,rgba(0,0,0,.12))}',
+      '.ocid-card__hint--danger{background:color-mix(in srgb,#ef4444 8%,var(--bg,#fff));border-color:color-mix(in srgb,#ef4444 28%,var(--border,rgba(0,0,0,.12)));color:#991b1b}',
+      '.ocid-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.65rem .7rem;border-radius:10px;border:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,var(--bg-soft,rgba(0,0,0,.02)) 80%,var(--bg,#fff))}',
+      '.ocid-row:hover{background:var(--bg-soft,rgba(0,0,0,.04));border-color:color-mix(in srgb,#0ea5e9 28%,var(--border,rgba(0,0,0,.12)))}',
+      '.ocid-row--blocked{background:color-mix(in srgb,#ef4444 9%,var(--bg,#fff));border-color:color-mix(in srgb,#ef4444 32%,var(--border,rgba(0,0,0,.12)))}',
+      '.ocid-row--blocked:hover{background:color-mix(in srgb,#ef4444 14%,var(--bg,#fff));border-color:color-mix(in srgb,#ef4444 45%,var(--border))}',
+      '.ocid-row--ok{background:color-mix(in srgb,#0ea5e9 8%,var(--bg,#fff));border-color:color-mix(in srgb,#0ea5e9 28%,var(--border,rgba(0,0,0,.12)))}',
+      '.ocid-row__who{display:flex;align-items:center;gap:.55rem;min-width:0;flex:1}',
+      '.ocid-row__av{flex:none;width:2rem;height:2rem;border-radius:9px;display:grid;place-items:center;font-size:.85rem;font-weight:800;color:#fff;background:#0ea5e9}',
+      '.ocid-row--blocked .ocid-row__av{background:#dc2626}',
+      '.ocid-row__nick{font-weight:750;font-size:.98rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink,inherit)}',
+      '.ocid-row__meta{font-size:.75rem;opacity:.72;margin-top:.12rem;font-weight:550}',
       '.ocid-row__actions{display:flex;gap:.35rem;flex-wrap:wrap;flex:none}',
-      '.ocid-empty{margin:0;padding:.7rem .4rem;font-size:.88rem;opacity:.65;text-align:center}',
+      '.ocid-empty{margin:0;padding:.85rem .5rem;font-size:.88rem;opacity:.65;text-align:center}',
       '.ocid-toolbar{display:flex;flex-direction:column;gap:.55rem;padding:.85rem .9rem}',
       '.ocid-toolbar__row{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}',
       '.ocid-toolbar input[type=text]{flex:1 1 10rem;min-width:0;padding:.45rem .65rem;border:1px solid var(--border,rgba(0,0,0,.15));border-radius:8px;background:var(--bg,#fff);color:inherit;font:inherit}',
@@ -1739,11 +1746,15 @@
           ),
           h('div', { className: 'ocid-card__bd' },
             pendingItems.map(function (req) {
+              var initial = String(req.nick || '?').charAt(0).toUpperCase();
               return h('div', { key: 'p-' + req.nick, className: 'ocid-row' },
-                h('div', { style: { minWidth: 0 } },
-                  h('div', { className: 'ocid-row__nick' }, req.nick),
-                  h('div', { className: 'ocid-row__meta' },
-                    pick(orbit, { fr: 'En attente de votre réponse', en: 'Waiting for your reply' })
+                h('div', { className: 'ocid-row__who' },
+                  h('span', { className: 'ocid-row__av', 'aria-hidden': true, style: { background: '#d97706' } }, initial),
+                  h('div', { style: { minWidth: 0 } },
+                    h('div', { className: 'ocid-row__nick' }, req.nick),
+                    h('div', { className: 'ocid-row__meta' },
+                      pick(orbit, { fr: 'En attente de votre réponse', en: 'Waiting for your reply' })
+                    )
                   )
                 ),
                 h('span', { className: 'ocid-row__actions' },
@@ -1780,8 +1791,17 @@
             }))
             : null,
           nicks.map(function (nick) {
-            return h('div', { key: nick, className: 'ocid-row' },
-              h('div', { className: 'ocid-row__nick' }, nick),
+            var initial = String(nick || '?').charAt(0).toUpperCase();
+            return h('div', { key: nick, className: 'ocid-row ocid-row--ok' },
+              h('div', { className: 'ocid-row__who' },
+                h('span', { className: 'ocid-row__av', 'aria-hidden': true }, initial),
+                h('div', { style: { minWidth: 0 } },
+                  h('div', { className: 'ocid-row__nick' }, nick),
+                  h('div', { className: 'ocid-row__meta' },
+                    pick(orbit, { fr: 'Autorisé à vous écrire', en: 'Allowed to message you' })
+                  )
+                )
+              ),
               h('span', { className: 'ocid-row__actions' },
                 h('button', {
                   type: 'button',
@@ -1808,10 +1828,10 @@
           h('span', { className: 'ocid-card__count ocid-card__count--danger' }, String(denied.length))
         ),
         h('div', { className: 'ocid-card__bd' },
-          h('p', { className: 'ocid-card__hint' },
+          h('p', { className: 'ocid-card__hint ocid-card__hint--danger' },
             pick(orbit, {
-              fr: 'Refusés via SILENCE. Débloquez pour permettre une nouvelle demande.',
-              en: 'Declined via SILENCE. Unblock to allow a new request.',
+              fr: 'Ces personnes ne peuvent plus vous écrire (refus / SILENCE). Débloquez pour autoriser une nouvelle demande.',
+              en: 'These people cannot message you (decline / SILENCE). Unblock to allow a new request.',
             })
           ),
           !denied.length
@@ -1821,8 +1841,17 @@
             }))
             : null,
           denied.map(function (nick) {
-            return h('div', { key: 'd-' + nick, className: 'ocid-row' },
-              h('div', { className: 'ocid-row__nick' }, nick),
+            var initial = String(nick || '?').charAt(0).toUpperCase();
+            return h('div', { key: 'd-' + nick, className: 'ocid-row ocid-row--blocked' },
+              h('div', { className: 'ocid-row__who' },
+                h('span', { className: 'ocid-row__av', 'aria-hidden': true }, initial),
+                h('div', { style: { minWidth: 0 } },
+                  h('div', { className: 'ocid-row__nick' }, nick),
+                  h('div', { className: 'ocid-row__meta' },
+                    pick(orbit, { fr: 'Bloqué — ne peut plus vous écrire', en: 'Blocked — cannot message you' })
+                  )
+                )
+              ),
               h('span', { className: 'ocid-row__actions' },
                 h('button', {
                   type: 'button',

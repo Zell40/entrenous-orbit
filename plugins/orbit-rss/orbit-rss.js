@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 30;
+  var ORX_VER = 31;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -31,6 +31,9 @@
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
     var archLayer = null;
+    var gameWatch = null;
+    var gameWatchEl = null;
+    var gateMiss = 0;
     var drag = { on: false, moved: false, id: 0, x: 0, y: 0, top: 0, right: 0 };
 
     function pick(table) {
@@ -459,15 +462,14 @@
       css.textContent = [
         '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
         '.main > .orx.orx--set{visibility:visible}',
-        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0 .28rem 0 0;visibility:hidden}',
-        '.ohp-head > .orx.orx--set,.oec-head > .orx.orx--set,.opbac-head > .orx.orx--set,.ohp-head__actions > .orx.orx--set,.oec-head__actions > .orx.orx--set,.opbac-head__actions > .orx.orx--set{visibility:visible}',
+        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0;visibility:visible}',
         '.orx--game .orx__stack,.orx--game .orx__arch{display:none}',
         '.orx-arch-layer{position:fixed;z-index:400;box-sizing:border-box;width:min(360px,92vw);max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem 0 0;-webkit-overflow-scrolling:touch;pointer-events:auto;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
         '.orx-arch-layer::-webkit-scrollbar{width:7px}',
         '.orx-arch-layer::-webkit-scrollbar-thumb{background:rgba(15,23,42,.4);border-radius:999px}',
         '.orx-arch-layer .orx__arch{width:100%;max-height:none;overflow:visible;padding:0}',
         '.orx-arch-layer[hidden]{display:none!important}',
-        '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none;max-height:min(42vh,280px)}.ohp-head__actions>.orx .orx__chip,.oec-head__actions>.orx .orx__chip,.opbac-head__actions>.orx .orx__chip,.ohp-head>.orx .orx__chip,.oec-head>.orx .orx__chip,.opbac-head>.orx .orx__chip{padding:.22rem .5rem;font-size:.66rem;max-width:36vw}.main>.orx{width:min(168px,52vw);right:.4rem;max-height:min(38%,240px)}.main>.orx:has(.is-open){width:min(92vw,340px);max-height:min(72%,520px);overflow:auto}.main>.orx .orx__chip{padding:.2rem .5rem;font-size:.64rem}.main>.orx .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.main>.orx .orx__bubble:first-child{margin-top:0}.main>.orx .orx__bubble.is-open{height:auto;min-height:8.5rem;margin-top:8px;border-radius:18px}.main>.orx .orx__row{min-height:40px}.main>.orx .orx__bubble.is-open .orx__row{min-height:auto;align-items:flex-start}.main>.orx .orx__main{padding:.16rem .15rem .16rem .5rem}.main>.orx .orx__bubble.is-open .orx__main{padding:.45rem .2rem .2rem .7rem}.main>.orx .orx__title{font-size:.64rem}.main>.orx .orx__bubble.is-open .orx__title{font-size:.8rem;white-space:normal}.main>.orx .orx__date{font-size:.52rem}.main>.orx .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.main>.orx .orx__spin{right:1.45rem;width:.8rem;height:.8rem;margin-top:-.4rem}.main>.orx .orx__full{padding:.15rem .7rem .7rem;font-size:.76rem}.main>.orx .orx__link{display:inline-flex;align-items:center;justify-content:center;margin-top:.4rem;padding:.45rem .85rem;min-height:2.2rem;border-radius:999px;background:#fff;color:#1d4ed8;text-decoration:none;font-size:.74rem;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.18)}.main>.orx .orx__bubble.is-photo .orx__link{background:#fff;color:#1d4ed8;text-shadow:none}}',
+        '@media(max-width:880px){.orx-arch-layer{left:8px;right:8px;width:auto;max-width:none;max-height:min(42vh,280px)}.main>.orx{width:min(168px,52vw);right:.4rem;max-height:min(38%,240px)}.main>.orx:has(.is-open){width:min(92vw,340px);max-height:min(72%,520px);overflow:auto}.main>.orx .orx__chip{padding:.2rem .5rem;font-size:.64rem}.main>.orx .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.main>.orx .orx__bubble:first-child{margin-top:0}.main>.orx .orx__bubble.is-open{height:auto;min-height:8.5rem;margin-top:8px;border-radius:18px}.main>.orx .orx__row{min-height:40px}.main>.orx .orx__bubble.is-open .orx__row{min-height:auto;align-items:flex-start}.main>.orx .orx__main{padding:.16rem .15rem .16rem .5rem}.main>.orx .orx__bubble.is-open .orx__main{padding:.45rem .2rem .2rem .7rem}.main>.orx .orx__title{font-size:.64rem}.main>.orx .orx__bubble.is-open .orx__title{font-size:.8rem;white-space:normal}.main>.orx .orx__date{font-size:.52rem}.main>.orx .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.main>.orx .orx__spin{right:1.45rem;width:.8rem;height:.8rem;margin-top:-.4rem}.main>.orx .orx__full{padding:.15rem .7rem .7rem;font-size:.76rem}.main>.orx .orx__link{display:inline-flex;align-items:center;justify-content:center;margin-top:.4rem;padding:.45rem .85rem;min-height:2.2rem;border-radius:999px;background:#fff;color:#1d4ed8;text-decoration:none;font-size:.74rem;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.18)}.main>.orx .orx__bubble.is-photo .orx__link{background:#fff;color:#1d4ed8;text-shadow:none}}',
         '.main > .orx:has(.is-open),.main > .orx:has(.orx__arch){width:min(320px,90vw)}',
         '.orx__chip,.orx__bubble,.orx__arch{pointer-events:auto}',
         '.main > .orx .orx__chip{touch-action:none;cursor:grab}',
@@ -510,6 +512,12 @@
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
         '.orx__chip-x{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;border-radius:999px;background:rgba(255,255,255,.22);font-size:.88rem;line-height:1;font-weight:800}',
         '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
+        '.orx--game .orx__chip{position:relative;width:36px;height:34px;min-width:36px;min-height:34px;padding:0;gap:0;border-radius:9px;box-shadow:none;background:#2563eb;filter:none;font-size:0}',
+        '.orx--game .orx__chip:hover{background:#1d4ed8;filter:none}',
+        '.orx--game .orx__chip.is-on{background:#1e3a8a}',
+        '.orx--game .orx__chip svg{width:18px;height:18px;display:block}',
+        '.orx--game .orx__chip-x{display:none}',
+        '.orx--game .orx__n{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;line-height:1.15rem;box-shadow:0 0 0 2px #2563eb}',
         '.orx__arch{width:100%;max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem .15rem 0;-webkit-overflow-scrolling:touch;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
         '.orx__arch::-webkit-scrollbar{width:7px}',
         '.orx__arch::-webkit-scrollbar-thumb{background:rgba(15,23,42,.4);border-radius:999px}',
@@ -811,6 +819,10 @@
       return '<div class="orx__arch">' + rows + '</div>';
     }
 
+    function newsIcon() {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h13a2 2 0 012 2v11H6a2 2 0 01-2-2V5zm2 2v9h11V7H6zm12 2h2v10a2 2 0 01-2 2H5v-2h13V9zM8 9h7v2H8V9zm0 4h5v2H8v-2z"/></svg>';
+    }
+
     function render(chan) {
       var list = bubbles(chan);
       list.forEach(function (it) { fillImage(chan, it); });
@@ -820,10 +832,13 @@
       var close = ui.archive ? '<span class="orx__chip-x" aria-hidden="true">×</span>' : '';
       var game = root.classList.contains('orx--game');
       var portal = game || isNarrow();
-      var dragHint = game ? '' : ' title="' + esc(pick({ fr: 'Glisser pour déplacer', en: 'Drag to move' })) + '"';
+      var label = pick({ fr: 'Actualités', en: 'News' });
+      var tip = game ? label : pick({ fr: 'Glisser pour déplacer', en: 'Drag to move' });
+      var inner = game ? newsIcon() + badge : (esc(label) + badge + close);
       root.innerHTML =
-        '<button type="button" class="' + chipClass + '" data-act="chip" aria-expanded="' + (ui.archive ? 'true' : 'false') + '"' + dragHint + '>' +
-          esc(pick({ fr: 'Actualités', en: 'News' })) + badge + close +
+        '<button type="button" class="' + chipClass + '" data-act="chip" aria-label="' + esc(label) +
+          '" aria-expanded="' + (ui.archive ? 'true' : 'false') + '" title="' + esc(tip) + '">' +
+          inner +
         '</button>' +
         (ui.archive || game ? '' : '<div class="orx__stack">' + list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>') +
         (portal ? '' : archiveHtml(chan));
@@ -1038,8 +1053,27 @@
       };
     }
 
+    function watchGameHost(head) {
+      var panel = head && head.closest
+        ? head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel')
+        : null;
+      var el = panel || head;
+      if (!el || gameWatchEl === el) return;
+      if (gameWatch) gameWatch.disconnect();
+      gameWatchEl = el;
+      gameWatch = new MutationObserver(function () {
+        if (!root || !root.classList.contains('orx--game')) return;
+        if (root.isConnected && root.closest('.ohp-head, .oec-head, .opbac-head')) return;
+        var next = visibleGameHead();
+        if (next) dockInHead(next);
+      });
+      gameWatch.observe(el, { childList: true, subtree: true });
+    }
+
     function dockInHead(head) {
-      root.classList.add('orx--game');
+      var already = root.classList.contains('orx--game') && head.contains(root);
+      root.classList.add('orx--game', 'orx--set');
+      root.__orxPlace = 'game';
       root.style.top = '';
       root.style.right = '';
       root.style.left = '';
@@ -1050,11 +1084,15 @@
         if (actions) actions.insertBefore(root, actions.firstChild);
         else head.appendChild(root);
       }
+      watchGameHost(head);
+      if (!already && !root.querySelector('.orx__chip svg')) ui.rev++;
     }
 
     function dockInMain(main) {
+      var wasGame = root.classList.contains('orx--game');
       root.classList.remove('orx--game');
       if (root.parentNode !== main) main.appendChild(root);
+      if (wasGame) ui.rev++;
     }
 
     function posMap() {
@@ -1203,23 +1241,12 @@
     function place(main, hero) {
       if (drag.on) return;
       var head = visibleGameHead();
-      if (!head && visibleFullGamePanel()) {
-        dockInMain(main);
-        root.classList.add('orx--game');
-        hidePlace();
-        return;
-      }
       if (head) {
         dockInHead(head);
-        holdPlace('game:' + (head.className || 'head') + ':' + Math.round((shownBox(head) || {}).width || 0), function () {
-          if (!head.contains(root)) return false;
-          var again = shownBox(head);
-          var box = root.getBoundingClientRect();
-          if (!again || box.width < 8 || box.height < 8) return false;
-          var mid = box.top + Math.min(box.height, 36) / 2;
-          return mid >= again.top - 2 && mid <= again.bottom + 2 &&
-            box.left >= again.left - 4 && box.right <= again.right + 4;
-        });
+        return;
+      }
+      if (visibleFullGamePanel()) {
+        root.classList.add('orx--game');
         return;
       }
       dockInMain(main);
@@ -1254,10 +1281,17 @@
       var live = chanKey(activeChan());
       var shown = chanKey(chan);
       if (!hero || !main || !gate(chan) || (live && shown && live !== shown)) {
+        var keep = !!(root && root.classList.contains('orx--set') && hero && main && !(live && shown && live !== shown));
+        if (keep && gateMiss < 4) {
+          gateMiss++;
+          return;
+        }
+        gateMiss = 0;
         conceal();
         if ((!hero || !main || !gate(chan)) && root && root.parentNode) root.parentNode.removeChild(root);
         return;
       }
+      gateMiss = 0;
       if (!root) {
         root = document.createElement('div');
         root.className = 'orx';
