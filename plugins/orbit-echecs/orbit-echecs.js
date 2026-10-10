@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 57;
+  var OEC_VER = 58;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -165,7 +165,7 @@
     return 'unknown';
   }
 
-  /** @returns {'ok'|'absent'|'down'|'unknown'} */
+  /** @returns {'ok'|'absent'|'wait'|'unknown'} */
   function botStatus(orbit, bufferKey) {
     var p = ecBotPresence(orbit, bufferKey);
     if (p === 'absent') {
@@ -177,10 +177,13 @@
       }
       return 'absent';
     }
-    if (p === 'unknown') return 'unknown';
     if (botReachable) return 'ok';
-    if (botSyncFailed) return 'down';
-    return 'unknown';
+    if (p === 'unknown') return 'unknown';
+    return 'wait';
+  }
+
+  function botIsWaiting(availability) {
+    return availability === 'unknown' || availability === 'wait';
   }
 
   function noteBotAlive() {
@@ -1838,7 +1841,8 @@
       '@media(max-width:999px){body.oec-split .main{display:flex;flex-direction:column;overflow:hidden}body.oec-split #oec-dom-panel{flex:0 1 auto;min-height:0;max-height:min(58vh,calc(100dvh - 12rem));overflow:hidden}body.oec-split .messages{flex:1 1 auto;min-height:8rem}}',
       '.oec-head{position:relative;display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;background:linear-gradient(135deg,#14532d,#166534);color:#fff;flex:0 0 auto;overflow:visible;z-index:30}',
       '.oec-head__title{font-weight:800;font-size:.88rem}',
-      '.oec-head__badge{font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(255,255,255,.18)}',
+      '.oec-head__badge{display:inline-flex;align-items:center;gap:.32rem;font-size:.68rem;font-weight:800;padding:.16rem .6rem;border-radius:999px;background:rgba(255,255,255,.18)}',
+      '.oec-head__badge .oec-spin{width:11px;height:11px;border-color:rgba(255,255,255,.35);border-top-color:#fff}',
       '.oec-head__actions{margin-left:auto;display:flex;gap:.28rem}',
       '.oec-head__btn{position:relative;border:0;background:rgba(255,255,255,.16);color:#fff;min-width:36px;min-height:34px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
       '.oec-head__unread{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1.15rem;text-align:center;box-shadow:0 0 0 2px #14532d}',
@@ -2014,6 +2018,7 @@
       '.oec-offline{text-align:center;width:100%;max-width:28rem;margin:1.2rem auto;padding:.4rem .8rem 1.2rem;color:#3f3a32}',
       '.oec-offline__badge{display:inline-flex;align-items:center;gap:.35rem;margin:.2rem 0 .55rem;padding:.28rem .7rem;border-radius:999px;font-size:.72rem;font-weight:800;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca}',
       '.oec-offline__badge--wait{background:#ecfccb;color:#3f6212;border-color:#d9f99d}',
+      '.oec-offline__badge .oec-spin{width:12px;height:12px;border-color:#d9f99d;border-top-color:#3f6212}',
       '.oec-offline__title{margin:.2rem 0 .4rem;font-size:1.05rem;font-weight:800;color:#14532d}',
       '.oec-offline__txt{margin:0 auto;font-size:.84rem;line-height:1.45;color:#5c564c}',
       '.oec-offline__wait{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;margin-top:.75rem;font-size:.82rem;font-weight:700;color:#5c564c}',
@@ -2766,30 +2771,39 @@
   }
 
   function renderOffline(availability) {
-    var connecting = availability === 'unknown';
-    var down = availability === 'down';
-    var title = connecting
-      ? pick({ fr: 'Connexion au jeu…', en: 'Connecting to the game…' })
-      : pick({ fr: 'Le jeu n’est pas disponible actuellement', en: 'The game is not available right now' });
-    var text = connecting
-      ? pick({ fr: 'Recherche du robot d’échecs dans le salon…', en: 'Looking for the chess bot in the channel…' })
-      : down
-        ? pick({
-          fr: 'Le robot est dans le salon mais le jeu ne répond pas. Un redémarrage est peut-être en cours. Réessaie dans un moment.',
-          en: 'The bot is in the channel but the game is not responding. It may be restarting. Try again shortly.',
-        })
+    var waiting = botIsWaiting(availability);
+    var waitingGame = availability === 'wait';
+    var title = waitingGame
+      ? pick({ fr: 'En attente du jeu…', en: 'Waiting for the game…' })
+      : waiting
+        ? pick({ fr: 'Connexion au jeu…', en: 'Connecting to the game…' })
+        : pick({ fr: 'Le robot d’échecs n’est pas dans le salon', en: 'The chess bot is not in this channel' });
+    var text = waitingGame
+      ? pick({
+        fr: botSyncFailed
+          ? 'Le robot est là, le jeu se prépare encore. Un instant…'
+          : 'Le robot est dans le salon. Le jeu va démarrer dans un instant.',
+        en: botSyncFailed
+          ? 'The bot is here and the game is still starting. One moment…'
+          : 'The bot is in the channel. The game will start in a moment.',
+      })
+      : waiting
+        ? pick({ fr: 'Préparation d’Orbit et du salon…', en: 'Getting Orbit and the channel ready…' })
         : pick({
-          fr: 'Le robot d’échecs n’est pas présent dans ce salon. Réessaie plus tard, ou contacte un opérateur si le problème continue.',
-          en: 'The chess bot is not in this channel. Try again later, or ask an operator if this persists.',
+          fr: 'Réessaie plus tard, ou contacte un opérateur si le problème continue.',
+          en: 'Try again later, or ask an operator if this persists.',
         });
-    var badge = connecting
-      ? ''
+    var badge = waiting
+      ? ('<span class="oec-offline__badge oec-offline__badge--wait">' +
+        '<span class="oec-spin" aria-hidden="true"></span>' +
+        escHtml(waitingGame
+          ? pick({ fr: 'En attente du jeu', en: 'Waiting for the game' })
+          : pick({ fr: 'Connexion…', en: 'Connecting…' })) +
+        '</span>')
       : ('<span class="oec-offline__badge">⚠ ' +
-        escHtml(down
-          ? pick({ fr: 'Maintenance', en: 'Maintenance' })
-          : pick({ fr: 'Bot absent', en: 'Bot offline' })) +
+        escHtml(pick({ fr: 'Bot absent', en: 'Bot offline' })) +
         '</span>');
-    var wait = connecting
+    var detail = waiting
       ? ('<p class="oec-offline__wait"><span class="oec-spin" aria-hidden="true"></span>' +
         escHtml(text) + '</p>')
       : ('<p class="oec-offline__txt">' + escHtml(text) + '</p>');
@@ -2798,7 +2812,7 @@
       '<p class="oec-hero__label">Échecs</p></div>' +
       badge +
       '<p class="oec-offline__title">' + escHtml(title) + '</p>' +
-      wait +
+      detail +
       '</div>';
   }
 
@@ -2809,8 +2823,14 @@
     var offline = availability !== 'ok' && !archiveGame && (!game || game.status === 'idle');
     var view = viewingGame(game);
     var mode = getViewMode(orbit);
+    var waiting = botIsWaiting(availability);
     var badge = offline
-      ? (availability === 'unknown' ? 'Connexion…' : 'Indisponible')
+      ? (waiting
+        ? '<span class="oec-spin" aria-hidden="true"></span>' +
+          (availability === 'wait'
+            ? pick({ fr: 'En attente du jeu', en: 'Waiting for the game' })
+            : pick({ fr: 'Connexion…', en: 'Connecting…' }))
+        : pick({ fr: 'Bot absent', en: 'Bot offline' }))
       : game.status === 'playing' ? (game.mode === 'ai' ? 'IA' : 'Duo')
       : game.status === 'waiting' ? 'En attente'
       : game.status === 'ended' ? (game.reason === 'timeout' ? 'Non rejoint' : escHtml(game.result || 'Fin'))
@@ -3269,6 +3289,9 @@
   function mountDomPanel(orbit) {
     var buf = orbit.state.active();
     var on = isChessChannel(orbit, buf);
+    if (on && !isBouncerSession(orbit) && botIsWaiting(botStatus(orbit, buf))) {
+      maybeRequestSync(orbit, buf, getState(buf));
+    }
     var show = on && (cfg(orbit).showWhenIdle || isPlaying(getState(buf)) || getState(buf).status === 'ended' || getViewMode(orbit) !== VIEW_CHAT);
     var root = document.getElementById('oec-dom-panel');
     var main = document.querySelector('.main');

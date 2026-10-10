@@ -309,7 +309,7 @@ $action = strtolower(trim((string) ($body['action'] ?? 'probe')));
 if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
-$nsActions = ['nsaccount', 'nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin', 'nsset'];
+$nsActions = ['nsaccount', 'nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin', 'nsset', 'nsrecover'];
 if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
   && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
@@ -350,6 +350,37 @@ try {
         'notes' => ns_debug_log(),
       ],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'nsrecover') {
+    // Ghost reclaim: NickServ RECOVER <nick> as the identified session.
+    $source = rpc_source($body, $account);
+    $target = trim((string) ($body['target'] ?? ''));
+    if (!valid_account($target)) {
+      fail(400, 'bad_params');
+    }
+    $list = ns_cmd_as(
+      $url,
+      $token,
+      $ANOPE_RPC_BEARER_B64,
+      $account,
+      $source,
+      [$source, 'NickServ', 'RECOVER', $target],
+      static function (string $out): bool {
+        if ($out === '' || ns_denied_or_help($out)) {
+          return false;
+        }
+        // Typical Anope: "has been recovered" / "pseudo récupéré" / RELEASE hint.
+        $fold = ns_fold($out);
+        if (preg_match('/recover|récupér|recupere|ghost|libéré|libere|released|killed|déconnect/i', $fold)) {
+          return true;
+        }
+        // Non-empty non-help reply from an identified session is usually success.
+        return !preg_match('/unknown|inconnu|isn.?t registered|n.?est pas enregistr/i', $fold);
+      },
+    );
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 
