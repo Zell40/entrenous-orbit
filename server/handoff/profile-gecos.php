@@ -27,9 +27,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
 $WP_PROFILE_URL = 'https://www.reseau-entrenous.fr/wp-json/entrenous/v1/profile';
 $HTTP_TIMEOUT = 2.5;
 $local = __DIR__ . '/chat-resume.local.php';
+/** @var array{wp_profile_url?:string,listen_cookie_domain?:string} $cfg */
+$cfg = [];
 if (is_readable($local)) {
-    /** @var array{wp_profile_url?:string} $cfg */
-    $cfg = require $local;
+    $loaded = require $local;
+    if (is_array($loaded)) {
+        $cfg = $loaded;
+    }
     if (!empty($cfg['wp_profile_url']) && is_string($cfg['wp_profile_url'])) {
         $WP_PROFILE_URL = $cfg['wp_profile_url'];
     }
@@ -51,6 +55,17 @@ if ($data === null) {
 }
 $realname = entrenous_build_gecos_from_profile($data);
 $exists = !empty($data['exists']);
+
+// Side effect: refresh Apache websocket listen cookie (cp|reg) from WP age so
+// Orbit join-form reconnects don't stay on Websocket-CP after a leftover cookie.
+$age = entrenous_age_from_profile_or_gecos($data, $realname);
+$listen = entrenous_listen_from_age($age, $account);
+$listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
+    ? $cfg['listen_cookie_domain']
+    : '.entrenous.chat';
+$listenOpts = $listenDomain !== '' ? ['domain' => $listenDomain] : [];
+entrenous_set_listen_cookie($listen, $listenOpts);
+
 echo json_encode([
     'ok'           => true,
     'exists'       => $exists,
@@ -63,4 +78,5 @@ echo json_encode([
     'avatar'       => $data['avatar'] ?? null,
     'profile_url'  => $data['profile_url'] ?? null,
     'registered'   => $data['registered'] ?? null,
+    'listen'       => $listen,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

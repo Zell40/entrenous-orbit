@@ -21,6 +21,8 @@ RewriteRule ^accounts/api/chat_resume/?$ chat-resume.php [L,QSA]
 RewriteRule ^accounts/api/chat_logout/?$ chat-logout.php [L,QSA]
 # WP profile → IRC GECOS (âge - genre - ville) for reconnect SETNAME.
 RewriteRule ^accounts/api/profile_gecos/?$ profile-gecos.php [L,QSA]
+# Refresh orbit_en_listen (cp|reg) before the IRC WebSocket opens.
+RewriteRule ^accounts/api/chat_listen/?$ chat-listen.php [L,QSA]
 # OpenGraph cards for chat / Actu link previews (Orbit src/lib/link-preview.tsx).
 RewriteRule ^accounts/api/unfurl/?$ unfurl.php [L,QSA]
 

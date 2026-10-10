@@ -44,7 +44,11 @@ websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`)
 Si l’âge est connu (≥ 17 → `reg`, &lt; 17 → `cp`), il prime sur un `listen=cp`
 erroné. `chat-resume.php` **rafraîchit** ce cookie à chaque reprise de session
 depuis le profil WordPress (évite un adulte coincé sur Websocket-CP après un
-ancien cookie `cp`). `chat-logout.php` expire aussi `orbit_en_listen`.
+ancien cookie `cp`). `chat-listen.php` (`/accounts/api/chat_listen/?account=`
+ou `?age=`) fait la même chose **avant** l’ouverture du WebSocket quand Orbit
+reconnecte depuis son formulaire (mot de passe NickServ garé, invité ASL) —
+chemin qui ne passe pas par handoff / chat_resume. `profile-gecos.php` pose
+aussi le cookie en passant. `chat-logout.php` expire aussi `orbit_en_listen`.
 
 Le champ POST `guest=1` (formulaire invité WordPress, âge ≥ 17) pose
 `orbit_en_listen=reg` **sans** JWT ni `orbit_handoff`, puis redirige vers
