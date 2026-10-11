@@ -7,6 +7,7 @@
  *     dépend QUE du groupe, pas d’un mode isolé.
  *   - Callerid / +g = filtre MP (ACCEPT). N’importe qui peut activer +g (ou i, x, …)
  *     un par un ; l’UI liste blanche / 718 s’y accroche sans parler de parental.
+ *   - Amis Orbit → ACCEPT (liste blanche) ; Ignore Orbit → SILENCE/deny (liste noire).
  *
  * config.json:
  *   "callerid": {
@@ -317,11 +318,39 @@
     try { window.dispatchEvent(new Event('ocid-channel-warn-pref')); } catch (e) { /* ignore */ }
   }
 
+  /** True if this salon already has the blue parental tip in its timeline. */
+  function channelHasSafeWarn(orbit, chan) {
+    var key = fold(chan);
+    if (!key) return false;
+    try {
+      var st = orbit.state.get();
+      var buffers = (st && st.buffers) || {};
+      var buf = buffers[chan] || buffers[key];
+      if (!buf) {
+        Object.keys(buffers).forEach(function (k) {
+          if (!buf && fold(k) === key) buf = buffers[k];
+        });
+      }
+      var msgs = (buf && buf.messages) || [];
+      for (var i = 0; i < msgs.length; i++) {
+        var t = String((msgs[i] && msgs[i].text) || '');
+        if (t.indexOf('\x01SAFE\x01') !== -1) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
   function showChannelWarn(orbit, chan) {
     var key = fold(chan);
     if (!key || channelWarned[key]) return;
     if (!parentalActive) return;
     if (hideChannelWarnPref(orbit)) return;
+    // Reconnect / buffer.active re-fire after boot cleared channelWarned — if the
+    // blue tip is already in the salon history, do not stack another copy.
+    if (channelHasSafeWarn(orbit, chan)) {
+      channelWarned[key] = true;
+      return;
+    }
     channelWarned[key] = true;
     var text = warnText(orbit, chan);
     // \x01SAFE\x01 → Orbit sysline--safe (fond bleu + triangle rouge), lisible sur fond salon.
@@ -384,6 +413,10 @@
     if (isSafeChannel(orbit, chan)) return;
     var key = fold(chan);
     if (channelWarned[key]) return;
+    if (channelHasSafeWarn(orbit, chan)) {
+      channelWarned[key] = true;
+      return;
+    }
 
     // EntreNous: salons réseau (suffixe .chat) = avertir tout de suite, hors liste sûre.
     // Ne pas attendre ChanServ : un INFO « non officiel » annulait sinon le fallback.
@@ -784,7 +817,9 @@
       setCallerid(true);
       log('callerid: filtre MP (+g / ACCEPT)' + (reason ? ' — ' + reason : ''));
     }
+    // Saved ACCEPT first, then live Amis/Ignore (covers +g applied after connect).
     restoreSavedAccept(orbit, log);
+    syncOrbitListsToCallerid(orbit, log);
   }
 
   function syncFromWhois(orbit, log) {
@@ -997,6 +1032,72 @@
     try {
       orbit.irc.send('SILENCE ' + (add ? '+' : '-') + n + ' p');
     } catch (e) { /* ignore */ }
+  }
+
+  /** Friends panel → allow-list (ACCEPT). Also clears a prior deny/SILENCE.
+   *  ACCEPT is server-side and works without +g; +g only enables the filter. */
+  function syncFriendAllowlist(orbit, nick, add) {
+    var n = String(nick || '').trim();
+    if (!n) return;
+    if (add) {
+      sendAccept(orbit, n, true);
+      saveDenyNick(orbit, n, false);
+      silenceNick(orbit, n, false);
+      window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+    } else {
+      // Removing a friend does not revoke ACCEPT — they may still be welcome in PMs.
+    }
+  }
+
+  /** Orbit ignore → deny list + SILENCE p. Drops ACCEPT so +g stays consistent. */
+  function syncIgnoreDenylist(orbit, nick, add) {
+    var n = String(nick || '').trim();
+    if (!n) return;
+    if (add) {
+      sendAccept(orbit, n, false);
+      saveDenyNick(orbit, n, true);
+      silenceNick(orbit, n, true);
+      window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+    } else {
+      saveDenyNick(orbit, n, false);
+      silenceNick(orbit, n, false);
+    }
+  }
+
+  /**
+   * When +g / callerid becomes active (late MODE, parental pack, reconnect),
+   * re-push Orbit Amis → ACCEPT and Ignore → SILENCE so lists match even if
+   * they were edited before the filter was on.
+   */
+  function syncOrbitListsToCallerid(orbit, logFn) {
+    var st;
+    try { st = orbit.state.get(); } catch (e) { return; }
+    if (!st) return;
+    var friends = Array.isArray(st.friends) ? st.friends : [];
+    var ignored = Array.isArray(st.ignored) ? st.ignored : [];
+    var i;
+    var n;
+    var touched = false;
+    for (i = 0; i < friends.length; i++) {
+      n = String(friends[i] || '').trim();
+      if (!n) continue;
+      sendAccept(orbit, n, true);
+      saveDenyNick(orbit, n, false);
+      silenceNick(orbit, n, false);
+      touched = true;
+    }
+    for (i = 0; i < ignored.length; i++) {
+      n = String(ignored[i] || '').trim();
+      if (!n) continue;
+      sendAccept(orbit, n, false);
+      saveDenyNick(orbit, n, true);
+      silenceNick(orbit, n, true);
+      touched = true;
+    }
+    if (touched) {
+      (logFn || function () {})('callerid: sync Amis/Ignore → ACCEPT/SILENCE');
+      window.setTimeout(function () { refreshAcceptList(orbit); }, 400);
+    }
   }
 
   function acceptAndClear(orbit, nick) {
@@ -2080,6 +2181,11 @@
     } catch (e) { /* ignore */ }
     orbit.on('connected', boot);
     hookOutboundCapture(orbit);
+
+    orbit.on('friends:add', function (nick) { syncFriendAllowlist(orbit, nick, true); });
+    orbit.on('friends:remove', function (nick) { syncFriendAllowlist(orbit, nick, false); });
+    orbit.on('ignore:add', function (nick) { syncIgnoreDenylist(orbit, nick, true); });
+    orbit.on('ignore:remove', function (nick) { syncIgnoreDenylist(orbit, nick, false); });
 
     orbit.on('buffer.active', function (name) {
       if (listView.switching) return;
