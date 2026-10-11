@@ -58,13 +58,17 @@ $exists = !empty($data['exists']);
 
 // Side effect: refresh Apache websocket listen cookie (cp|reg) from WP age so
 // Orbit join-form reconnects don't stay on Websocket-CP after a leftover cookie.
+// Skip when age is unknown — forcing `reg` wiped minors' `cp` on reconnect.
 $age = entrenous_age_from_profile_or_gecos($data, $realname);
-$listen = entrenous_listen_from_age($age, $account);
-$listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
-    ? $cfg['listen_cookie_domain']
-    : '.entrenous.chat';
-$listenOpts = $listenDomain !== '' ? ['domain' => $listenDomain] : [];
-entrenous_set_listen_cookie($listen, $listenOpts);
+$listen = null;
+if ($age !== null || strcasecmp($account, 'harry') === 0 || strcasecmp($account, 'lucas') === 0) {
+    $listen = entrenous_listen_from_age($age, $account);
+    $listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
+        ? $cfg['listen_cookie_domain']
+        : '.entrenous.chat';
+    $listenOpts = $listenDomain !== '' ? ['domain' => $listenDomain] : [];
+    entrenous_set_listen_cookie($listen, $listenOpts);
+}
 
 echo json_encode([
     'ok'           => true,

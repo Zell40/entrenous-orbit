@@ -419,6 +419,7 @@ Orbit.plugin('room-gallery', (orbit, log) => {
        space — in some browsers that miscount silently strands 1-2 tiles in
        an extra, practically-empty track instead of reflowing them. A fixed
        count sidesteps that entirely; the breakpoint mirrors .modal--wide. */
+    .rg__grid,.rg__list{touch-action:pan-y}
     .rg__grid{max-height:min(58vh,540px);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;padding:.05rem .4rem .05rem .05rem}
     @media (min-width: 560px) { .rg__grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
     .rg__grid::-webkit-scrollbar,.rg__list::-webkit-scrollbar{width:9px}
@@ -588,6 +589,9 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     const images = useImageMap();
     const loadingSince = useRef(0); // 0 = not currently loading; else Date.now() when it started
     const searchRef = useRef(null);
+    // Horizontal swipe → next/prev page (phone). Ignore mostly-vertical scrolls.
+    const swipeRef = useRef(null);
+    const suppressClickUntil = useRef(0);
 
     function requestRefresh() {
       const s = orbit.state.get();
@@ -699,6 +703,37 @@ Orbit.plugin('room-gallery', (orbit, log) => {
     else loadingSince.current = 0;
     const stuck = st.listLoading && loadingSince.current && (Date.now() - loadingSince.current) > 10000;
 
+    function onSwipeStart(e) {
+      if (totalPages <= 1) return;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      swipeRef.current = { x: t.clientX, y: t.clientY, page: curPage };
+    }
+    function onSwipeEnd(e) {
+      const start = swipeRef.current;
+      swipeRef.current = null;
+      if (!start || totalPages <= 1) return;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      // Mostly vertical → let the list/grid scroll; horizontal → flip page.
+      if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+      if (dx < 0 && start.page < totalPages - 1) {
+        setPage(start.page + 1);
+        suppressClickUntil.current = Date.now() + 450;
+      } else if (dx > 0 && start.page > 0) {
+        setPage(start.page - 1);
+        suppressClickUntil.current = Date.now() + 450;
+      }
+    }
+    function onSwipeClickCapture(e) {
+      if (Date.now() < suppressClickUntil.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+
     return html`<div class="rg">
       <div class="rg__bar">
         <div class="rg__search">
@@ -754,8 +789,8 @@ Orbit.plugin('room-gallery', (orbit, log) => {
       ${!st.listLoading && !rows.length && !canCreate ? html`<div class="rg__empty">${query ? t('modals.join.emptyFound') : t('modals.join.emptyNone')}</div>` : null}
       ${pageRows.length
         ? (view === 'grid'
-          ? html`<div class="rg__grid">${pageRows.map((c, i) => html`<${GridTile} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`
-          : html`<div class="rg__list">${pageRows.map((c, i) => html`<${ListRow} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`)
+          ? html`<div class="rg__grid" onTouchStart=${onSwipeStart} onTouchEnd=${onSwipeEnd} onClickCapture=${onSwipeClickCapture}>${pageRows.map((c, i) => html`<${GridTile} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`
+          : html`<div class="rg__list" onTouchStart=${onSwipeStart} onTouchEnd=${onSwipeEnd} onClickCapture=${onSwipeClickCapture}>${pageRows.map((c, i) => html`<${ListRow} key=${`${curPage}:${i}`} c=${c} img=${images[normChan(c.name)]} open=${isRoomOpen(c.name)} onJoin=${() => join(c.name)} />`)}</div>`)
         : null}
 
       ${totalPages > 1 ? html`<div class="rg__pager">

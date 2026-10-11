@@ -146,16 +146,19 @@ if ($wpRealname !== '') {
 
 // Refresh orbit_en_listen from the live WP age so a leftover cp cookie (or an
 // Apache default to 8197) cannot keep an adult on Websocket-CP after reconnect.
+// Unknown age: leave the cookie alone (forcing `reg` demoted minors to WebsocketEN).
 $age = entrenous_age_from_profile_or_gecos($wpProfile, $realname);
-$listen = entrenous_listen_from_age($age, $account);
-$listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
-    ? $cfg['listen_cookie_domain']
-    : '.entrenous.chat';
-$listenOpts = [];
-if ($listenDomain !== '') {
-    $listenOpts['domain'] = $listenDomain;
+if ($age !== null || strcasecmp($account, 'harry') === 0 || strcasecmp($account, 'lucas') === 0) {
+    $listen = entrenous_listen_from_age($age, $account);
+    $listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
+        ? $cfg['listen_cookie_domain']
+        : '.entrenous.chat';
+    $listenOpts = [];
+    if ($listenDomain !== '') {
+        $listenOpts['domain'] = $listenDomain;
+    }
+    entrenous_set_listen_cookie($listen, $listenOpts);
 }
-entrenous_set_listen_cookie($listen, $listenOpts);
 
 $header = b64url_encode_bin(json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
 $body = b64url_encode_bin(json_encode([

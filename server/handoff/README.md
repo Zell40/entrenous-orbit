@@ -47,8 +47,10 @@ depuis le profil WordPress (évite un adulte coincé sur Websocket-CP après un
 ancien cookie `cp`). `chat-listen.php` (`/accounts/api/chat_listen/?account=`
 ou `?age=`) fait la même chose **avant** l’ouverture du WebSocket quand Orbit
 reconnecte depuis son formulaire (mot de passe NickServ garé, invité ASL) —
-chemin qui ne passe pas par handoff / chat_resume. `profile-gecos.php` pose
-aussi le cookie en passant. `chat-logout.php` expire aussi `orbit_en_listen`.
+chemin qui ne passe pas par handoff / chat_resume. Si l’âge est inconnu, le
+cookie n’est **pas** écrasé (évite de renvoyer un mineur sur WebsocketEN).
+`profile-gecos.php` pose aussi le cookie en passant. `chat-logout.php` expire
+aussi `orbit_en_listen`.
 
 Le champ POST `guest=1` (formulaire invité WordPress, âge ≥ 17) pose
 `orbit_en_listen=reg` **sans** JWT ni `orbit_handoff`, puis redirige vers

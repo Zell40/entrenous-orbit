@@ -70,6 +70,21 @@ if ($age === null && $account === '') {
     exit;
 }
 
+// Unknown age: do NOT force `reg` — that wiped a prior `cp` cookie and sent
+// minors to WebsocketEN on reconnect when WP age lookup failed.
+// Harry/Lucas stay exempt (always reg) even without a resolved age.
+$loginLc = strtolower($account);
+$forceReg = ($loginLc === 'harry' || $loginLc === 'lucas');
+if ($age === null && !$forceReg) {
+    echo json_encode([
+        'ok' => true,
+        'listen' => null,
+        'age' => null,
+        'unchanged' => true,
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $listen = entrenous_listen_from_age($age, $account);
 $listenDomain = isset($cfg['listen_cookie_domain']) && is_string($cfg['listen_cookie_domain'])
     ? $cfg['listen_cookie_domain']
