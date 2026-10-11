@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 87;
+  var PBAC_VER = 88;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2480,10 +2480,14 @@
       '.opbac-sheet__all{grid-column:1/-1;width:100%;margin-top:.1rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ccc));border-radius:10px;padding:.5rem;font-size:.8rem;font-weight:800;cursor:pointer;background:var(--bg,#fff);color:#6366f1;min-height:40px}',
       '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
       '.opbac-help-wrap{padding:0 1.2rem 1.25rem}',
-      '.opbac-help-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
-      '.opbac-tour{position:fixed;inset:0;z-index:10050;pointer-events:auto}',
+      '.opbac-help-overlay{position:fixed;inset:0;z-index:55;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
+      '.opbac-tour{position:fixed;inset:0;z-index:24;pointer-events:auto}',
+      'body.opbac-active .modal,body.opbac-full .modal{z-index:400}',
+      '@media(max-width:880px){body.opbac-active .topbar,body.opbac-full .topbar{z-index:60!important;position:relative}body.opbac-active .sidebar,body.opbac-active .side,body.opbac-active .rail,body.opbac-active aside.sidebar,body.opbac-active .members,body.opbac-active .memberlist,body.opbac-full .sidebar,body.opbac-full .side,body.opbac-full .rail,body.opbac-full aside.sidebar,body.opbac-full .members,body.opbac-full .memberlist{z-index:90!important}body.opbac-active .nav-backdrop,body.opbac-full .nav-backdrop{z-index:80!important}}',
       '.opbac-tour--pass{pointer-events:none}',
       '.opbac-tour--pass .opbac-tour__card{pointer-events:auto}',
+      '.opbac-tour--under-chrome{z-index:12!important;pointer-events:none}',
+      '.opbac-tour--under-chrome .opbac-tour__card{pointer-events:none}',
       '.opbac-tour__spot{position:fixed;z-index:1;pointer-events:none;border-radius:12px;box-shadow:0 0 0 3px #c4b5fd,0 0 0 9999px rgba(15,23,42,.58);transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
       '.opbac-tour--launch .opbac-tour__spot{border-radius:999px;animation:opbacTourPulse 1.15s ease-in-out infinite}',
       '@keyframes opbacTourPulse{0%,100%{box-shadow:0 0 0 4px #a5b4fc,0 0 0 9999px rgba(15,23,42,.55)}50%{box-shadow:0 0 0 9px #fb923c,0 0 0 9999px rgba(15,23,42,.5)}}',
@@ -5615,9 +5619,45 @@
     ];
   }
 
+  function orbitChromeOpen() {
+    var app = document.querySelector('.app');
+    if (app && (app.classList.contains('nav-open') || app.classList.contains('members-open'))) return true;
+    if (document.querySelector('.nav-backdrop')) return true;
+    var modal = document.querySelector('.modal');
+    if (modal) {
+      var st = window.getComputedStyle(modal);
+      if (st.display !== 'none' && st.visibility !== 'hidden' && Number(st.opacity) !== 0) return true;
+    }
+    return false;
+  }
+
+  var tourChromeObs = null;
+
+  function syncTourChromeLayer() {
+    var overlay = document.getElementById('opbac-tour');
+    if (!overlay) return;
+    overlay.classList.toggle('opbac-tour--under-chrome', orbitChromeOpen());
+  }
+
+  function watchTourChrome() {
+    if (tourChromeObs || !window.MutationObserver) return;
+    var app = document.querySelector('.app') || document.body;
+    tourChromeObs = new MutationObserver(function () { syncTourChromeLayer(); });
+    tourChromeObs.observe(app, { attributes: true, attributeFilter: ['class'], subtree: false });
+    tourChromeObs.observe(document.body, { childList: true, subtree: false });
+  }
+
+  function unwatchTourChrome() {
+    if (tourChromeObs) {
+      try { tourChromeObs.disconnect(); } catch (e) { /* ignore */ }
+      tourChromeObs = null;
+    }
+  }
+
   function closePetitBacTour(orbit, done) {
     tourActive = false;
     tourForced = false;
+    unwatchTourChrome();
     if (tourEscHandler) {
       document.removeEventListener('keydown', tourEscHandler);
       tourEscHandler = null;
@@ -5728,11 +5768,15 @@
       }
     });
     tourEscHandler = function (ev) {
-      if (ev.key === 'Escape') closePetitBacTour(orbit, true);
+      if (ev.key !== 'Escape') return;
+      if (orbitChromeOpen()) return;
+      closePetitBacTour(orbit, true);
     };
     document.addEventListener('keydown', tourEscHandler);
     window.addEventListener('resize', layoutTourStep);
     document.body.appendChild(overlay);
+    watchTourChrome();
+    syncTourChromeLayer();
     renderTourCard();
   }
 
@@ -6810,6 +6854,7 @@
   }
 
   function renderDomPanel(orbit, root) {
+    if (tourActive) syncTourChromeLayer();
     var buffer = orbit.state.active();
     var onBac = isBacChannel(orbit, buffer);
     document.body.classList.toggle('opbac-active', !!onBac);
