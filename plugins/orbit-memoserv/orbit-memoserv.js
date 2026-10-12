@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=22"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=24"]
  */
 (function (factory) {
   var api = factory();
@@ -118,6 +118,7 @@
       var focusKey = '';
       var watchedChans = {};
       var scanning = false;
+      var alistHideUntil = 0;
 
       function statusLine(text) {
         var line = String(text || '');
@@ -216,27 +217,54 @@
         if (ch.charAt(0) !== '#' && ch.charAt(0) !== '&') return;
         watchedChans[fold(ch)] = ch;
       }
-      function channelTargets() {
-        var seen = {};
-        var out = [];
-        function add(name) {
-          var ch = String(name || '').trim();
-          if (ch.charAt(0) !== '#' && ch.charAt(0) !== '&') return;
-          var k = fold(ch);
-          if (seen[k]) return;
-          seen[k] = true;
-          out.push(ch);
+      function addChan(list, seen, name) {
+        var ch = String(name || '').trim();
+        if (ch.charAt(0) !== '#' && ch.charAt(0) !== '&') return;
+        var k = fold(ch);
+        if (seen[k]) return;
+        seen[k] = true;
+        list.push(ch);
+      }
+      function beginChannelLists() {
+        if (rpcState !== 'on' || !myAccount()) {
+          chanLeft = [];
+          finishListPass();
+          return;
         }
-        var st = state();
-        var buffers = (st && st.buffers) || {};
-        Object.keys(buffers).forEach(function (key) {
-          var b = buffers[key];
-          if (!b || !b.isChannel || !b.joined) return;
-          add(b.name || key);
+        alistHideUntil = Date.now() + 5000;
+        pending.kind = 'alist';
+        ui.loading = true;
+        rpcPost({
+          account: myAccount(),
+          nick: myNick(),
+          service: serviceNick(),
+          action: 'channels',
+        }).then(function (data) {
+          if (pending.kind === 'alist') pending.kind = '';
+          var seen = {};
+          var list = [];
+          var got = (data && data.ok && data.channels) ? data.channels : [];
+          got.forEach(function (name) { addChan(list, seen, name); });
+          Object.keys(watchedChans).forEach(function (k) { addChan(list, seen, watchedChans[k]); });
+          ui.memos = ui.memos.filter(function (m) { return !m.channel || seen[fold(m.channel)]; });
+          chanLeft = list.slice(0, 20);
+          ui.loading = false;
+          if (queueList) {
+            queueList = false;
+            var again = queueWhy || 'file';
+            queueWhy = '';
+            requestList(again);
+            return;
+          }
+          if (!nextChannel()) finishListPass();
+          bump();
+        }).catch(function () {
+          if (pending.kind === 'alist') pending.kind = '';
+          chanLeft = [];
+          ui.loading = false;
+          if (!nextChannel()) finishListPass();
+          bump();
         });
-        Object.keys(watchedChans).forEach(function (k) { add(watchedChans[k]); });
-        ui.memos.forEach(function (m) { if (m.channel) add(m.channel); });
-        return out.slice(0, 20);
       }
 
       function setFlash(text, err) {
@@ -503,8 +531,8 @@
           return;
         }
         listStarted = Date.now();
-        chanLeft = channelTargets();
-        scanning = chanLeft.length > 0;
+        chanLeft = [];
+        scanning = true;
         listChannel = '';
         focusKey = '';
         statusLine('LIST → ' + reason);
@@ -628,12 +656,20 @@
         ui.loading = false;
         if (pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
         if (pending.coalesce) { clearTimeout(pending.coalesce); pending.coalesce = 0; }
-        if (kind) mirrorService(lines);
+        if (kind) {
+          var toMirror = lines;
+          if (kind === 'list-chan') {
+            toMirror = lines.filter(function (s) { return !parse.looksDenied(s); });
+          }
+          mirrorService(toMirror);
+        }
 
         if (kind === 'list' || kind === 'list-chan') {
           var step = kind === 'list-chan' ? 'ok' : applyList(lines);
           if (kind === 'list-chan') applyChanList(lines, listChannel);
-          if (step === 'ok' && !queueList && nextChannel()) {
+          if (kind === 'list' && step === 'ok' && !queueList) {
+            beginChannelLists();
+          } else if (step === 'ok' && !queueList && nextChannel()) {
             /* La liste des salons accessibles continue. */
           } else if (step !== 'probe') {
             finishListPass();
@@ -641,9 +677,7 @@
         }
         else if (kind === 'read' || kind === 'read-new') {
           applyRead(lines, kind === 'read-new');
-          if (kind === 'read-new' && !queueList) {
-            if (!nextChannel()) finishListPass();
-          }
+          if (kind === 'read-new' && !queueList) beginChannelLists();
         }
         else if (kind === 'ignore') {
           var ig = parse.parseIgnore(lines);
@@ -751,14 +785,16 @@
         if (!isSvc(msg.nick)) return;
         var text = parse.stripIrc((msg.params && msg.params[1]) || '');
         if (!text || text.charAt(0) === '\x01') return;
+        mirrorService([text]);
         var info = parse.classifyNotice(text);
-        var echoing = !!pending.kind;
+        var echoing = !!pending.kind || Date.now() < echoHideUntil;
         if (info && info.type === 'arrival' && !echoing) onArrival(info.from, info.channel || '');
         else if (info && info.type === 'channel' && !echoing) {
           onArrival('', info.channel);
         } else if (info && info.type === 'count') {
           ui.unreadHint = Math.max(ui.unreadHint || 0, info.n);
           bump();
+          if (info.n > 0 && !echoing) showMemoPopup('', '');
         } else if (info && info.type === 'full' && !echoing) {
           setFlash(text, true);
           bump();
@@ -770,12 +806,11 @@
         var cmd = String(m.command || '').toUpperCase();
         if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return false;
         if (cmd === 'PRIVMSG' && isSvc(m.target)) return true;
-        if (!isSvc(m.nick)) return false;
-        var text = parse.stripIrc(m.text || '');
-        if (!text || text.charAt(0) === '\x01') return false;
-        if (parse.isQuietNotice(text)) return true;
-        if (pending.kind || Date.now() < echoHideUntil) return true;
-        return false;
+        if (!isSvc(m.nick)) {
+          if (/^(nickserv|chanserv)$/i.test(m.nick) && Date.now() < alistHideUntil) return true;
+          return false;
+        }
+        return true;
       }
 
       function openView(screen) {
@@ -1651,7 +1686,7 @@
     });
   }
 })(function () {
-  var VER = 22;
+  var VER = 24;
 
   function stripIrc(s) {
     return String(s || '')

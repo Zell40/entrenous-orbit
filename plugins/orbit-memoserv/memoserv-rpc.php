@@ -335,6 +335,42 @@ function registered_channels(string $url, string $token, bool $bearerB64, string
   return $list;
 }
 
+function memo_access_ok(string $token): bool {
+  $a = strtolower(trim($token, " \t,.;"));
+  if (in_array($a, ['founder', 'fondateur', 'successor', 'successeur', 'sop', 'qop'], true)) {
+    return true;
+  }
+  return (bool) preg_match('/^\d+$/', $a) && (int) $a >= 10;
+}
+
+/** Salons où le compte a le privilège Mémo (SOP et au-dessus, via NickServ ALIST). */
+function memo_channels(string $url, string $token, bool $bearerB64, string $source): array {
+  $result = anope_rpc($url, $token, $bearerB64, 'anope.command', [$source, 'NickServ', 'ALIST']);
+  $text = is_string($result) ? $result : flatten_rpc($result);
+  $names = [];
+  $seen = [];
+  foreach (preg_split('/\r\n|\n|\r/', strip_fmt($text)) as $line) {
+    $line = str_replace('|', ' ', trim($line));
+    if (!preg_match('/(?:^|\s)!?(#[^\s,]+)/', $line, $m)) {
+      continue;
+    }
+    $chan = rtrim($m[1], '.)]');
+    $at = strpos($line, $chan);
+    $rest = $at === false ? '' : trim(substr($line, $at + strlen($chan)));
+    $token = preg_split('/\s+/', $rest, 2)[0] ?? '';
+    if (!memo_access_ok($token)) {
+      continue;
+    }
+    $key = strtolower($chan);
+    if (isset($seen[$key])) {
+      continue;
+    }
+    $seen[$key] = true;
+    $names[] = $chan;
+  }
+  return $names;
+}
+
 function anope_rpc(string $url, string $token, bool $bearerB64, string $method, array $params): mixed {
   if (!function_exists('curl_init')) {
     throw new RuntimeException('curl');
@@ -450,6 +486,17 @@ if ($action === 'group') {
     $out = ['ok' => true, 'nick' => $q, 'account' => '', 'registered' => false, 'nicks' => []];
   }
   echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
+if ($action === 'channels') {
+  $channels = [];
+  try {
+    $channels = memo_channels($url, $token, (bool) $ANOPE_RPC_BEARER_B64, $source);
+  } catch (Throwable $e) {
+    $channels = [];
+  }
+  echo json_encode(['ok' => true, 'channels' => $channels], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
   exit;
 }
 

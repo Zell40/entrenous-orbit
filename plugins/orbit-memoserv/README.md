@@ -29,13 +29,13 @@ Le menu d’un pseudo et sa fiche proposent **Envoyer un mémo**. `/memo` ouvre 
 
 `SENDALL` et `STAFF` ne sont pas dans le panneau (opérateurs).
 
-Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils mettent à jour la pastille et la bulle, et peuvent envoyer une notification. La liste, la lecture et l’envoi passent par le RPC.
+Les avis « nouveau mémo » de Message ne s’affichent pas dans le salon : ils mettent à jour la pastille et la bulle, et peuvent envoyer une notification. La liste, la lecture et l’envoi passent par le RPC. Les mémos de salon ne sont demandés que pour les salons où NickServ ALIST indique un accès Mémo (fondateur, successeur, QOP, SOP, ou niveau 10 et plus). Un salon simplement rejoint n’est pas interrogé.
 
 ## Config
 
 ```json
 "memoserv": { "service": "Message" },
-"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=22"]
+"plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=24"]
 ```
 
 Incrémenter `?v=` après une modification du JS. Le panneau est un overlay du menu du bas, pas une fausse conversation.
