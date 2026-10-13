@@ -9,7 +9,7 @@
  *
  * config.json :
  *   "memoserv": { "service": "Message" }
- *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=24"]
+ *   "plugins": ["/app/plugins/third/orbit-memoserv/orbit-memoserv.js?v=25"]
  */
 (function (factory) {
   var api = factory();
@@ -60,6 +60,9 @@
       }
       function myAccount() {
         try { return orbit.state.account() || ''; } catch (e) { return ''; }
+      }
+      function registered() {
+        return !!myAccount();
       }
       function myUmodes() {
         var st = state();
@@ -425,8 +428,9 @@
       }
 
       function sendCmd(kind, line) {
+        if (!registered()) return;
         var account = myAccount();
-        if (rpcState === 'off' || !account || typeof fetch !== 'function') {
+        if (rpcState === 'off' || typeof fetch !== 'function') {
           sendIrc(kind, line);
           return;
         }
@@ -524,7 +528,7 @@
       function requestList(why) {
         var reason = why || 'manuel';
         if (reason === 'manuel' || reason === 'panneau' || reason === 'démarrage') listProbe = '';
-        if (!myNick()) return;
+        if (!myNick() || !registered()) return;
         if (pending.kind) {
           queueList = true;
           queueWhy = reason;
@@ -735,6 +739,7 @@
       }
 
       function showMemoPopup(from, channel) {
+        if (!registered()) return;
         var key = (from || '') + '|' + (channel || '');
         var now = Date.now();
         if (key === lastPopupKey && now - lastPopupAt < 30000) return;
@@ -756,6 +761,7 @@
       }
 
       function onArrival(from, channel) {
+        if (!registered()) return;
         if (channel) watchChan(channel);
         ui.pendingArrivals += 1;
         ui.unreadHint = listedUnread() + ui.pendingArrivals;
@@ -776,9 +782,8 @@
       function onRaw(msg) {
         if (!msg) return;
         var cmd = String(msg.command || '').toUpperCase();
-        if (cmd === '900') { ui.needId = false; return; }
-        if (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick())) {
-          ui.needId = false;
+        if (cmd === '900' || cmd === '903' || (cmd === 'ACCOUNT' && fold(msg.nick) === fold(myNick()))) {
+          setTimeout(syncRegistered, 40);
           return;
         }
         if (cmd !== 'NOTICE' && cmd !== 'PRIVMSG') return;
@@ -813,7 +818,21 @@
         return true;
       }
 
+      function syncRegistered() {
+        if (registered()) {
+          ui.needId = false;
+          bump();
+          bootList();
+          return;
+        }
+        booted = false;
+        ui.popups = [];
+        if (ui.open) closeView();
+        else bump();
+      }
+
       function openView(screen) {
+        if (!registered()) return;
         injectCss();
         var wasOpen = ui.open;
         ui.open = true;
@@ -929,6 +948,7 @@
 
       function MemoTab() {
         useSyncExternalStore(subscribe, snap, snap);
+        if (!registered()) return null;
         var n = badgeCount();
         var label = pick({ fr: 'Mémo', en: 'Memo' });
         return h('button', {
@@ -1536,7 +1556,7 @@
       }
 
       function MemoToasts() {
-        if (!ui.popups.length) return null;
+        if (!registered() || !ui.popups.length) return null;
         return h('div', { className: 'oms-pop', 'aria-live': 'polite' },
           ui.popups.map(function (p) {
             var sub = p.channel
@@ -1586,6 +1606,7 @@
           window.addEventListener('keydown', onKey);
           return function () { window.removeEventListener('keydown', onKey); };
         }, [ui.open]);
+        if (!registered()) return null;
         var toasts = h(MemoToasts);
         if (!ui.open) return toasts;
         return h('div', null,
@@ -1618,7 +1639,7 @@
       orbit.on('raw', onRaw);
       var booted = false;
       function bootList() {
-        if (booted || !myNick()) return;
+        if (booted || !myNick() || !registered()) return;
         booted = true;
         requestList('démarrage');
       }
@@ -1634,6 +1655,7 @@
       orbit.addUi('overlay', function () { return h(MemoPane); });
       if (typeof orbit.addMemberMenu === 'function') {
         orbit.addMemberMenu(function (ctx) {
+          if (!registered()) return null;
           var nick = ctx && ctx.nick;
           if (!nick || nick.charAt(0) === '#' || isSvc(nick) || fold(nick) === fold(myNick())) return null;
           return h('button', {
@@ -1649,6 +1671,7 @@
       }
       if (typeof orbit.addUserAction === 'function') {
         orbit.addUserAction(function (ctx) {
+          if (!registered()) return null;
           var nick = ctx && ctx.nick;
           if (!nick || isSvc(nick)) return null;
           return h('button', {
@@ -1665,6 +1688,7 @@
         orbit.addCommand('memo', {
           help: pick({ fr: '/memo — boîte. /memo pseudo texte — envoyer.', en: '/memo — inbox. /memo nick text — send.' }),
           run: function (args, rest) {
+            if (!registered()) return;
             if (!args || !args.length) { openView('list'); return; }
             var nick = args[0];
             var text = String(rest || '').replace(/^\S+\s*/, '');
@@ -1677,7 +1701,7 @@
         });
         orbit.addCommand('memos', {
           help: pick({ fr: 'Ouvre la boîte des mémos.', en: 'Opens the memo inbox.' }),
-          run: function () { openView('list'); },
+          run: function () { if (registered()) openView('list'); },
         });
       }
       console.info('[orbit-memoserv] loaded v' + parse.VER);
@@ -1686,7 +1710,7 @@
     });
   }
 })(function () {
-  var VER = 24;
+  var VER = 25;
 
   function stripIrc(s) {
     return String(s || '')
