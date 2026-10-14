@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 31;
+  var ORX_VER = 32;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -31,6 +31,7 @@
     var ui = { expanded: '', archive: false, archiveId: '', rev: 0 };
     var root = null;
     var archLayer = null;
+    var stackLayer = null;
     var gameWatch = null;
     var gameWatchEl = null;
     var gateMiss = 0;
@@ -512,12 +513,16 @@
         '.orx__chip.is-on{background:linear-gradient(180deg,#1e40af,#1e3a8a);color:#fff}',
         '.orx__chip-x{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;border-radius:999px;background:rgba(255,255,255,.22);font-size:.88rem;line-height:1;font-weight:800}',
         '.orx__n{min-width:1.05rem;height:1.05rem;padding:0 .28rem;border-radius:999px;background:#fff;color:#1d4ed8;font-size:.62rem;font-weight:800;line-height:1.05rem;text-align:center}',
-        '.orx--game .orx__chip{position:relative;width:36px;height:34px;min-width:36px;min-height:34px;padding:0;gap:0;border-radius:9px;box-shadow:none;background:#2563eb;filter:none;font-size:0}',
+        '.orx--game .orx__chip{-webkit-appearance:none;appearance:none;box-sizing:border-box;position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:34px;min-width:36px;min-height:34px;padding:0;margin:0;gap:0;line-height:0;border:0;border-radius:9px;box-shadow:none;background:#2563eb;filter:none;overflow:visible}',
         '.orx--game .orx__chip:hover{background:#1d4ed8;filter:none}',
         '.orx--game .orx__chip.is-on{background:#1e3a8a}',
-        '.orx--game .orx__chip svg{width:18px;height:18px;display:block}',
+        '.orx--game .orx__chip svg{width:18px;height:18px;min-width:18px;min-height:18px;display:block;flex:none;margin:0}',
         '.orx--game .orx__chip-x{display:none}',
-        '.orx--game .orx__n{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;line-height:1.15rem;box-shadow:0 0 0 2px #2563eb}',
+        '.orx--game .orx__n{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;font-size:.62rem;line-height:1.15rem;box-shadow:0 0 0 2px #2563eb}',
+        '.orx-stack-layer{position:fixed;z-index:45;right:.7rem;box-sizing:border-box;width:min(240px,72vw);max-height:min(70vh,520px);display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}',
+        '.orx-stack-layer[hidden]{display:none!important}',
+        '.orx-stack-layer .orx__stack{pointer-events:auto;width:100%}',
+        '@media(max-width:880px){.orx-stack-layer{right:.4rem;width:min(168px,52vw);max-height:min(38%,240px)}.orx-stack-layer:has(.is-open){width:min(92vw,340px);max-height:min(72%,520px)}.orx-stack-layer .orx__bubble{height:44px;margin-top:-18px;border-width:2px}.orx-stack-layer .orx__bubble:first-child{margin-top:0}.orx-stack-layer .orx__bubble.is-open{height:auto;min-height:8.5rem;margin-top:8px;border-radius:18px}.orx-stack-layer .orx__row{min-height:40px}.orx-stack-layer .orx__bubble.is-open .orx__row{min-height:auto;align-items:flex-start}.orx-stack-layer .orx__title{font-size:.64rem}.orx-stack-layer .orx__bubble.is-open .orx__title{font-size:.8rem;white-space:normal}.orx-stack-layer .orx__date{font-size:.52rem}.orx-stack-layer .orx__x{width:1rem;height:1rem;margin-right:.25rem;font-size:.75rem}.orx-stack-layer .orx__full{padding:.15rem .7rem .7rem;font-size:.76rem}.orx-stack-layer .orx__link{display:inline-flex;align-items:center;justify-content:center;margin-top:.4rem;padding:.45rem .85rem;min-height:2.2rem;border-radius:999px;background:#fff;color:#1d4ed8;text-decoration:none;font-size:.74rem;font-weight:800}}',
         '.orx__arch{width:100%;max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem .15rem 0;-webkit-overflow-scrolling:touch;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
         '.orx__arch::-webkit-scrollbar{width:7px}',
         '.orx__arch::-webkit-scrollbar-thumb{background:rgba(15,23,42,.4);border-radius:999px}',
@@ -820,7 +825,11 @@
     }
 
     function newsIcon() {
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h13a2 2 0 012 2v11H6a2 2 0 01-2-2V5zm2 2v9h11V7H6zm12 2h2v10a2 2 0 01-2 2H5v-2h13V9zM8 9h7v2H8V9zm0 4h5v2H8v-2z"/></svg>';
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2z"/>' +
+        '<path d="M4 22a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/>' +
+        '<path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/>' +
+        '</svg>';
     }
 
     function render(chan) {
@@ -847,7 +856,8 @@
     function onRootClick(ev) {
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
       if (!el || !root) return;
-      if (!root.contains(el) && !(archLayer && archLayer.contains(el))) return;
+      if (!root.contains(el) && !(archLayer && archLayer.contains(el)) &&
+          !(stackLayer && stackLayer.contains(el))) return;
       var chan = root.getAttribute('data-chan') || '';
       var act = el.getAttribute('data-act');
       var id = el.getAttribute('data-id') || '';
@@ -915,8 +925,10 @@
       var appEl = document.querySelector('.app');
       if (!appEl || !window.MutationObserver || appEl.__orxNavWatch) return;
       appEl.__orxNavWatch = new MutationObserver(function () {
-        if (navOpen()) hideArchLayer();
-        else if (ui.archive) paint();
+        if (navOpen()) {
+          hideArchLayer();
+          hideStackLayer();
+        } else paint();
       });
       appEl.__orxNavWatch.observe(appEl, { attributes: true, attributeFilter: ['class'] });
     }
@@ -926,6 +938,67 @@
       archLayer.hidden = true;
       archLayer.innerHTML = '';
       archLayer.removeAttribute('data-orx');
+    }
+
+    function hideStackLayer() {
+      if (!stackLayer) return;
+      stackLayer.hidden = true;
+      stackLayer.innerHTML = '';
+      stackLayer.removeAttribute('data-orx');
+    }
+
+    function pinStackLayer(chan) {
+      if (!stackLayer) {
+        stackLayer = document.createElement('div');
+        stackLayer.id = 'orx-stack-layer';
+        stackLayer.className = 'orx-stack-layer';
+        stackLayer.hidden = true;
+        stackLayer.addEventListener('click', onRootClick);
+        document.body.appendChild(stackLayer);
+      }
+      var game = !!(root && root.classList.contains('orx--game'));
+      var list = bubbles(chan);
+      if (!game || ui.archive || !list.length || navOpen()) {
+        hideStackLayer();
+        return;
+      }
+      list.forEach(function (it) { fillImage(chan, it); });
+      var key = chanKey(chan) + '|' + ui.expanded + '|' + ui.rev + '|' +
+        list.map(function (it) { return it.id; }).join(',');
+      if (stackLayer.getAttribute('data-orx') !== key) {
+        stackLayer.innerHTML = '<div class="orx__stack">' +
+          list.map(function (it, i) { return bubbleHtml(chan, it, i); }).join('') + '</div>';
+        stackLayer.setAttribute('data-orx', key);
+      }
+      var vv = window.visualViewport;
+      var vw = Math.round((vv && vv.width) || window.innerWidth);
+      var hero = document.querySelector('.chan-hero');
+      var banner = topicBottom(hero);
+      var headBox = shownBox(visibleGameHead());
+      var chip = root.querySelector('.orx__chip');
+      var chipBox = chip && chip.getBoundingClientRect();
+      var top = 0;
+      if (gameFull() && headBox) top = headBox.bottom + 8;
+      else if (banner) top = banner.bottom + 8;
+      else if (headBox) top = headBox.bottom + 8;
+      else if (chipBox && chipBox.height > 8) top = chipBox.bottom + 8;
+      else {
+        hideStackLayer();
+        return;
+      }
+      var wide = !!ui.expanded || (isNarrow() && stackLayer.querySelector('.is-open'));
+      var width = isNarrow()
+        ? (wide ? Math.min(vw - 16, 340) : Math.min(Math.round(vw * 0.52), 168))
+        : (ui.expanded ? Math.min(vw - 16, 320) : Math.min(vw - 16, 240));
+      var right = 8;
+      if (gameFull() && chipBox && chipBox.width > 8) {
+        right = Math.max(8, Math.round(vw - chipBox.right));
+      }
+      stackLayer.hidden = false;
+      stackLayer.style.top = Math.round(top) + 'px';
+      stackLayer.style.right = right + 'px';
+      stackLayer.style.left = 'auto';
+      stackLayer.style.width = width + 'px';
     }
 
     function useArchLayer() {
@@ -992,6 +1065,7 @@
         root.classList.remove('orx--set');
       }
       hideArchLayer();
+      hideStackLayer();
     }
 
     function hidePlace() {
@@ -1313,6 +1387,7 @@
         ui.archiveId + '|' + unread(chan).length + '|' + itemsOf(chan).length;
       if (root.__orxSig === sig) {
         pinArchLayer(chan);
+        pinStackLayer(chan);
         return;
       }
       root.__orxSig = sig;
@@ -1329,6 +1404,7 @@
       }
       place(main, hero);
       pinArchLayer(chan);
+      pinStackLayer(chan);
     }
 
     Orbit.plugin('orbit-rss', function (orbit) {
