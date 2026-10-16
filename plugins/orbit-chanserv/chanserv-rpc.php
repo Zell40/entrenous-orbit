@@ -310,7 +310,7 @@ if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
 $nsActions = ['nsaccount', 'nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin', 'nsset', 'nsrecover'];
-if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access'
+if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access' && $action !== 'entrymsg'
   && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
 }
@@ -576,6 +576,35 @@ try {
       $account, 'BotServ', 'BOTLIST',
     ]));
     echo json_encode(['ok' => true, 'bots' => $bots], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'entrymsg') {
+    $op = strtoupper(trim((string) ($body['op'] ?? 'LIST')));
+    $n = trim((string) ($body['n'] ?? ''));
+    $text = trim((string) ($body['text'] ?? ''));
+    if (!in_array($op, ['LIST', 'ADD', 'DEL', 'CLEAR'], true)) {
+      fail(400, 'bad_params');
+    }
+    if ($op !== 'LIST') {
+      $params = [$account, 'ChanServ', 'ENTRYMSG', $channel, $op];
+      if ($op === 'ADD') {
+        if ($text === '' || strlen($text) > 400 || preg_match('/[\r\n]/', $text)) {
+          fail(400, 'bad_params');
+        }
+        $params[] = $text;
+      } elseif ($op === 'DEL') {
+        if (!preg_match('/^[1-9][0-9]*$/', $n)) {
+          fail(400, 'bad_params');
+        }
+        $params[] = $n;
+      }
+      flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', $params, 5));
+    }
+    $list = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+      $account, 'ChanServ', 'ENTRYMSG', $channel, 'LIST',
+    ], 5));
+    echo json_encode(['ok' => true, 'list' => $list], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
 

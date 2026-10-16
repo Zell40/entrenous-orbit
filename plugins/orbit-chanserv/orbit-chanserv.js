@@ -8,10 +8,10 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=102"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=105"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
- * INFO / STATUS / BOTLIST: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
+ * INFO / STATUS / BOTLIST / ACCESS / ENTRYMSG: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
  * Commandes (OP, KICK, …) : IRC ; les PRIVMSG/NOTICE de réponse sont masqués.
  */
 (function () {
@@ -606,6 +606,8 @@
       var account = orbit.state.account();
       if (!account) return Promise.resolve(null);
       var key = action + ':' + String(chan || '').toLowerCase();
+      if (extra && extra.op) key += ':' + String(extra.op).toLowerCase();
+      if (extra && extra.n) key += ':' + String(extra.n);
       if (rpcInflight[key]) return rpcInflight[key];
       var body = Object.assign({
         account: account,
@@ -660,7 +662,6 @@
       patchUi({
         chan: chan, loading: false, registered: c.registered, founder: c.founder,
         bot: c.bot, access: acc, infoText: c.infoText, flash: '',
-        botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [],
       });
       return true;
     }
@@ -859,10 +860,54 @@
       bs('INFO ' + chan);
     }
 
+    function applyEntryList(raw, opts) {
+      opts = opts || {};
+      var rows = parseEntryList(raw);
+      var err = looksLikeServError(raw) && !rows.length;
+      var denied = err && looksLikeAccessDenied(raw);
+      patchUi({
+        entryMsgs: err ? (denied ? [] : ui.entryMsgs) : rows,
+        loading: false,
+        flash: denied ? '' : (err ? String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 400) : (opts.keepFlash ? ui.flash : '')),
+        flashErr: denied ? false : !!err,
+      });
+    }
+
     function queryEntryMsg(chan) {
       if (!isChannel(chan) || !identified()) return;
-      beginExpect('entrymsg', chan);
-      cs('ENTRYMSG ' + chan + ' LIST');
+      if (!panelOpen()) return;
+      rpcCall('entrymsg', chan, { op: 'LIST' }).then(function (data) {
+        if (ui.chan && foldText(ui.chan) !== foldText(chan)) return;
+        if (data && data.ok) {
+          applyEntryList(data.list || '');
+          return;
+        }
+        if (rpcState !== 'off') return;
+        beginExpect('entrymsg', chan);
+        cs('ENTRYMSG ' + chan + ' LIST');
+      });
+    }
+
+    function runEntryMsg(chan, op, extra) {
+      if (!isChannel(chan) || !identified()) return;
+      rpcCall('entrymsg', chan, Object.assign({ op: op }, extra || {})).then(function (data) {
+        if (ui.chan && foldText(ui.chan) !== foldText(chan)) return;
+        if (data && data.ok) {
+          applyEntryList(data.list || '');
+          return;
+        }
+        if (rpcState !== 'off') return;
+        var line = 'ENTRYMSG ' + chan + ' ' + op;
+        if (op === 'ADD' && extra && extra.text) line += ' ' + extra.text;
+        if (op === 'DEL' && extra && extra.n) line += ' ' + extra.n;
+        goEntryMsgIrc(line);
+      });
+    }
+
+    function goEntryMsgIrc(line) {
+      beginExpect('cmd', ui.chan);
+      patchUi({ flash: '', lastCmd: 'ChanServ ' + line, loading: true });
+      cs(line);
     }
 
     function queryTopicHistory(chan) {
@@ -943,6 +988,7 @@
       if (!t || looksLikeServOk(t)) return false;
       if (/mots interdits|mot interdit|bad ?words/.test(t) && !/permission|denied|refuse|invalide|invalid/.test(t)) return false;
       if (/liste d['']acces|access list|fin de la liste d['']acces/.test(t) && !/permission|denied|refuse/.test(t)) return false;
+      if (/messages d['']accueil|entry ?messages?/.test(t) && !/permission|denied|refuse/.test(t)) return false;
       return /limite|limit|depass|exceed|permission|denied|refuse|vous ne pouvez|you cannot|\binterdit\b|impossible|erreur|error|fail|deja|already|trop (de|many)|too many|pas assez|not enough|invalide|invalid|inconnu|unknown|pas autoris|not allowed|syntaxe|syntax/.test(t);
     }
     function looksLikeAccessDenied(text) {
@@ -1300,27 +1346,49 @@
       return rows;
     }
 
-    function parseEntryList(text, joinWrap) {
+    function isEntryChrome(s) {
+      var t = foldText(s);
+      return /^(end of|fin de|liste des messages|entry ?messages?|syntaxe|syntax)\b/.test(t)
+        || /messages d['']accueil/.test(t)
+        || /^(aucun message|no entry|est vide|is empty)\b/.test(t);
+    }
+    function isEntryStamp(s) {
+      return /^\d{1,2}:\d{2}(?::\d{2})?(?:\s+\d{4})?\s*$/.test(s)
+        || /^(?:sun|mon|tue|wed|thu|fri|sat)\s+\w+\s+\d{1,2}\b/i.test(s);
+    }
+    function appendEntryText(prev, s) {
+      var glue = /-$/.test(prev.text) || /^[,.;:!?')\]]/.test(s) ? '' : ' ';
+      prev.text = (prev.text.replace(/\s+$/, '') + glue + s.replace(/^\s+/, '')).replace(/\s+/g, ' ').trim();
+    }
+    function parseEntryList(text) {
       var rows = [];
-      String(text || '').split(/\n/).forEach(function (line) {
+      var raw = String(text || '').replace(/\r/g, '');
+      raw = raw.replace(/\s+\|\s+(?=\d+\s*[:.)])/g, '\n');
+      raw.split(/\n/).forEach(function (line) {
         var s = stripIrc(line).trim();
-        if (!s) return;
+        if (!s || isEntryChrome(s)) return;
+        var numOnly = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s*$/);
+        if (numOnly) {
+          rows.push({ n: numOnly[1], text: '' });
+          return;
+        }
         var m = s.match(/^(?:[-*•]\s*)?(\d+)\s*[:.)]\s*(.+)$/)
           || s.match(/^\[(\d+)\]\s*(.+)$/)
           || s.match(/^(?:[-*•]\s*)?(\d+)\s{2,}(.+)$/);
-        if (!m) {
-          if (joinWrap && rows.length && !/^(end of|fin de|liste|list|syntaxe|syntax)\b/i.test(s)) {
-            var prev = rows[rows.length - 1];
-            var glue = /-$/.test(prev.text) || /^[,.;:!?')\]]/.test(s) ? '' : ' ';
-            prev.text = prev.text.replace(/\s+$/, '') + glue + s.replace(/^\s+/, '');
+        if (m) {
+          var rest = String(m[2] || '').trim().replace(/^\|\s*/, '').replace(/\s+\|\s+/g, ' ');
+          if (/^\d{2}(?::\d{2}){1,2}(?:\s+\d{4})?$/.test(rest) || isEntryStamp(s) || isEntryStamp(rest)) {
+            if (rows.length) appendEntryText(rows[rows.length - 1], s.replace(/^\|\s*/, ''));
+            return;
           }
+          if (!rest || isEntryChrome(rest)) return;
+          rows.push({ n: m[1], text: rest });
           return;
         }
-        var rest = m[2].trim();
-        if (!rest || /^(end of|fin de|liste|list)\b/i.test(rest)) return;
-        rows.push({ n: m[1], text: rest });
+        if (!rows.length) return;
+        appendEntryText(rows[rows.length - 1], s.replace(/^\|\s*/, '').replace(/\s+\|\s+/g, ' '));
       });
-      return rows;
+      return rows.filter(function (r) { return r.text; });
     }
     function isTopicHistoryChrome(s) {
       var t = foldText(s);
@@ -1506,16 +1574,7 @@
         return;
       }
       if (kind === 'entrymsg') {
-        var entryRaw = stripIrc(text);
-        var entryRows = parseEntryList(entryRaw);
-        var entryErr = looksLikeServError(entryRaw) && !entryRows.length;
-        var entryDenied = entryErr && looksLikeAccessDenied(entryRaw);
-        patchUi({
-          entryMsgs: entryErr ? (entryDenied ? [] : ui.entryMsgs) : entryRows,
-          loading: false,
-          flash: entryDenied ? '' : (entryErr ? entryRaw.replace(/\s+/g, ' ').trim().slice(0, 400) : ui.flash),
-          flashErr: entryDenied ? false : !!entryErr,
-        });
+        applyEntryList(stripIrc(text), { keepFlash: true });
         expectKind = '';
         return;
       }
@@ -1967,10 +2026,13 @@
         'padding:.35rem .6rem;color:var(--accent);background:var(--accent-soft)}',
         '.ocs-acc__pad{display:flex;flex-direction:column;gap:.5rem;padding:.55rem .65rem}',
         '.ocs-acc__pad .ocs-input,.ocs-acc__pad .ocs-select,.ocs-acc__pad .ocs-textarea{background:var(--bg)}',
-        '.ocs-acc__row{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;',
+        '.ocs-acc__row{display:flex;align-items:flex-start;flex-wrap:wrap;gap:.45rem;',
         'padding:.35rem .6rem;border-top:1px solid var(--border);font-size:.84rem}',
         '.ocs-acc__row.is-edit{background:var(--accent-soft)}',
-        '.ocs-acc__nick{font-weight:700;word-break:break-all;min-width:0;flex:1}',
+        '.ocs-acc__nick{font-weight:700;word-break:break-word;overflow-wrap:anywhere;min-width:0;flex:1;line-height:1.4}',
+        '.ocs-acc__msg{font-weight:650;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-width:0;flex:1;line-height:1.4}',
+        '.ocs-acc__row--msg{flex-wrap:nowrap;align-items:flex-start}',
+        '.ocs-acc__row--msg .ocs-btn{margin-top:.1rem}',
         '.ocs-acc__type{flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.ocs-acc__acts{display:flex;align-items:center;gap:.3rem;flex:none;margin-left:auto}',
         '.ocs-acc__edit{display:flex;align-items:center;gap:.35rem;flex:1 1 100%;min-width:0}',
@@ -4344,11 +4406,11 @@
             welcome.push(h('div', { className: 'ocs-acc' },
               h('div', { className: 'ocs-acc__g' },
                 [h('div', { className: 'ocs-acc__h' }, pick('Messages', 'Messages'))].concat(s.entryMsgs.map(function (row) {
-                  return h('div', { key: row.n, className: 'ocs-acc__row' },
-                    h('span', { className: 'ocs-acc__nick' }, row.n + '. ' + row.text),
+                  return h('div', { key: row.n, className: 'ocs-acc__row ocs-acc__row--msg' },
+                    h('span', { className: 'ocs-acc__msg' }, row.n + '. ' + row.text),
                     h('button', {
                       type: 'button', className: 'ocs-btn',
-                      onClick: function () { goCs('ENTRYMSG ' + ch + ' DEL ' + row.n); },
+                      onClick: function () { runEntryMsg(ch, 'DEL', { n: String(row.n) }); },
                     }, pick('Retirer', 'Remove'))
                   );
                 }))
@@ -4360,11 +4422,14 @@
           ));
           welcome.push(h('div', { className: 'ocs-row' },
             h('button', { type: 'button', className: 'ocs-btn ocs-btn--primary', onClick: function () {
-              if (entryMsg.trim()) goCs('ENTRYMSG ' + ch + ' ADD ' + entryMsg.trim());
+              var v = entryMsg.trim();
+              if (!v) return;
+              setEntryMsg('');
+              runEntryMsg(ch, 'ADD', { text: v });
             } }, labeled('plus', pick('Ajouter', 'Add'))),
             h('button', { type: 'button', className: 'ocs-btn', onClick: function () { queryEntryMsg(ch); } },
               labeled('list', pick('Actualiser', 'Refresh'))),
-            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { goCs('ENTRYMSG ' + ch + ' CLEAR'); } },
+            h('button', { type: 'button', className: 'ocs-btn', onClick: function () { runEntryMsg(ch, 'CLEAR'); } },
               labeled('novoice', pick('Tout retirer', 'Clear all')))
           ));
           body.push(block(welcome));
