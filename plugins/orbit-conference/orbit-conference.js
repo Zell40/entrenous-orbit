@@ -1702,8 +1702,7 @@
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
-    var anyOpen = listSessions().length > 0;
-    if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+    if (!bufferAllowed(orbit, activeBuf)) return null;
 
     // Contrôle parental (denyGroups) : icône visible mais barrée + tip, jamais cliquable.
     if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
@@ -1767,10 +1766,9 @@
     if (!activeBuf || isConsoleOrPseudo(activeBuf)) return null;
     var sessHere = getSession(activeBuf);
     var others = otherSessions(activeBuf);
-    var anyOpen = listSessions().length > 0;
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var cfg = confCfg(orbit);
-    if (!bufferAllowed(orbit, activeBuf) && !anyOpen) return null;
+    if (!bufferAllowed(orbit, activeBuf)) return null;
     if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
       var blockTip = parentalVisioTip(orbit);
       return h('button', {
