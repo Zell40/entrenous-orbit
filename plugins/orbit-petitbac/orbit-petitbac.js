@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 91;
+  var PBAC_VER = 92;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -111,6 +111,11 @@
     return cfg(orbit).botNicks;
   }
 
+  function memberNickKey(key, member) {
+    var n = (member && (member.nick || member.name)) || key;
+    return String(n || '').toLowerCase().replace(/^[@+%~&]/, '');
+  }
+
   /** @returns {'present'|'absent'|'unknown'} */
   function bacBotPresence(orbit, bufferKey) {
     if (!orbit || !bufferKey) return 'unknown';
@@ -121,10 +126,12 @@
     var keys = Object.keys(members);
     var bots = bacBotNicks(orbit);
     for (var i = 0; i < keys.length; i++) {
-      if (bots.indexOf(String(keys[i]).toLowerCase()) >= 0) return 'present';
+      if (bots.indexOf(memberNickKey(keys[i], members[keys[i]])) >= 0) return 'present';
     }
-    var me = String(st.nick || '').toLowerCase();
-    var hasMe = me && keys.some(function (k) { return String(k).toLowerCase() === me; });
+    var me = String(st.nick || '').toLowerCase().replace(/^[@+%~&]/, '');
+    var hasMe = me && keys.some(function (k) {
+      return memberNickKey(k, members[k]) === me;
+    });
     if (hasMe || (buf.joined && keys.length > 0)) return 'absent';
     return 'unknown';
   }
@@ -134,7 +141,7 @@
   }
 
   function canTalkToBac(orbit, bufferKey) {
-    return bacBotPresence(orbit, bufferKey) !== 'absent';
+    return bacBotPresence(orbit, bufferKey) === 'present';
   }
 
   function loadCachedExtraModes(orbit) {
@@ -338,6 +345,7 @@
 
   function sendPbCmd(orbit, buffer, name, arg, extra) {
     if (!orbit || !buffer || !name) return;
+    if (!canTalkToBac(orbit, buffer)) return;
     var target = sendPbTarget(orbit, buffer);
     var tags = '+pb=v1;+ev=cmd;+name=' + escapeIrcTag(name);
     if (arg != null && String(arg) !== '') tags += ';+arg=' + escapeIrcTag(arg);
@@ -3274,7 +3282,7 @@
     if (playBtn) playBtn.hidden = normalizeViewMode(root.__opbacViewMode) === VIEW_CHAT && kind === 'play';
   }
 
-  function buildHeadHtml(headBadge, modeBadge, viewMode, gameActive, collapsedCta, modeId, gameView) {
+  function buildHeadHtml(headBadge, modeBadge, viewMode, gameActive, collapsedCta, modeId, gameView, offline) {
     viewMode = normalizeViewMode(viewMode);
     var chatOn = viewMode === VIEW_CHAT;
     gameView = (gameView === VIEW_SPLIT) ? VIEW_SPLIT : VIEW_FULL;
@@ -3311,7 +3319,7 @@
         '<button type="button" class="opbac-head__btn" data-act="rules" data-tour="rules" title="' +
           escHtml(pick({ fr: 'Règles du jeu', en: 'Game rules' })) + '">' +
           iconSvg('rules') + '</button>' +
-        (!gameActive
+        (!gameActive && !offline
           ? ('<button type="button" class="opbac-head__btn" data-act="play-menu" data-tour="mode" title="' +
           escHtml(pick({ fr: 'Choisir un niveau', en: 'Choose a level' })) + '">' +
           iconSvg('mode') + '</button>')
@@ -6981,8 +6989,10 @@
     bindDomPanel(root, orbit);
     var game = promoteStartedRound(buffer, getChannelState(buffer) || defaultState());
     var phase = game.phase || 'idle';
+    var presence = bacBotPresence(orbit, buffer);
+    var botOffline = presence !== 'present';
     var sig = panelSignature(game) + '|' + (isLiveBoardOpen(orbit) ? '1' : '0') +
-      '|' + (skipRulesPref(orbit) ? '1' : '0');
+      '|' + (skipRulesPref(orbit) ? '1' : '0') + '|bot' + presence;
     var rebuild = root.__opbacSig !== sig;
     var gameRunning = isGameRunning(game);
     var hasGrid = hasPlayableGrid(game);
@@ -6995,7 +7005,7 @@
     var myNick = orbit.state.nick() || '';
     var replayMode = defaultReplayMode(game, root, orbit);
 
-    if (gameRunning && !isEnd) maybeRequestGameSync(orbit, buffer, game);
+    if (gameRunning && !isEnd && !botOffline) maybeRequestGameSync(orbit, buffer, game);
 
     var restoreFocus = captureFormFocus(root);
     if (rebuild) {
@@ -7022,7 +7032,7 @@
     }
     if (isIdle) root.__opbacDidAutoFull = false;
     if (!isIdle) recapSheetOpen = false;
-    if (phase === 'rules') maybeOpenRulesModal(orbit, buffer);
+    if (phase === 'rules' && !botOffline) maybeOpenRulesModal(orbit, buffer);
 
     var headBadge = phaseLabel(phase, game.countdown);
     if (isGameEnd) {
@@ -7037,20 +7047,30 @@
       headBadge += ' · 🔥 Full combo';
     }
     var modeBadge = (gameRunning && !isEnd) ? modeBadgeLabel(game.mode) : '';
-    var collapsedCta = collapsedCtaKind(viewMode, gameRunning, isEnd, isIdle, isGameEnd);
+    var collapsedCta = botOffline ? '' : collapsedCtaKind(viewMode, gameRunning, isEnd, isIdle, isGameEnd);
+    if (botOffline) {
+      headBadge = presence === 'unknown'
+        ? pick({ fr: 'Connexion…', en: 'Connecting…' })
+        : pick({ fr: 'Bot absent', en: 'Bot offline' });
+      if (tourActive) closePetitBacTour(orbit, true);
+      stopLobbyRetry();
+    }
 
     root.className = 'opbac-panel' +
       (viewMode === VIEW_CHAT ? ' opbac-panel--chat opbac-panel--collapsed' : '') +
       (viewMode === VIEW_FULL ? ' opbac-panel--full' : '') +
       (viewMode === VIEW_SPLIT ? ' opbac-panel--split' : '') +
-      ((isLive || isPrep || isRoundEnd) ? ' opbac-panel--playing' : '') +
-      (isGameEnd ? ' opbac-panel--game-end' : '') +
-      (isRoundEnd ? ' opbac-panel--round-end' : '') +
-      ((isLive && game.fullComboNick && game.fullComboRound === roundKey(game)) ? ' opbac-panel--complete' : '');
+      ((isLive || isPrep || isRoundEnd) && !botOffline ? ' opbac-panel--playing' : '') +
+      (isGameEnd && !botOffline ? ' opbac-panel--game-end' : '') +
+      (isRoundEnd && !botOffline ? ' opbac-panel--round-end' : '') +
+      (botOffline ? ' opbac-panel--offline' : '') +
+      ((isLive && !botOffline && game.fullComboNick && game.fullComboRound === roundKey(game)) ? ' opbac-panel--complete' : '');
 
     if (rebuild) {
       var bodyHtml = '';
-      if (isIdle) {
+      if (botOffline) {
+        bodyHtml = buildOfflineHtml(presence);
+      } else if (isIdle) {
         if (canTalkToBac(orbit, buffer)) {
           requestModeList(orbit, buffer);
           if (recapVisible(root)) ensureLobbyData(orbit, buffer, currentLobbyTab(), false);
@@ -7074,18 +7094,18 @@
       var tourKeep = tourActive ? document.getElementById('opbac-tour') : null;
       if (tourKeep && tourKeep.parentNode) tourKeep.parentNode.removeChild(tourKeep);
       root.innerHTML =
-        buildHeadHtml(headBadge, modeBadge, viewMode, gameRunning && !isEnd, collapsedCta, game.mode,
-          currentGameView(orbit, root, viewMode)) +
+        buildHeadHtml(headBadge, modeBadge, viewMode, gameRunning && !isEnd && !botOffline, collapsedCta, game.mode,
+          currentGameView(orbit, root, viewMode), botOffline) +
         '<div class="opbac-body">' + bodyHtml + '</div>' +
         '<div class="opbac-resize" data-opbac-resize role="separator" aria-label="' +
           escHtml(pick({ fr: 'Redimensionner le panneau', en: 'Resize panel' })) + '"></div>';
-      if (tourKeep && tourActive && isIdle) root.appendChild(tourKeep);
+      if (tourKeep && tourActive && isIdle && !botOffline) root.appendChild(tourKeep);
 
       bindPanelResize(root, orbit);
       applyViewMode(root, orbit, viewMode);
 
       root.__opbacDraftSig = draftSignature(buffer, game);
-      if (isIdle) schedulePetitBacTour(orbit, root);
+      if (isIdle && !botOffline) schedulePetitBacTour(orbit, root);
       else if (tourActive) closePetitBacTour(orbit, true);
 
       if (isLive && !isEnd && viewMode !== VIEW_CHAT) {
@@ -7113,19 +7133,19 @@
       if (modeWrap) modeWrap.hidden = !modeBadge;
       syncCollapsedCta(root, collapsedCta);
       var customsEl = root.querySelector('[data-opbac-customs]');
-      if (customsEl && (isIdle || isEnd)) {
+      if (customsEl && (isIdle || isEnd) && !botOffline) {
         if (isIdle && canTalkToBac(orbit, buffer)) requestModeList(orbit, buffer);
         customsEl.innerHTML = buildCustomModesHtml(defaultReplayMode(game, root, orbit));
       }
-      if (isIdle) updateReplayModeUi(root, replayMode);
+      if (isIdle && !botOffline) updateReplayModeUi(root, replayMode);
       var idleStats = root.querySelector('[data-opbac-idle-stats]');
-      if (idleStats && isIdle && recapVisible(root)) {
+      if (idleStats && isIdle && recapVisible(root) && !botOffline) {
         var typing = document.activeElement && idleStats.contains(document.activeElement)
           && document.activeElement.getAttribute
           && document.activeElement.getAttribute('data-stat-nick') != null;
         if (!typing) idleStats.innerHTML = buildRecapBodyHtml(game, myNick, currentLobbyTab());
       }
-      if (isIdle) syncCreatedNotice(root);
+      if (isIdle && !botOffline) syncCreatedNotice(root);
       var scoresWrap = root.querySelector('[data-opbac-scores]');
       if (scoresWrap && (isLive || hasGrid) && !isEnd) {
         scoresWrap.outerHTML = buildSideScoresHtml(game);
@@ -7250,6 +7270,11 @@
         log('orbit-petitbac', tagVal(tags, EV), target);
         return;
       }
+      if (cmd === 'JOIN' || cmd === 'PART' || cmd === 'QUIT' || cmd === 'KICK'
+          || cmd === 'NICK' || cmd === '353' || cmd === '366') {
+        syncDom();
+        return;
+      }
       if (cmd === 'PRIVMSG' || cmd === 'NOTICE') {
         noteIncomingChat(orbit, msg);
         var chan = (msg.params && msg.params[0]) || '';
@@ -7308,6 +7333,13 @@
         var buf = orbit.state.active();
         if (!buf || !isBacChannel(orbit, buf)) {
           orbit.notify('Petit Bac', pick({ fr: 'Ouvrez le salon #Baccalaureat.chat d\'abord.', en: 'Open #Baccalaureat.chat first.' }));
+          return;
+        }
+        if (!canTalkToBac(orbit, buf)) {
+          orbit.notify('Petit Bac', pick({
+            fr: 'Le jeu n\'est pas disponible actuellement (bot absent).',
+            en: 'The game is not available right now (bot offline).',
+          }));
           return;
         }
         openPlayMenu(orbit);
