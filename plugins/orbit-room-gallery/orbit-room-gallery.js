@@ -1096,6 +1096,16 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   }
   requestAnimationFrame(frameTick);
 
+  // If the user opened Explore before this factory ran, swap now — don't leave
+  // them on the native list until the next modal flip.
+  {
+    const st = orbit.state.get();
+    if (st.modal === 'explore') {
+      if (typeof st.setModal === 'function') st.setModal('');
+      openGallery();
+    }
+  }
+
   // Load the picture map right away (not just when the gallery/admin modal
   // happen to open) so the topbar/sidebar pictures show up on their own on
   // startup, and keep it modestly fresh afterwards so a picture another
