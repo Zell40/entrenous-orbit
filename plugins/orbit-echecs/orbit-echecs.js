@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 59;
+  var OEC_VER = 61;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {

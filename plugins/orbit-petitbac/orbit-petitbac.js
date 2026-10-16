@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 89;
+  var PBAC_VER = 91;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2488,17 +2488,14 @@
       '.opbac-sheet__all:disabled{opacity:.4;cursor:not-allowed}',
       '.opbac-help-wrap{padding:0 1.2rem 1.25rem}',
       '.opbac-help-overlay{position:fixed;inset:0;z-index:55;display:grid;place-items:center;padding:1rem;background:rgba(15,23,42,.5);backdrop-filter:blur(2px)}',
-      '.opbac-tour{position:fixed;inset:0;z-index:24;pointer-events:auto}',
-      'body.opbac-active .modal,body.opbac-full .modal{z-index:400}',
+      '.opbac-tour{position:absolute;inset:0;z-index:40;pointer-events:auto;overflow:hidden}',
       '@media(max-width:880px){body.opbac-active .topbar,body.opbac-full .topbar{z-index:60!important;position:relative}body.opbac-active .sidebar,body.opbac-active .side,body.opbac-active .rail,body.opbac-active aside.sidebar,body.opbac-active .members,body.opbac-active .memberlist,body.opbac-full .sidebar,body.opbac-full .side,body.opbac-full .rail,body.opbac-full aside.sidebar,body.opbac-full .members,body.opbac-full .memberlist{z-index:90!important}body.opbac-active .nav-backdrop,body.opbac-full .nav-backdrop{z-index:80!important}}',
       '.opbac-tour--pass{pointer-events:none}',
       '.opbac-tour--pass .opbac-tour__card{pointer-events:auto}',
-      '.opbac-tour--under-chrome{z-index:12!important;pointer-events:none}',
-      '.opbac-tour--under-chrome .opbac-tour__card{pointer-events:none}',
-      '.opbac-tour__spot{position:fixed;z-index:1;pointer-events:none;border-radius:12px;box-shadow:0 0 0 3px #c4b5fd,0 0 0 9999px rgba(15,23,42,.58);transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
+      '.opbac-tour__spot{position:absolute;z-index:1;pointer-events:none;border-radius:12px;box-shadow:0 0 0 3px #c4b5fd,0 0 0 9999px rgba(15,23,42,.58);transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
       '.opbac-tour--launch .opbac-tour__spot{border-radius:999px;animation:opbacTourPulse 1.15s ease-in-out infinite}',
       '@keyframes opbacTourPulse{0%,100%{box-shadow:0 0 0 4px #a5b4fc,0 0 0 9999px rgba(15,23,42,.55)}50%{box-shadow:0 0 0 9px #fb923c,0 0 0 9999px rgba(15,23,42,.5)}}',
-      '.opbac-tour__card{position:fixed;z-index:2;width:min(22.5rem,calc(100vw - 1.5rem));background:var(--bg,#fff);color:var(--ink,#111);border-radius:16px;padding:.9rem 1rem .85rem;box-shadow:0 18px 40px -12px rgba(15,23,42,.45);border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd))}',
+      '.opbac-tour__card{position:absolute;z-index:2;width:min(22.5rem,calc(100% - 1.5rem));background:var(--bg,#fff);color:var(--ink,#111);border-radius:16px;padding:.9rem 1rem .85rem;box-shadow:0 18px 40px -12px rgba(15,23,42,.45);border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd))}',
       '.opbac-tour__n{margin:0 0 .28rem;font-size:.68rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#6366f1}',
       '.opbac-tour__card h3{margin:0 0 .4rem;font-size:1.05rem;font-weight:900}',
       '.opbac-tour__card p{margin:0;font-size:.84rem;line-height:1.45;color:var(--ink,#222)}',
@@ -5713,15 +5710,23 @@
     ];
   }
 
+  function isShownOverlay(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    var st = window.getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 8 && r.height > 8;
+  }
+
   function orbitChromeOpen() {
     var app = document.querySelector('.app');
     if (app && (app.classList.contains('nav-open') || app.classList.contains('members-open'))) return true;
-    if (document.querySelector('.nav-backdrop')) return true;
+    var bd = document.querySelector('.nav-backdrop');
+    if (bd && isShownOverlay(bd)) return true;
+    var gallery = document.querySelector('.rg');
+    if (gallery && isShownOverlay(gallery)) return true;
     var modal = document.querySelector('.modal');
-    if (modal) {
-      var st = window.getComputedStyle(modal);
-      if (st.display !== 'none' && st.visibility !== 'hidden' && Number(st.opacity) !== 0) return true;
-    }
+    if (modal && isShownOverlay(modal)) return true;
     return false;
   }
 
@@ -5737,8 +5742,8 @@
     if (tourChromeObs || !window.MutationObserver) return;
     var app = document.querySelector('.app') || document.body;
     tourChromeObs = new MutationObserver(function () { syncTourChromeLayer(); });
-    tourChromeObs.observe(app, { attributes: true, attributeFilter: ['class'], subtree: false });
-    tourChromeObs.observe(document.body, { childList: true, subtree: false });
+    tourChromeObs.observe(app, { attributes: true, attributeFilter: ['class'] });
+    tourChromeObs.observe(document.body, { childList: true, subtree: true });
   }
 
   function unwatchTourChrome() {
@@ -5769,6 +5774,8 @@
     var step = steps[tourIndex];
     if (!step) return;
     var root = document.getElementById('opbac-dom-panel');
+    var host = overlay.parentElement || root;
+    if (!host) return;
     var el = root && root.querySelector(step.sel);
     var spot = overlay.querySelector('.opbac-tour__spot');
     var card = overlay.querySelector('.opbac-tour__card');
@@ -5776,24 +5783,25 @@
     overlay.classList.toggle('opbac-tour--launch', !!step.launch);
     overlay.classList.toggle('opbac-tour--pass', !!step.launch);
     var pad = step.launch ? 8 : 6;
+    var hr = host.getBoundingClientRect();
     var r;
     if (el) {
       r = el.getBoundingClientRect();
     } else {
-      r = { top: window.innerHeight / 3, left: window.innerWidth / 2 - 80, width: 160, height: 40, bottom: window.innerHeight / 3 + 40 };
+      r = { top: hr.top + 36, left: hr.left + 12, width: Math.min(280, hr.width - 24), height: 40, bottom: hr.top + 76 };
     }
-    spot.style.top = Math.max(4, r.top - pad) + 'px';
-    spot.style.left = Math.max(4, r.left - pad) + 'px';
+    spot.style.top = Math.max(0, r.top - hr.top - pad) + 'px';
+    spot.style.left = Math.max(0, r.left - hr.left - pad) + 'px';
     spot.style.width = Math.max(24, r.width + pad * 2) + 'px';
     spot.style.height = Math.max(24, r.height + pad * 2) + 'px';
-    var cardW = Math.min(360, window.innerWidth - 24);
-    var left = Math.min(Math.max(12, r.left), window.innerWidth - cardW - 12);
-    var top = r.bottom + 14;
+    var cardW = Math.min(360, Math.max(200, hr.width - 24));
+    var left = Math.min(Math.max(12, r.left - hr.left), hr.width - cardW - 12);
+    var top = (r.bottom - hr.top) + 14;
     card.style.width = cardW + 'px';
-    card.style.left = left + 'px';
+    card.style.left = Math.max(8, left) + 'px';
     card.style.top = '0px';
     var ch = card.offsetHeight || 180;
-    if (top + ch > window.innerHeight - 12) top = Math.max(12, r.top - 12 - ch);
+    if (top + ch > hr.height - 12) top = Math.max(12, r.top - hr.top - 12 - ch);
     card.style.top = top + 'px';
   }
 
@@ -5828,6 +5836,7 @@
 
   function startPetitBacTour(orbit, root, forced) {
     if (tourActive) {
+      attachTourOverlay(root || document.getElementById('opbac-dom-panel'));
       layoutTourStep();
       return;
     }
@@ -5845,7 +5854,6 @@
     overlay.id = 'opbac-tour';
     overlay.className = 'opbac-tour';
     overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', pick({ fr: 'Guide de démarrage Petit Bac', en: 'Petit Bac starter guide' }));
     overlay.innerHTML = '<div class="opbac-tour__spot"></div><div class="opbac-tour__card"></div>';
     overlay.addEventListener('click', function (ev) {
@@ -5868,14 +5876,20 @@
     };
     document.addEventListener('keydown', tourEscHandler);
     window.addEventListener('resize', layoutTourStep);
-    document.body.appendChild(overlay);
-    watchTourChrome();
-    syncTourChromeLayer();
+    attachTourOverlay(panel, overlay);
     renderTourCard();
+  }
+
+  function attachTourOverlay(panel, overlay) {
+    overlay = overlay || document.getElementById('opbac-tour');
+    panel = panel || document.getElementById('opbac-dom-panel');
+    if (!overlay || !panel) return;
+    if (overlay.parentNode !== panel) panel.appendChild(overlay);
   }
 
   function schedulePetitBacTour(orbit, root) {
     if (tourActive) {
+      attachTourOverlay(root);
       requestAnimationFrame(layoutTourStep);
       return;
     }
@@ -6948,7 +6962,10 @@
   }
 
   function renderDomPanel(orbit, root) {
-    if (tourActive) syncTourChromeLayer();
+    if (tourActive) {
+      attachTourOverlay(root);
+      layoutTourStep();
+    }
     var buffer = orbit.state.active();
     var onBac = isBacChannel(orbit, buffer);
     document.body.classList.toggle('opbac-active', !!onBac);
@@ -7054,12 +7071,15 @@
         if (isBacBotPresent(orbit, buffer)) requestModeList(orbit, buffer);
       }
 
+      var tourKeep = tourActive ? document.getElementById('opbac-tour') : null;
+      if (tourKeep && tourKeep.parentNode) tourKeep.parentNode.removeChild(tourKeep);
       root.innerHTML =
         buildHeadHtml(headBadge, modeBadge, viewMode, gameRunning && !isEnd, collapsedCta, game.mode,
           currentGameView(orbit, root, viewMode)) +
         '<div class="opbac-body">' + bodyHtml + '</div>' +
         '<div class="opbac-resize" data-opbac-resize role="separator" aria-label="' +
           escHtml(pick({ fr: 'Redimensionner le panneau', en: 'Resize panel' })) + '"></div>';
+      if (tourKeep && tourActive && isIdle) root.appendChild(tourKeep);
 
       bindPanelResize(root, orbit);
       applyViewMode(root, orbit, viewMode);
