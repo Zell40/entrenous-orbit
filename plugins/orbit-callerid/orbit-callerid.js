@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=32"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=37"]
  */
 (function () {
   'use strict';
@@ -71,6 +71,26 @@
   /** Blocker-side banner dismissed for these nicks (session). */
   var dismissedWeBlocked = Object.create(null);
   var STATUS_BUF = '$server';
+
+  /**
+   * Top-of-PM tip after ACCEPT (replaces the inline blue ACTION:allowlist line).
+   * nick → { nick, kind: 'we-accepted' | 'they-accepted' }
+   */
+  var acceptedTips = { map: Object.create(null), rev: 0, listeners: new Set() };
+  function subscribeAcceptedTips(cb) {
+    acceptedTips.listeners.add(cb);
+    return function () { acceptedTips.listeners.delete(cb); };
+  }
+  function getAcceptedTipsSnap() { return acceptedTips.rev; }
+  function setAcceptedTip(nick, data) {
+    var key = pendingKey(nick);
+    if (!key) return;
+    if (data) acceptedTips.map[key] = data;
+    else delete acceptedTips.map[key];
+    acceptedTips.rev++;
+    acceptedTips.listeners.forEach(function (l) { l(); });
+  }
+  function getAcceptedTip(nick) { return acceptedTips.map[pendingKey(nick)] || null; }
 
   /** Incoming requests (718): nick → { nick, host, ts } */
   var pending = { map: Object.create(null), rev: 0, listeners: new Set() };
@@ -495,6 +515,9 @@
       outgoing.map = Object.create(null);
       outgoing.rev++;
       outgoing.listeners.forEach(function (l) { l(); });
+      acceptedTips.map = Object.create(null);
+      acceptedTips.rev++;
+      acceptedTips.listeners.forEach(function (l) { l(); });
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
       dismissedWeBlocked = Object.create(null);
@@ -939,7 +962,7 @@
     } catch (e) { /* ignore */ }
   }
 
-  function bufferHasSelfText(orbit, nick, text) {
+  function getQueryBuffer(orbit, nick) {
     try {
       var st = orbit.state.get();
       var buffers = (st && st.buffers) || {};
@@ -949,6 +972,15 @@
           if (fold(k) === fold(nick)) buf = buffers[k];
         });
       }
+      return buf || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function bufferHasSelfText(orbit, nick, text) {
+    try {
+      var buf = getQueryBuffer(orbit, nick);
       var msgs = (buf && buf.messages) || [];
       var want = String(text || '');
       for (var i = msgs.length - 1; i >= 0; i--) {
@@ -958,17 +990,40 @@
     return false;
   }
 
+  /** True if we already sent a real PRIVMSG/ACTION in this PM (not just opened it). */
+  function bufferHasSelfOutbound(orbit, nick) {
+    try {
+      var buf = getQueryBuffer(orbit, nick);
+      var msgs = (buf && buf.messages) || [];
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        var m = msgs[i];
+        if (m && m.self && (m.kind === 'privmsg' || m.kind === 'action')) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  /** Peer already wrote in this PM — they initiated; don't claim *our* message is pending. */
+  function bufferHasPeerOutbound(orbit, nick) {
+    try {
+      var buf = getQueryBuffer(orbit, nick);
+      var msgs = (buf && buf.messages) || [];
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        var m = msgs[i];
+        if (m && !m.self && (m.kind === 'privmsg' || m.kind === 'action')) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function hasRealOutboundAttempt(orbit, nick) {
+    return !!outboundText[pendingKey(nick)] || bufferHasSelfOutbound(orbit, nick);
+  }
+
   function captureOutboundText(orbit, nick) {
     if (outboundText[pendingKey(nick)]) return;
     try {
-      var st = orbit.state.get();
-      var buffers = (st && st.buffers) || {};
-      var buf = buffers[nick] || buffers[fold(nick)];
-      if (!buf && buffers) {
-        Object.keys(buffers).forEach(function (k) {
-          if (fold(k) === fold(nick)) buf = buffers[k];
-        });
-      }
+      var buf = getQueryBuffer(orbit, nick);
       var msgs = (buf && buf.messages) || [];
       for (var i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i] && msgs[i].self && (msgs[i].kind === 'privmsg' || msgs[i].kind === 'action')) {
@@ -1110,17 +1165,8 @@
     silenceNick(orbit, n, false);
 
     openPm(orbit, n);
-    // \x01ACTION:allowlist\x01…\x01ICON\x01… → bandeau bleu Orbit + bouclier cliquable (sysline:action).
-    pushLocalLine(orbit, n, '\x01ACTION:allowlist\x01' + pick(orbit, {
-      fr: 'Vous avez accepté la conversation avec ' + n + '. '
-        + n + ' a été ajouté à votre liste blanche. '
-        + 'Vous pouvez gérer votre liste blanche en cliquant sur l’icône \x01ICON\x01 dans le menu du haut '
-        + 'ou en appuyant sur l’icône dans ce message.',
-      en: 'You accepted the conversation with ' + n + '. '
-        + n + ' was added to your allow list. '
-        + 'You can manage your allow list by clicking the \x01ICON\x01 icon in the top bar, '
-        + 'or by tapping the icon in this message.',
-    }), 'system');
+    // Top banner (same strip as wait / historique) — not an inline chat line.
+    setAcceptedTip(n, { nick: n, kind: 'we-accepted' });
 
     var acceptMsg = pick(orbit, {
       fr: MARK_ACCEPT_FR + '. Vous pouvez écrire.',
@@ -1227,10 +1273,7 @@
       saveBlockedByNick(orbit, fromNick, false);
       setOutgoing(fromNick, null);
       openPm(orbit, fromNick);
-      pushLocalLine(orbit, fromNick, pick(orbit, {
-        fr: fromNick + ' a accepté votre demande. Vous pouvez dialoguer.',
-        en: fromNick + ' accepted your request. You can chat now.',
-      }), 'system');
+      setAcceptedTip(fromNick, { nick: fromNick, kind: 'they-accepted' });
       var pendingTxt = outboundText[pendingKey(fromNick)];
       if (pendingTxt) {
         delete outboundText[pendingKey(fromNick)];
@@ -1397,11 +1440,15 @@
       '.ocid-banner--blocked{background:color-mix(in srgb,#ef4444 12%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#ef4444 28%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner__txt{flex:1 1 12rem;min-width:0}',
       '.ocid-banner__nick{font-weight:600}',
+      '.ocid-banner__actions{display:flex;align-items:center;gap:.35rem;flex:none;margin-left:auto}',
       '.ocid-banner__btn{appearance:none;border:1px solid var(--border,rgba(0,0,0,.15));background:var(--bg,#fff);color:inherit;border-radius:8px;padding:.32rem .75rem;cursor:pointer;font:inherit;font-size:.88rem}',
       '.ocid-banner__btn--ok{background:#0ea5e9;border-color:#0ea5e9;color:#fff}',
       '.ocid-banner__btn--danger{background:transparent;border-color:color-mix(in srgb,#ef4444 45%,var(--border));color:#dc2626}',
       '.ocid-banner__btn--danger:hover{background:color-mix(in srgb,#ef4444 10%,var(--bg,#fff))}',
       '.ocid-banner__btn:hover{filter:brightness(1.05)}',
+      '.ocid-banner__btn--icon{display:inline-flex;align-items:center;justify-content:center;padding:.28rem;min-width:2rem;color:#0284c7}',
+      '.ocid-banner__x{appearance:none;border:0;background:transparent;color:inherit;opacity:.55;cursor:pointer;font:inherit;font-size:1.15rem;line-height:1;padding:.2rem .4rem;border-radius:6px}',
+      '.ocid-banner__x:hover{opacity:1;background:color-mix(in srgb,#0ea5e9 14%,transparent)}',
       '.ocid-page{display:flex;flex-direction:column;gap:1rem;max-width:42rem;margin:0 auto;width:100%}',
       '.ocid-card{border:1px solid var(--border,rgba(0,0,0,.1));border-radius:12px;background:var(--bg,#fff);box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden}',
       '.ocid-card__hd{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.65rem .9rem;border-bottom:1px solid var(--border,rgba(0,0,0,.08));background:var(--bg-soft,rgba(0,0,0,.02))}',
@@ -1632,6 +1679,7 @@
     useSyncExternalStore(subscribeOutgoing, getOutgoingSnap, getOutgoingSnap);
     useSyncExternalStore(subscribePeers, getPeersSnap, getPeersSnap);
     useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
+    useSyncExternalStore(subscribeAcceptedTips, getAcceptedTipsSnap, getAcceptedTipsSnap);
     var [, bumpDismiss] = useState(0);
     var active = useSyncExternalStore(
       function (cb) { return orbit.on('buffer.active', cb); },
@@ -1640,6 +1688,46 @@
     );
 
     var nodes = [];
+
+    if (isQueryPeer(active)) {
+      var tip = getAcceptedTip(active);
+      if (tip) {
+        var tipNick = tip.nick || active;
+        var tipTxt = tip.kind === 'they-accepted'
+          ? pick(orbit, {
+            fr: tipNick + ' a accepté votre demande. Vous pouvez dialoguer.',
+            en: tipNick + ' accepted your request. You can chat now.',
+          })
+          : pick(orbit, {
+            fr: 'Vous avez accepté la conversation avec ' + tipNick + '. '
+              + tipNick + ' a été ajouté à votre liste blanche. '
+              + 'Gérez-la via l’icône bouclier en haut.',
+            en: 'You accepted the conversation with ' + tipNick + '. '
+              + tipNick + ' was added to your allow list. '
+              + 'Manage it via the shield icon in the top bar.',
+          });
+        nodes.push(h('div', { key: 'accepted-' + pendingKey(tipNick), className: 'ocid-banner', role: 'status' },
+          h('span', { className: 'ocid-banner__txt' }, tipTxt),
+          h('span', { className: 'ocid-banner__actions' },
+            tip.kind === 'we-accepted'
+              ? h('button', {
+                type: 'button',
+                className: 'ocid-banner__btn ocid-banner__btn--icon',
+                title: pick(orbit, { fr: 'Liste blanche', en: 'Allow list' }),
+                'aria-label': pick(orbit, { fr: 'Ouvrir la liste blanche', en: 'Open allow list' }),
+                onClick: function () { openListView(orbit); },
+              }, h(ShieldIcon, { size: 18 }))
+              : null,
+            h('button', {
+              type: 'button',
+              className: 'ocid-banner__x',
+              'aria-label': pick(orbit, { fr: 'Fermer', en: 'Close' }),
+              onClick: function () { setAcceptedTip(tipNick, null); },
+            }, '×')
+          )
+        ));
+      }
+    }
 
     if (gate.callerid || listPending().length) {
       var items = listPending();
@@ -1707,34 +1795,41 @@
             },
           }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
         ));
-      } else if (wait || peerCallerid || blockedByPeer) {
-        var waitTxt;
-        if (blockedByPeer) {
-          waitTxt = pick(orbit, {
-            fr: active + ' vous a bloqué : impossible de lui envoyer des messages privés.',
-            en: active + ' blocked you: you cannot send them private messages.',
-          });
-        } else if (wait) {
-          waitTxt = pick(orbit, {
-            fr: 'Votre message est en attente : ' + active + ' doit vous autoriser avant de pouvoir dialoguer en privé.',
-            en: 'Your message is pending: ' + active + ' must allow you before private chat.',
-          });
-        } else {
-          waitTxt = pick(orbit, {
-            fr: active + ' n’accepte les messages privés que sur autorisation. Attendez son accord pour dialoguer.',
-            en: active + ' only accepts private messages when allowed. Wait for their approval to chat.',
-          });
+      } else {
+        // Real outbound wait only (716 after we actually wrote). Peer +g alone is not
+        // "message pending" — especially when they already wrote to us first.
+        var realWait = !!(wait && hasRealOutboundAttempt(orbit, active));
+        var showPeerHint = !!(peerCallerid && !realWait && !blockedByPeer
+          && !bufferHasPeerOutbound(orbit, active));
+        if (realWait || showPeerHint || blockedByPeer) {
+          var waitTxt;
+          if (blockedByPeer) {
+            waitTxt = pick(orbit, {
+              fr: active + ' vous a bloqué : impossible de lui envoyer des messages privés.',
+              en: active + ' blocked you: you cannot send them private messages.',
+            });
+          } else if (realWait) {
+            waitTxt = pick(orbit, {
+              fr: 'Votre message est en attente : ' + active + ' doit vous autoriser avant de pouvoir dialoguer en privé.',
+              en: 'Your message is pending: ' + active + ' must allow you before private chat.',
+            });
+          } else {
+            waitTxt = pick(orbit, {
+              fr: active + ' n’accepte les messages privés que sur autorisation. Attendez son accord pour dialoguer.',
+              en: active + ' only accepts private messages when allowed. Wait for their approval to chat.',
+            });
+          }
+          nodes.push(h('div', { key: 'out-' + fold(active), className: 'ocid-banner ocid-banner--wait' + (blockedByPeer ? ' ocid-banner--blocked' : ''), role: 'status' },
+            h('span', { className: 'ocid-banner__txt' }, waitTxt),
+            realWait || blockedByPeer
+              ? h('button', {
+                type: 'button',
+                className: 'ocid-banner__btn',
+                onClick: function () { setOutgoing(active, null); },
+              }, pick(orbit, { fr: 'Masquer', en: 'Dismiss' }))
+              : null
+          ));
         }
-        nodes.push(h('div', { key: 'out-' + fold(active), className: 'ocid-banner ocid-banner--wait' + (blockedByPeer ? ' ocid-banner--blocked' : ''), role: 'status' },
-          h('span', { className: 'ocid-banner__txt' }, waitTxt),
-          wait || blockedByPeer
-            ? h('button', {
-              type: 'button',
-              className: 'ocid-banner__btn',
-              onClick: function () { setOutgoing(active, null); },
-            }, pick(orbit, { fr: 'Masquer', en: 'Dismiss' }))
-            : null
-        ));
       }
     }
 
@@ -2309,6 +2404,11 @@
         var blocked = params[1] || '';
         if (blocked) {
           captureOutboundText(orbit, blocked);
+          // TAGMSG (accusés de lecture) also hits +g — ignore unless we really wrote.
+          if (!hasRealOutboundAttempt(orbit, blocked)) {
+            patchPeer(blocked, { nick: blocked, g: true });
+            return;
+          }
           ensurePendingVisible(orbit, blocked);
           if (isBlockedBy(orbit, blocked)) {
             markPeerBlockedUs(orbit, blocked);
@@ -2336,6 +2436,10 @@
         var informed = params[1] || '';
         if (informed) {
           captureOutboundText(orbit, informed);
+          if (!hasRealOutboundAttempt(orbit, informed)) {
+            patchPeer(informed, { nick: informed, g: true });
+            return;
+          }
           ensurePendingVisible(orbit, informed);
           if (isBlockedBy(orbit, informed)) {
             markPeerBlockedUs(orbit, informed);
