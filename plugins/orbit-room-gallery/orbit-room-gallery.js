@@ -1009,9 +1009,10 @@ Orbit.plugin('room-gallery', (orbit, log) => {
   function syncChannelPictures() {
     if (!mapLoaded) return; // avoid a flash of "no picture" before the first fetch resolves
 
-    // Topbar keeps the classic "#" tile — room pictures only go on the topic
-    // banner (.chan-hero__media) and sidebar rows.
-    const topAv = document.querySelector('.topbar--channel .topbar__av');
+    // Topbar keeps the classic "#" tile on a channel. A private message
+    // shows the other person's avatar instead, so a leftover room picture
+    // must not stay painted on that same node.
+    const topAv = document.querySelector('.topbar .topbar__av');
     if (topAv) applyPicStyle(topAv, null);
 
     // Message-list channel hero (topic banner) — room picture thumbnail.
