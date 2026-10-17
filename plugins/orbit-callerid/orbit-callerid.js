@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=39"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=40"]
  */
 (function () {
   'use strict';
@@ -170,10 +170,18 @@
       if (fold(acceptList.nicks[i]) === low) return;
     }
     acceptList.nicks.push(n);
+    // Already allowed — drop a stale 718 banner/popup for this nick.
+    if (pending.map[low]) {
+      delete pending.map[low];
+      delete popupOpenFor[low];
+      pending.rev++;
+      pending.listeners.forEach(function (l) { l(); });
+    }
     bumpAccept();
   }
   function endAcceptList() {
     acceptList.loading = false;
+    prunePendingAllowed(lastOrbit);
     bumpAccept();
   }
 
@@ -1259,6 +1267,35 @@
     return false;
   }
 
+  /** Live ACCEPT list and/or persisted allow-list (survives a lagging ACCEPT dump). */
+  function isAllowedNick(orbit, nick) {
+    if (isOnAcceptList(nick)) return true;
+    if (!orbit) return false;
+    var low = fold(nick);
+    if (!low) return false;
+    return loadSavedAccept(orbit).some(function (n) { return fold(n) === low; });
+  }
+
+  /** Drop pending 718 entries for nicks already on the allow list. */
+  function prunePendingAllowed(orbit) {
+    var keys = Object.keys(pending.map);
+    if (!keys.length) return;
+    var changed = false;
+    keys.forEach(function (k) {
+      var req = pending.map[k];
+      var n = (req && req.nick) || k;
+      if (isAllowedNick(orbit, n)) {
+        delete pending.map[k];
+        delete popupOpenFor[k];
+        changed = true;
+      }
+    });
+    if (changed) {
+      pending.rev++;
+      pending.listeners.forEach(function (l) { l(); });
+    }
+  }
+
   /** Soft decline: clear the 718 request, do NOT add to blocked / SILENCE. */
   function declineRequest(orbit, nick) {
     var n = rememberNickCase(nick) || String(nick || '').trim();
@@ -1402,6 +1439,10 @@
   function openRequestPopup(orbit, req) {
     if (!req || !req.nick) return;
     var shown = rememberNickCase(req.nick);
+    if (isAllowedNick(orbit, shown)) {
+      setPending(shown, null);
+      return;
+    }
     var key = pendingKey(shown);
     if (popupOpenFor[key]) return;
     if (typeof orbit.modal !== 'function') return;
@@ -1470,6 +1511,7 @@
   }
 
   function openListView(orbit) {
+    prunePendingAllowed(orbit);
     refreshAcceptList(orbit);
     var st = chatState(orbit);
     var cur = '';
@@ -1786,12 +1828,16 @@
     useSyncExternalStore(subscribePeers, getPeersSnap, getPeersSnap);
     useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
     useSyncExternalStore(subscribeAcceptedTips, getAcceptedTipsSnap, getAcceptedTipsSnap);
+    useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
     var [, bumpDismiss] = useState(0);
     var active = useSyncExternalStore(
       function (cb) { return orbit.on('buffer.active', cb); },
       function () { return orbit.state.active(); },
       function () { return orbit.state.active(); }
     );
+
+    // Stale 718 while already on the allow list (server race / reconnect).
+    prunePendingAllowed(orbit);
 
     var nodes = [];
 
@@ -2594,6 +2640,14 @@
               en: fromNick + ' tried to message you again (still blocked).',
             }));
           }
+          return;
+        }
+        // Already on the allow list (live or mémorisé) — never open a 2nd request UI.
+        if (isAllowedNick(orbit, fromNick)) {
+          setPending(fromNick, null);
+          delete popupOpenFor[pendingKey(fromNick)];
+          // Re-assert ACCEPT in case the server list drifted (reconnect / race).
+          sendAccept(orbit, fromNick, true);
           return;
         }
         activateCallerid(orbit, log, '718');
