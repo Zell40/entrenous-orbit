@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=38"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=39"]
  */
 (function () {
   'use strict';
@@ -55,6 +55,8 @@
   var MARK_REVOKED_EN = 'The conversation has been blocked';
   var MARK_BLOCK_FR = 'Vous ne pouvez plus envoyer de messages privés à cet utilisateur';
   var MARK_BLOCK_EN = 'You can no longer send private messages to this user';
+  var MARK_UNBLOCK_FR = 'Vous n’êtes plus bloqué : vous pouvez à nouveau demander une conversation';
+  var MARK_UNBLOCK_EN = 'You are no longer blocked: you may request a conversation again';
 
   var myGroupsText = '';
   /** Security-group parental policy (NOT the same as having +g). */
@@ -968,12 +970,36 @@
     setOutgoing(n, { nick: n, ts: Date.now(), informed: true, refused: true, blocked: false });
   }
 
+  function clearPeerBlockedUs(orbit, nick) {
+    var n = rememberNickCase(nick) || String(nick || '').trim();
+    if (!n) return;
+    saveBlockedByNick(orbit, n, false);
+    var prev = getOutgoing(n);
+    // After unblock: back to « waiting for allow-list » if we already wrote them.
+    if (hasRealOutboundAttempt(orbit, n) || (prev && (prev.blocked || prev.refused))) {
+      setOutgoing(n, {
+        nick: n,
+        ts: (prev && prev.ts) || Date.now(),
+        informed: false,
+        refused: false,
+        blocked: false,
+      });
+    } else {
+      setOutgoing(n, null);
+    }
+  }
+
   function unblockNick(orbit, nick) {
     var n = rememberNickCase(nick) || String(nick || '').trim();
     if (!n) return;
     saveDenyNick(orbit, n, false);
     silenceNick(orbit, n, false);
     delete refuseNotified[pendingKey(n)];
+    // Tell the peer so their red « blocked » banner becomes the wait banner again.
+    noticePeer(orbit, n, pick(orbit, {
+      fr: MARK_UNBLOCK_FR + '.',
+      en: MARK_UNBLOCK_EN + '.',
+    }));
     // In-app only (no OS / browser notification while the UI already shows the list).
     pushStatus(orbit, pick(orbit, {
       fr: n + ' n’est plus bloqué. Il pourra à nouveau demander à vous écrire.',
@@ -1122,7 +1148,8 @@
   }
 
   function isCalleridControlNotice(text) {
-    return isRefuseNotice(text) || isRevokedNotice(text) || isBlockNotice(text);
+    return isRefuseNotice(text) || isRevokedNotice(text) || isBlockNotice(text)
+      || isAcceptNotice(text) || isUnblockNotice(text);
   }
 
   function silenceNick(orbit, nick, add) {
@@ -1322,6 +1349,11 @@
     return t.indexOf(MARK_BLOCK_FR) > -1 || t.indexOf(MARK_BLOCK_EN) > -1;
   }
 
+  function isUnblockNotice(text) {
+    var t = String(text || '');
+    return t.indexOf(MARK_UNBLOCK_FR) > -1 || t.indexOf(MARK_UNBLOCK_EN) > -1;
+  }
+
   function handlePeerDecision(orbit, fromNick, text) {
     if (!fromNick) return;
     var nick = rememberNickCase(fromNick);
@@ -1336,6 +1368,15 @@
         try { orbit.irc.msg(nick, pendingTxt); } catch (e) { /* ignore */ }
       }
       // In-app accepted tip banner — no OS notification.
+      return;
+    }
+    if (isUnblockNotice(text)) {
+      clearPeerBlockedUs(orbit, nick);
+      openPm(orbit, nick);
+      pushStatus(orbit, pick(orbit, {
+        fr: nick + ' vous a débloqué. Votre message reste en attente d’autorisation.',
+        en: nick + ' unblocked you. Your message is awaiting approval again.',
+      }));
       return;
     }
     var hardBlock = isRevokedNotice(text) || isBlockNotice(text);
@@ -2499,12 +2540,16 @@
             return;
           }
           ensurePendingVisible(orbit, blocked);
-          if (isBlockedBy(orbit, blocked)) {
-            // In-app blocked banner only — no OS / browser notification.
-            markPeerBlockedUs(orbit, blocked);
-          } else {
-            setOutgoing(blocked, { nick: blocked, ts: Date.now(), informed: false });
-          }
+          // 716 = wait for ACCEPT, never a hard block. Clear a stale « blocked by »
+          // after the peer unblocked us (SILENCE gone) so the wait banner returns.
+          saveBlockedByNick(orbit, blocked, false);
+          setOutgoing(blocked, {
+            nick: blocked,
+            ts: Date.now(),
+            informed: false,
+            refused: false,
+            blocked: false,
+          });
         }
         return;
       }
@@ -2517,18 +2562,15 @@
             return;
           }
           ensurePendingVisible(orbit, informed);
-          if (isBlockedBy(orbit, informed)) {
-            markPeerBlockedUs(orbit, informed);
-          } else {
-            var prev = getOutgoing(informed) || { nick: informed, ts: Date.now() };
-            setOutgoing(informed, {
-              nick: informed,
-              ts: prev.ts || Date.now(),
-              informed: true,
-              refused: !!prev.refused,
-              blocked: !!prev.blocked,
-            });
-          }
+          saveBlockedByNick(orbit, informed, false);
+          var prev = getOutgoing(informed) || { nick: informed, ts: Date.now() };
+          setOutgoing(informed, {
+            nick: informed,
+            ts: prev.ts || Date.now(),
+            informed: true,
+            refused: false,
+            blocked: false,
+          });
         }
         return;
       }
