@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 61;
+  var OEC_VER = 62;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -38,12 +38,14 @@
   var ui = {
     sel: '', promo: null, drag: null, navPly: -1, settings: false, ccBusy: false,
     ccBusyChan: '', premoves: [], flushing: false, pendingMove: null, ccUser: '', enName: '',
+    ccFindUser: '', ccFindBusy: false,
     cmdBusy: '', cmdBusyVal: '',
     setup: { vs: 'ai', skill: 'moyen', tc: 'blitz', color: 'random', duo: 'open', invite: '' },
     tour: false,
   };
   var archiveGame = null;
   var ccBusyTimer = 0;
+  var ccFindTimer = 0;
   var cmdBusyTimer = 0;
   var ccBootTimer = 0;
   var chatUnread = 0;
@@ -69,6 +71,24 @@
         if (!ui.ccBusy) return;
         ui.ccBusy = false;
         if (ch) patchState(ch, { ccErr: 'Chess.com ne répond pas. Réessaie.' });
+        else bump();
+      }, Number(ms) > 0 ? Number(ms) : 20000);
+    }
+  }
+
+  function setCcFindBusy(on, ms, channel) {
+    ui.ccFindBusy = !!on;
+    if (ccFindTimer) {
+      clearTimeout(ccFindTimer);
+      ccFindTimer = 0;
+    }
+    if (on) {
+      var ch = channel;
+      ccFindTimer = setTimeout(function () {
+        ccFindTimer = 0;
+        if (!ui.ccFindBusy) return;
+        ui.ccFindBusy = false;
+        if (ch) patchState(ch, { ccFindErr: 'Chess.com ne répond pas. Réessaie.' });
         else bump();
       }, Number(ms) > 0 ? Number(ms) : 20000);
     }
@@ -275,7 +295,7 @@
     opts = opts || {};
     var game = getState(buffer);
     var gid = opts.gid;
-    if (gid == null && name !== 'commencer' && name !== 'sync' && name !== 'historique' && name !== 'elo' && name !== 'lier' && name !== 'profil') {
+    if (gid == null && name !== 'commencer' && name !== 'sync' && name !== 'historique' && name !== 'elo' && name !== 'lier' && name !== 'profil' && name !== 'chercher' && name !== 'ccpeek') {
       gid = game && game.gid;
     }
     if (name === 'commencer') gid = '';
@@ -370,6 +390,7 @@
       eloW: '', eloB: '', eloDw: '',
       ccAsk: false, ccName: '', ccTitle: '', ccCountry: '',
       ccPrompt: '', ccOptout: false, ccErr: '', ccReady: false, ccToken: '',
+      ccFind: null, ccFindErr: '', ccFindQuery: '',
       pWhite: emptyPlayer(), pBlack: emptyPlayer(),
       review: emptyReview(),
       history: [],
@@ -756,6 +777,7 @@
       ccAsk: prev.ccAsk, ccName: prev.ccName, ccTitle: prev.ccTitle, ccCountry: prev.ccCountry,
       ccPrompt: prev.ccPrompt, ccOptout: prev.ccOptout, ccErr: prev.ccErr, ccReady: prev.ccReady,
       ccVerified: prev.ccVerified,
+      ccFind: prev.ccFind || null, ccFindErr: prev.ccFindErr || '', ccFindQuery: prev.ccFindQuery || '',
       history: prev.history || [],
       tables: prev.tables || [],
     };
@@ -827,7 +849,8 @@
       (rec ? '<i>' + escHtml(fmtRec(rec)) + '</i>' : '') + '</div>';
   }
 
-  function ccHandle(game) {
+  function ccHandle(game, opts) {
+    opts = opts || {};
     var user = String(game.chesscom || '').trim();
     var name = String(game.ccName || '').trim();
     var title = String(game.ccTitle || '').trim();
@@ -835,7 +858,7 @@
     var same = name && user && name.toLowerCase() === user.toLowerCase();
     var real = (!same && name) ? '<span class="oec-cc__real">' + escHtml(name) + '</span>' : '';
     var meta = [game.ccCountry, game.ccLeague].filter(Boolean).join(' · ');
-    var badge = user ? ccVerifyBadge(isCcVerified(game), game.ccPrompt) : '';
+    var badge = (!opts.hideBadge && user) ? ccVerifyBadge(isCcVerified(game), game.ccPrompt) : '';
     return '<div class="oec-cc__id">' +
       '<p class="oec-cc__user">' + ident + (badge ? ' ' + badge : '') + '</p>' + real +
       (meta ? '<span class="oec-cc__meta">' + escHtml(meta) + '</span>' : '') +
@@ -1264,6 +1287,50 @@
       return;
     }
 
+    if (ev === 'cc_lookup') {
+      if (!eventForMe(tags)) return;
+      var lookupStatus = tagVal(tags, '+status');
+      if (lookupStatus === 'wait') {
+        setCcFindBusy(true, 20000, channel);
+        patchState(channel, { ccFindErr: '' });
+        return;
+      }
+      setCcFindBusy(false);
+      var lookupOk = tagVal(tags, '+ok') === '1';
+      var lookupQuery = tagVal(tags, '+query') || tagVal(tags, '+chesscom') || ui.ccFindUser;
+      if (lookupQuery) ui.ccFindUser = lookupQuery;
+      if (!lookupOk) {
+        patchState(channel, {
+          ccFind: null,
+          ccFindErr: tagVal(tags, '+text') || 'Compte Chess.com introuvable',
+          ccFindQuery: lookupQuery,
+        });
+        return;
+      }
+      patchState(channel, {
+        ccFindErr: '',
+        ccFindQuery: lookupQuery,
+        ccFind: {
+          user: tagVal(tags, '+chesscom') || lookupQuery,
+          name: tagVal(tags, '+cc-name'),
+          title: tagVal(tags, '+cc-title'),
+          country: tagVal(tags, '+cc-country'),
+          league: tagVal(tags, '+cc-league'),
+          tac: tagVal(tags, '+cc-tac'),
+          rapid: tagVal(tags, '+cc-rapid'),
+          blitz: tagVal(tags, '+cc-blitz'),
+          bullet: tagVal(tags, '+cc-bullet'),
+          rapidBest: tagVal(tags, '+cc-rapid-best'),
+          blitzBest: tagVal(tags, '+cc-blitz-best'),
+          bulletBest: tagVal(tags, '+cc-bullet-best'),
+          rapidRec: tagVal(tags, '+cc-rapid-rec'),
+          blitzRec: tagVal(tags, '+cc-blitz-rec'),
+          bulletRec: tagVal(tags, '+cc-bullet-rec'),
+        },
+      });
+      return;
+    }
+
     if (ev === 'game_start' || ev === 'state_sync' || ev === 'move') {
       var fen = tagVal(tags, '+fen') || (ev === 'game_start' ? START_FEN : prev.fen);
       var parsed = parseFen(fen);
@@ -1518,6 +1585,11 @@
       if (tagVal(tags, '+nick') && !eventForMe(tags)) return;
       clearCmdBusy();
       var err = tagVal(tags, '+text');
+      if (tagVal(tags, '+name') === 'chercher') {
+        setCcFindBusy(false);
+        patchState(channel, { ccFindErr: err || 'Recherche impossible', flash: '' });
+        return;
+      }
       if (err === 'idle') {
         if (prev.status === 'idle') {
           bump();
@@ -2049,6 +2121,7 @@
       '.oec-cc__token{margin:.35rem 0;padding:.45rem .5rem;border-radius:10px;background:#14532d;color:#bbf7d0;font-size:1.35rem;font-weight:800;letter-spacing:.12em;text-align:center}',
       '.oec-review__sum{margin:.15rem 0;font-size:.78rem;line-height:1.35}',
       '.oec-cc-preview{margin:0 0 .3rem;font-size:.78rem;line-height:1.35;color:#7c2d12}',
+      '.oec-cc-err{margin:.28rem 0 0;font-size:.76rem;font-weight:700;color:#b91c1c}',
       '.oec-card--ok .oec-cc-preview{color:#14532d}',
       '.oec-cc__id{display:flex;flex-direction:column;gap:.08rem;margin:0 0 .32rem}',
       '.oec-cc__user{margin:0;font-size:1.05rem;font-weight:800;color:#14532d;line-height:1.15}',
@@ -2450,6 +2523,51 @@
     return html;
   }
 
+  function renderCcFind(game) {
+    var busy = !!ui.ccFindBusy;
+    var find = game.ccFind;
+    var err = game.ccFindErr || '';
+    var html = '<div class="oec-card oec-card--wide"><h3>Rechercher un joueur Chess.com</h3>' +
+      '<p class="oec-home-lead">Consulte les classements publics d’un joueur, sans lier de compte.</p>' +
+      '<div class="oec-link"><input id="oec-cc-find" type="text" maxlength="25" autocomplete="off" spellcheck="false" ' +
+      'placeholder="pseudo Chess.com" value="' +
+      escHtml(ui.ccFindUser || game.ccFindQuery || '') + '"' + (busy ? ' disabled' : '') + '>' +
+      '<button type="button" class="oec-btn oec-btn--pri" data-act="chercher"' + (busy ? ' disabled' : '') + '>' +
+      (busy ? '<span class="oec-spin" aria-hidden="true"></span> Recherche…' : 'Rechercher') +
+      '</button></div>';
+    if (err) html += '<p class="oec-cc-err">' + escHtml(err) + '</p>';
+    if (busy && !(find && find.user)) {
+      html += '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Recherche du compte Chess.com…</p>' +
+        ccStatsGrid({}, true);
+    } else if (find && find.user) {
+      if (busy) {
+        html += '<p class="oec-wait" style="color:#7c2d12"><span class="oec-spin" aria-hidden="true"></span>Recherche du compte Chess.com…</p>';
+      }
+      html += ccHandle({
+        chesscom: find.user,
+        ccName: find.name,
+        ccTitle: find.title,
+        ccCountry: find.country,
+        ccLeague: find.league,
+      }, { hideBadge: true }) +
+        ccStatsGrid({
+          chesscom: find.user,
+          ccRapid: find.rapid,
+          ccBlitz: find.blitz,
+          ccBullet: find.bullet,
+          ccRapidBest: find.rapidBest,
+          ccBlitzBest: find.blitzBest,
+          ccBulletBest: find.bulletBest,
+          ccRapidRec: find.rapidRec,
+          ccBlitzRec: find.blitzRec,
+          ccBulletRec: find.bulletRec,
+          ccTac: find.tac,
+        });
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderHome(orbit, game) {
     var s = ui.setup;
     var busy = !!ui.ccBusy;
@@ -2566,6 +2684,7 @@
       '</div></div>' +
       renderHomeLaunch(game, 'oec-home-actions--inflow') +
       enCard + ccCard +
+      renderCcFind(game) +
       renderHistory(game) +
       '</div>' +
       (game.flash ? '<div class="oec-flash">' + escHtml(game.flash) + '</div>' : '') +
@@ -3117,7 +3236,7 @@
     if ({
       'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
       join: 1, 'join-table': 1, 'watch-table': 1, draw: 1, abort: 1, resign: 1, revoir: 1, home: 1,
-      lier: 1, 'lier-oui': 1, 'lier-non': 1, 'lier-skip': 1, 'cc-toggle': 1, elo: 1,
+      lier: 1, 'lier-oui': 1, 'lier-non': 1, 'lier-skip': 1, 'cc-toggle': 1, elo: 1, chercher: 1,
     }[act] && botStatus(orbit, buffer) !== 'ok') return;
     if ({
       'start-setup': 1, start: 1, 'start-w': 1, 'start-b': 1, duo: 1,
@@ -3232,6 +3351,22 @@
       sent('lier', 'chesscom ' + user);
       return;
     }
+    if (act === 'chercher') {
+      if (ui.ccFindBusy) return;
+      var findInp = document.getElementById('oec-cc-find');
+      var findUser = findInp ? String(findInp.value || '').trim() : String(ui.ccFindUser || '').trim();
+      findUser = findUser.replace(/^@/, '');
+      if (!findUser) { patchState(buffer, { ccFindErr: 'Indique un pseudo Chess.com' }); return; }
+      if (!/^[A-Za-z0-9_-]{3,25}$/.test(findUser)) {
+        patchState(buffer, { ccFindErr: 'Pseudo Chess.com invalide (3–25 lettres, chiffres, _ ou -).' });
+        return;
+      }
+      ui.ccFindUser = findUser;
+      setCcFindBusy(true, 20000, buffer);
+      patchState(buffer, { ccFindErr: '' });
+      if (!sent('chercher', findUser)) setCcFindBusy(false);
+      return;
+    }
     if (act === 'home') {
       var prev = getState(buffer);
       ui.navPly = -1;
@@ -3318,16 +3453,25 @@
       bindBoardPointer(root, orbit);
       root.addEventListener('input', function (ev) {
         if (ev.target && ev.target.id === 'oec-cc') ui.ccUser = ev.target.value;
+        if (ev.target && ev.target.id === 'oec-cc-find') ui.ccFindUser = ev.target.value;
         if (ev.target && ev.target.id === 'oec-invite') {
           ui.setup.invite = ev.target.value;
           applyInviteFilter(root);
         }
       });
       root.addEventListener('keydown', function (ev) {
-        if (ev.key !== 'Enter' || !ev.target || ev.target.id !== 'oec-cc') return;
-        ev.preventDefault();
-        var btn = root.querySelector('[data-act="lier"]');
-        if (btn && !btn.disabled) btn.click();
+        if (ev.key !== 'Enter' || !ev.target) return;
+        if (ev.target.id === 'oec-cc') {
+          ev.preventDefault();
+          var btn = root.querySelector('[data-act="lier"]');
+          if (btn && !btn.disabled) btn.click();
+          return;
+        }
+        if (ev.target.id === 'oec-cc-find') {
+          ev.preventDefault();
+          var findBtn = root.querySelector('[data-act="chercher"]');
+          if (findBtn && !findBtn.disabled) findBtn.click();
+        }
       });
     }
     if (main && topbar && root.parentNode !== main) {
@@ -3343,7 +3487,7 @@
     var sig = store.rev + '|' + buf + '|' + ui.sel + '|' + (ui.promo ? ui.promo.to : '') + '|' +
       getViewMode(orbit) + '|' + ui.navPly + '|' + tick + '|' + (ui.settings ? '1' : '0') + '|' +
       (ui.tour ? 't' : '0') + '|' + botStatus(orbit, buf) + '|' +
-      (ui.ccBusy ? '1' : '0') + '|' + (ui.cmdBusy || '') + (ui.cmdBusyVal || '') + '|' +
+      (ui.ccBusy ? '1' : '0') + (ui.ccFindBusy ? 'f' : '0') + '|' + (ui.cmdBusy || '') + (ui.cmdBusyVal || '') + '|' +
       (ui.pendingMove ? ui.pendingMove.uci : '') + '|' +
       'u' + chatUnread + '|' +
       (ui.setup.vs || '') + (ui.setup.skill || '') + (ui.setup.tc || '') + (ui.setup.duo || '') + '|' +
