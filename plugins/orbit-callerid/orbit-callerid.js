@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=43"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=48"]
  */
 (function () {
   'use strict';
@@ -24,6 +24,8 @@
   var h = React.createElement;
   var useState = React.useState;
   var useEffect = React.useEffect;
+  var useLayoutEffect = React.useLayoutEffect || React.useEffect;
+  var useRef = React.useRef;
   var useSyncExternalStore = React.useSyncExternalStore;
 
   var DEFAULT_GROUP = 'controle-parentale';
@@ -72,6 +74,8 @@
   var refuseNotified = Object.create(null);
   /** Blocker-side banner dismissed for these nicks (session). */
   var dismissedWeBlocked = Object.create(null);
+  /** Requester-side « X vous a bloqué » dismissed until the next refresh (session). */
+  var dismissedPeerBlocked = Object.create(null);
   var STATUS_BUF = '$server';
 
   /**
@@ -177,6 +181,17 @@
       pending.rev++;
       pending.listeners.forEach(function (l) { l(); });
     }
+    bumpAccept();
+  }
+  function forgetAcceptNick(nick) {
+    var low = fold(nick);
+    if (!low) return;
+    var next = [];
+    var i;
+    for (i = 0; i < acceptList.nicks.length; i++) {
+      if (fold(acceptList.nicks[i]) !== low) next.push(acceptList.nicks[i]);
+    }
+    acceptList.nicks = next;
     bumpAccept();
   }
   function endAcceptList() {
@@ -322,6 +337,97 @@
     delete officialPending[key];
   }
 
+  function joinChannelNow(orbit, chan) {
+    var name = String(chan || '').trim();
+    if (!name) return;
+    try { orbit.irc.join(name); } catch (e) { /* ignore */ }
+    try {
+      var st = orbit.state.get();
+      if (st && typeof st.setActive === 'function') st.setActive(name);
+    } catch (e2) { /* ignore */ }
+  }
+
+  function ChannelWarnBody(props) {
+    var orbit = props.orbit;
+    var chan = props.chan;
+    return h('div', { className: 'ocid-warn' },
+      h('p', { className: 'ocid-warn__row' },
+        h('span', { className: 'ocid-warn__ic', 'aria-hidden': true }, '🚪'),
+        h('span', null,
+          pick(orbit, { fr: 'Tu viens d’entrer dans ', en: 'You just joined ' }),
+          h('b', null, chan),
+          pick(orbit, {
+            fr: ', un salon où il peut aussi y avoir des adultes.',
+            en: ', a channel where adults may also be present.',
+          })
+        )
+      ),
+      h('p', { className: 'ocid-warn__row' },
+        h('span', { className: 'ocid-warn__ic', 'aria-hidden': true }, '🎭'),
+        h('span', null, pick(orbit, {
+          fr: 'L’âge affiché sur un profil n’est pas une preuve : sur le tchat, on ne peut pas être sûr de qui se cache derrière un pseudo.',
+          en: 'The age on a profile is not proof: on chat you cannot be sure who is behind a nick.',
+        }))
+      ),
+      h('p', { className: 'ocid-warn__row' },
+        h('span', { className: 'ocid-warn__ic', 'aria-hidden': true }, '🛡️'),
+        h('span', null, pick(orbit, {
+          fr: 'Reste prudent·e : ne donne jamais ton adresse, ton école, ton numéro, ni de photos. Si quelqu’un te met mal à l’aise, arrête la discussion et parle-en à un adulte de confiance.',
+          en: 'Stay careful: never share your address, school, number, or photos. If someone makes you uncomfortable, stop and talk to a trusted adult.',
+        }))
+      ),
+      h('div', { className: 'ocid-warn__row ocid-warn__row--actions' },
+        h('span', { className: 'ocid-warn__ic', 'aria-hidden': true }, '📣'),
+        h('div', { className: 'ocid-warn__tools' },
+          h('span', { className: 'ocid-warn__hint' }, pick(orbit, {
+            fr: 'Pour signaler :',
+            en: 'To report:',
+          })),
+          h('button', {
+            type: 'button',
+            className: 'ocid-bot',
+            title: pick(orbit, { fr: 'Écrire à SignalMoi', en: 'Message SignalMoi' }),
+            onClick: function () { openPm(orbit, 'SignalMoi'); },
+          },
+            h('span', { className: 'ocid-bot__av', 'aria-hidden': true }, '🤖'),
+            h('span', { className: 'ocid-bot__name' }, 'SignalMoi'),
+            h('span', { className: 'ocid-bot__badge' }, 'BOT')
+          ),
+          h('button', {
+            type: 'button',
+            className: 'ocid-tag',
+            title: pick(orbit, { fr: 'Rejoindre #Signalement.chat', en: 'Join #Signalement.chat' }),
+            onClick: function () { joinChannelNow(orbit, '#Signalement.chat'); },
+          }, '#Signalement.chat'),
+          h('button', {
+            type: 'button',
+            className: 'pm-chip pm-chip--warn ocid-report',
+            title: pick(orbit, {
+              fr: 'Comme sur la fiche d’un utilisateur',
+              en: 'Same as on a user profile',
+            }),
+            onClick: function () {
+              orbit.notify(
+                pick(orbit, { fr: 'Signaler', en: 'Report' }),
+                pick(orbit, {
+                  fr: 'Ouvre la fiche d’une personne (dans la liste des membres), puis appuie sur Signaler.',
+                  en: 'Open someone’s profile from the member list, then press Report.',
+                })
+              );
+            },
+          }, '🚩 ', pick(orbit, { fr: 'Signaler', en: 'Report' }))
+        )
+      ),
+      h('p', { className: 'ocid-warn__row' },
+        h('span', { className: 'ocid-warn__ic', 'aria-hidden': true }, '🌱'),
+        h('span', null, pick(orbit, {
+          fr: 'Le salon #EntreJeunes.chat est pensé pour les plus jeunes. Ici, prends le temps de choisir à qui tu parles.',
+          en: '#EntreJeunes.chat is meant for younger users. Here, take your time choosing who you talk to.',
+        }))
+      )
+    );
+  }
+
   function warnText(orbit, chan) {
     return pick(orbit, {
       fr: 'Tu viens d’entrer dans ' + chan + ', un salon où il peut aussi y avoir des adultes. '
@@ -372,7 +478,6 @@
     if (typeof orbit.modal !== 'function' || channelWarnOpen) return;
     if (hideChannelWarnPref(orbit)) return;
     channelWarnOpen = true;
-    var text = warnText(orbit, chan);
     var dontShow = { current: false };
     var close = orbit.modal(function () {
       return h('div', { className: 'ocid-popup ocid-popup--warn' },
@@ -383,7 +488,7 @@
             en: 'A quick heads-up before you chat',
           })
         ),
-        h('p', { className: 'ocid-modal__empty ocid-warn__body' }, text),
+        h(ChannelWarnBody, { orbit: orbit, chan: chan }),
         h('label', { className: 'ocid-check--tip' },
           h('input', {
             type: 'checkbox',
@@ -522,6 +627,7 @@
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
       dismissedWeBlocked = Object.create(null);
+      dismissedPeerBlocked = Object.create(null);
       outboundText = Object.create(null);
       nickCase = Object.create(null);
       bumpDeny();
@@ -847,6 +953,8 @@
     try {
       orbit.irc.send('ACCEPT ' + (add ? '+' : '-') + n);
       saveAcceptNick(orbit, n, add);
+      if (add) pushAcceptNick(n);
+      else forgetAcceptNick(n);
       return true;
     } catch (e) {
       return false;
@@ -957,7 +1065,9 @@
     var n = rememberNickCase(nick);
     if (!n) return;
     saveBlockedByNick(orbit, n, true);
+    delete dismissedPeerBlocked[pendingKey(n)];
     delete outboundText[pendingKey(n)];
+    setAcceptedTip(n, null);
     setOutgoing(n, { nick: n, ts: Date.now(), informed: true, refused: true, blocked: true });
   }
 
@@ -1249,6 +1359,38 @@
     window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
   }
 
+  /** Shield menu: add to the allow list. A pending request still uses the full accept notice. */
+  function allowNick(orbit, nick) {
+    var n = rememberNickCase(nick) || String(nick || '').trim();
+    if (!n) return;
+    if (pending.map[pendingKey(n)]) {
+      acceptAndClear(orbit, n);
+      return;
+    }
+    if (!sendAccept(orbit, n, true)) return;
+    saveDenyNick(orbit, n, false);
+    silenceNick(orbit, n, false);
+    setAcceptedTip(n, { nick: n, kind: 'we-accepted' });
+    pushStatus(orbit, pick(orbit, {
+      fr: n + ' a été ajouté à votre liste blanche.',
+      en: n + ' was added to your allow list.',
+    }));
+    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+  }
+
+  /** Shield menu: drop ACCEPT only — not a block. */
+  function removeFromAllowList(orbit, nick) {
+    var n = rememberNickCase(nick) || String(nick || '').trim();
+    if (!n) return;
+    sendAccept(orbit, n, false);
+    setAcceptedTip(n, null);
+    pushStatus(orbit, pick(orbit, {
+      fr: n + ' a été retiré de votre liste blanche.',
+      en: n + ' was removed from your allow list.',
+    }));
+    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+  }
+
   function isOnAcceptList(nick) {
     var low = fold(nick);
     if (!low) return false;
@@ -1320,6 +1462,7 @@
     var wasAccepted = isOnAcceptList(n);
     setPending(n, null);
     delete popupOpenFor[key];
+    setAcceptedTip(n, null);
     sendAccept(orbit, n, false);
     saveDenyNick(orbit, n, true);
     silenceNick(orbit, n, true);
@@ -1592,6 +1735,24 @@
       '.ocid-view__sub{margin:.15rem 0 0;font-size:.84rem;color:var(--muted,var(--faint));font-weight:500;line-height:1.35}',
       '.ocid-view__body{flex:1 1 auto;min-height:0;overflow:auto;padding:1.1rem 1.15rem 1.6rem}',
       '.ocid-banner{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.55rem .85rem;margin:0;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 12%,var(--bg,#fff));color:var(--ink,inherit);font-size:.92rem;flex:none}',
+      '.ocid-banner--chan{align-items:stretch;padding:.65rem .85rem .7rem}',
+      /* Game shell covers the column; the parental strip overlaps Échecs / Petit Bac. */
+      'body.oec-full .ocid-banner--chan,body.oec-split .ocid-banner--chan,body.opbac-full .ocid-banner--chan,body.opbac-split .ocid-banner--chan{display:none!important}',
+      '.ocid-warn__top{display:flex;align-items:flex-start;gap:.4rem;width:100%}',
+      '.ocid-warn{display:flex;flex-direction:column;gap:.38rem;flex:1;min-width:0}',
+      '.ocid-warn__row{display:flex;align-items:flex-start;gap:.4rem;margin:0;line-height:1.35;font-size:.88rem}',
+      '.ocid-warn__row--actions{align-items:center}',
+      '.ocid-warn__ic{flex:none;width:1.35rem;text-align:center;line-height:1.35}',
+      '.ocid-warn__tools{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}',
+      '.ocid-warn__hint{font-weight:650}',
+      '.ocid-bot{display:inline-flex;align-items:center;gap:.35rem;border:1px solid color-mix(in srgb,#6366f1 35%,var(--border,#ddd));background:var(--bg,#fff);color:inherit;border-radius:999px;padding:.12rem .55rem .12rem .12rem;cursor:pointer;font:inherit}',
+      '.ocid-bot:hover{background:color-mix(in srgb,#6366f1 10%,var(--bg,#fff))}',
+      '.ocid-bot__av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#818cf8,#6366f1);font-size:.95rem;line-height:1}',
+      '.ocid-bot__name{font-weight:750;font-size:.84rem}',
+      '.ocid-bot__badge{font-size:.62rem;font-weight:800;letter-spacing:.04em;color:#3730a3;background:#e0e7ff;border-radius:999px;padding:.05rem .32rem}',
+      '.ocid-tag{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:750;font-size:.82rem;color:#fff;background:#2563eb;border-radius:999px;padding:.32rem .7rem}',
+      '.ocid-tag:hover{filter:brightness(1.08)}',
+      '.ocid-report{font:inherit}',
       '.ocid-banner--wait{background:color-mix(in srgb,#f59e0b 14%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#f59e0b 30%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner--blocked{background:color-mix(in srgb,#ef4444 12%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#ef4444 28%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner__txt{flex:1 1 12rem;min-width:0;line-height:1.4}',
@@ -1664,6 +1825,11 @@
       '.topbar__search.topbar__privdeaf.is-on:hover{background:var(--bg-soft-2)!important;color:var(--danger,#d6465f)!important}',
       '.ocid-check--tip{display:flex;align-items:flex-start;gap:.5rem;margin:.35rem 0 0;font-size:.86rem;cursor:pointer;user-select:none;text-align:left}',
       '.ocid-check--tip input{margin:.15rem 0 0;flex:none}',
+      /* PM user-info icon: blue on the allow list, red on the block list. */
+      'button.topbar__search.ocid-userinfo--allow,button.topbar__search.ocid-userinfo--allow:hover,button.nmenu__item.ocid-userinfo--allow,button.nmenu__item.ocid-userinfo--allow:hover{color:#2563eb}',
+      'button.topbar__search.ocid-userinfo--deny,button.topbar__search.ocid-userinfo--deny:hover,button.nmenu__item.ocid-userinfo--deny,button.nmenu__item.ocid-userinfo--deny:hover{color:#dc2626}',
+      '.ocid-shield__pop{width:max-content;max-width:min(22rem,calc(100vw - 1rem))}',
+      '.ocid-shield__pop .nmenu__txt b{white-space:normal}',
     ].join('');
   }
 
@@ -1752,26 +1918,209 @@
     );
   }
 
+  /** Active private-message nick, or '' on a channel / server / notices. */
+  function queryPeerNick(orbit) {
+    try {
+      var st = orbit.state.get();
+      var buf = st && st.buffers && st.buffers[st.active];
+      if (!buf || buf.isChannel) return '';
+      var name = String(buf.name || '');
+      if (!name || name.charAt(0) === '#' || name.charAt(0) === '&' || name.charAt(0) === '$') return '';
+      if (fold(name) === fold(ALLOWLIST_BUF)) return '';
+      return name;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /** 'allow' | 'deny' | '' — block list wins if a nick is on both. */
+  function queryListKind(orbit, nick) {
+    if (!nick) return '';
+    if (isDenied(orbit, nick)) return 'deny';
+    if (isAllowedNick(orbit, nick)) return 'allow';
+    return '';
+  }
+
+  function buttonHasUserIcon(btn) {
+    var svg = btn && btn.querySelector && btn.querySelector('svg');
+    if (!svg) return false;
+    var html = svg.innerHTML || '';
+    return html.indexOf('19.5 20.5') !== -1;
+  }
+
+  /**
+   * Recolor the PM "about this user" icon.
+   * React resets title/class on each topbar render; this runs in useLayoutEffect
+   * (and when the ⋮ menu mounts) so the tint sticks before paint.
+   */
+  function applyQueryUserIcon(orbit) {
+    var root = document.querySelector('.topbar');
+    if (!root) return;
+    var nick = queryPeerNick(orbit);
+    var kind = queryListKind(orbit, nick);
+    var shown = nick ? (displayNick(orbit, nick) || nick) : '';
+    var tip = '';
+    if (kind === 'allow') {
+      tip = pick(orbit, {
+        fr: shown + ' est dans votre liste blanche',
+        en: shown + ' is on your allow list',
+      });
+    } else if (kind === 'deny') {
+      tip = pick(orbit, {
+        fr: shown + ' est dans votre liste des utilisateurs bloqués',
+        en: shown + ' is on your blocked list',
+      });
+    }
+    var buttons = root.querySelectorAll('button.topbar__search, button.nmenu__item');
+    for (var i = 0; i < buttons.length; i++) {
+      var btn = buttons[i];
+      if (!buttonHasUserIcon(btn)) continue;
+      btn.classList.remove('ocid-userinfo--allow', 'ocid-userinfo--deny');
+      if (!tip) continue;
+      btn.classList.add(kind === 'allow' ? 'ocid-userinfo--allow' : 'ocid-userinfo--deny');
+      btn.setAttribute('title', tip);
+      btn.setAttribute('aria-label', tip);
+    }
+  }
+
+  function QueryUserIconTint(props) {
+    var orbit = props.orbit;
+    useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
+    useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
+    useLayoutEffect(function () { applyQueryUserIcon(orbit); });
+    useEffect(function () {
+      var root = document.querySelector('.topbar');
+      if (!root || typeof MutationObserver !== 'function') return undefined;
+      var obs = new MutationObserver(function () { applyQueryUserIcon(orbit); });
+      obs.observe(root, { childList: true, subtree: true });
+      return function () { obs.disconnect(); };
+    }, [orbit]);
+    return null;
+  }
+
+  function shieldActions(orbit, nick) {
+    var shown = displayNick(orbit, nick) || nick;
+    var kind = queryListKind(orbit, nick);
+    var actions = [];
+    if (kind === 'deny') {
+      actions.push({
+        id: 'unblock',
+        label: pick(orbit, { fr: 'Débloquer ' + shown, en: 'Unblock ' + shown }),
+        run: function () { unblockNick(orbit, nick); },
+      });
+    } else if (kind === 'allow') {
+      actions.push({
+        id: 'remove',
+        label: pick(orbit, {
+          fr: 'Supprimer ' + shown + ' de la liste blanche',
+          en: 'Remove ' + shown + ' from the allow list',
+        }),
+        run: function () { removeFromAllowList(orbit, nick); },
+      });
+    } else {
+      actions.push({
+        id: 'allow',
+        label: pick(orbit, { fr: 'Autoriser ' + shown, en: 'Allow ' + shown }),
+        run: function () { allowNick(orbit, nick); },
+      });
+      actions.push({
+        id: 'block',
+        danger: true,
+        label: pick(orbit, { fr: 'Bloquer ' + shown, en: 'Block ' + shown }),
+        run: function () { blockRequest(orbit, nick); },
+      });
+    }
+    actions.push({
+      id: 'list',
+      label: pick(orbit, { fr: 'Afficher la liste blanche', en: 'Show the allow list' }),
+      run: function () { openListView(orbit); },
+    });
+    return actions;
+  }
+
+  function shieldMenuButtons(orbit, nick, onDone) {
+    return shieldActions(orbit, nick).map(function (a) {
+      return h('button', {
+        key: a.id,
+        type: 'button',
+        className: 'nmenu__item' + (a.danger ? ' nmenu__item--danger' : ''),
+        role: 'menuitem',
+        onClick: function () {
+          if (onDone) onDone();
+          a.run();
+        },
+      }, h('span', { className: 'nmenu__txt' }, h('b', null, a.label)));
+    });
+  }
+
+  function useActiveName(orbit) {
+    return useSyncExternalStore(
+      function (cb) { return orbit.on('buffer.active', cb); },
+      function () { return orbit.state.active(); },
+      function () { return orbit.state.active(); }
+    );
+  }
+
   function TopbarButton(props) {
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
     useSyncExternalStore(subscribeListView, getListViewSnap, getListViewSnap);
+    useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
+    useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
+    var active = useActiveName(orbit);
+    var openState = useState(false);
+    var menuOpen = openState[0];
+    var setMenuOpen = openState[1];
+    var ref = useRef(null);
+    var peer = isQueryPeer(active) ? active : '';
+    useEffect(function () { setMenuOpen(false); }, [peer]);
+    useEffect(function () {
+      if (!menuOpen) return undefined;
+      function onDoc(e) {
+        if (ref.current && !ref.current.contains(e.target)) setMenuOpen(false);
+      }
+      function onEsc(e) {
+        if (e.key === 'Escape') setMenuOpen(false);
+      }
+      document.addEventListener('mousedown', onDoc);
+      document.addEventListener('keydown', onEsc);
+      return function () {
+        document.removeEventListener('mousedown', onDoc);
+        document.removeEventListener('keydown', onEsc);
+      };
+    }, [menuOpen]);
     if (!gate.callerid && !gate.parental && !listPending().length) return null;
     var n = listPending().length;
-    return h('button', {
-      type: 'button',
-      className: 'topbar__search ocid-topbar' + ((n || listView.open) ? ' is-on' : ''),
-      title: pick(orbit, { fr: 'Liste blanche des messages privés', en: 'Private-message allow list' }),
-      'aria-label': pick(orbit, { fr: 'Liste blanche MP', en: 'PM allow list' }),
-      'aria-pressed': listView.open,
-      onClick: function () {
-        if (listView.open) closeListView(orbit);
-        else openListView(orbit);
+    var shown = peer ? (displayNick(orbit, peer) || peer) : '';
+    var title = peer
+      ? pick(orbit, { fr: 'Gérer ' + shown, en: 'Manage ' + shown })
+      : pick(orbit, { fr: 'Liste blanche des messages privés', en: 'Private-message allow list' });
+    return h('span', { className: 'nmenu ocid-shield', ref: ref },
+      h('button', {
+        type: 'button',
+        className: 'topbar__search ocid-topbar' + ((n || listView.open || menuOpen) ? ' is-on' : ''),
+        title: title,
+        'aria-label': title,
+        'aria-expanded': peer ? menuOpen : undefined,
+        'aria-haspopup': peer ? 'menu' : undefined,
+        onClick: function () {
+          if (peer) {
+            setMenuOpen(function (v) { return !v; });
+            return;
+          }
+          if (listView.open) closeListView(orbit);
+          else openListView(orbit);
+        },
       },
-    },
-      h(ShieldIcon, { size: 19 }),
-      n ? h('span', { className: 'ocid-topbar__badge', 'aria-hidden': true }, n > 9 ? '9+' : String(n)) : null
+        h(ShieldIcon, { size: 19 }),
+        n ? h('span', { className: 'ocid-topbar__badge', 'aria-hidden': true }, n > 9 ? '9+' : String(n)) : null
+      ),
+      peer && menuOpen
+        ? h('div', { className: 'nmenu__pop ocid-shield__pop', role: 'menu', 'aria-label': title },
+          shieldMenuButtons(orbit, peer, function () { setMenuOpen(false); })
+        )
+        : null
     );
   }
 
@@ -1855,20 +2204,25 @@
       if (chWarn && !chWarn.hidden) {
         var chName = chWarn.chan || active;
         nodes.push(h('div', { key: 'chwarn-' + fold(chName), className: 'ocid-banner ocid-banner--chan', role: 'status' },
-          h('span', { className: 'ocid-banner__txt' }, warnText(orbit, chName)),
-          h('button', {
-            type: 'button',
-            className: 'ocid-banner__x',
-            'aria-label': pick(orbit, { fr: 'Masquer', en: 'Dismiss' }),
-            title: pick(orbit, { fr: 'Masquer jusqu’à la prochaine entrée', en: 'Hide until you rejoin' }),
-            onClick: function () { dismissChannelWarn(chName); },
-          }, '×')
+          h('div', { className: 'ocid-warn__top' },
+            h(ChannelWarnBody, { orbit: orbit, chan: chName }),
+            h('button', {
+              type: 'button',
+              className: 'ocid-banner__x',
+              'aria-label': pick(orbit, { fr: 'Masquer', en: 'Dismiss' }),
+              title: pick(orbit, { fr: 'Masquer jusqu’à la prochaine entrée', en: 'Hide until you rejoin' }),
+              onClick: function () { dismissChannelWarn(chName); },
+            }, '×')
+          )
         ));
       }
     }
 
     if (isQueryPeer(active)) {
       var tip = getAcceptedTip(active);
+      var tipBlocked = isBlockedBy(orbit, active) || !!(getOutgoing(active) && getOutgoing(active).blocked);
+      // A hard block replaces the accept tip (the notice is the source of truth).
+      if (tipBlocked) tip = null;
       // Accept tip and « en attente » must never stack (refresh / 716 race).
       if (tip) clearOutgoingWait(active);
       if (tip) {
@@ -1952,11 +2306,12 @@
       // Never tell the requester this is « contrôle parental » — that would expose
       // a protected (often underage) account. Neutral callerid wording only.
       var peerCallerid = !!(peer && (peer.g || peer.group));
-      var hardBlockedBy = isBlockedBy(orbit, active) || !!(wait && wait.blocked);
-      var softDeclined = !!(wait && wait.refused && !wait.blocked) && !hardBlockedBy;
+      var weKey = pendingKey(active);
+      var storedBlock = isBlockedBy(orbit, active) || !!(wait && wait.blocked);
+      var hardBlockedBy = storedBlock && !dismissedPeerBlocked[weKey];
+      var softDeclined = !!(wait && wait.refused && !wait.blocked) && !storedBlock;
       var blockedByPeer = hardBlockedBy || softDeclined;
       var weBlocked = isDenied(orbit, active);
-      var weKey = pendingKey(active);
 
       if (weBlocked && !dismissedWeBlocked[weKey]) {
         nodes.push(h('div', { key: 'we-block-' + weKey, className: 'ocid-banner ocid-banner--blocked', role: 'status' },
@@ -1984,7 +2339,7 @@
             },
           }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
         ));
-      } else if (!getAcceptedTip(active)) {
+      } else if (storedBlock || !getAcceptedTip(active)) {
         // Real outbound wait only (716 after we actually wrote). Peer +g alone is not
         // "message pending" — especially when they already wrote to us first.
         // If the peer already replied, the conversation is live → drop a stale wait.
@@ -1992,8 +2347,8 @@
           clearOutgoingWait(active);
           wait = null;
         }
-        var realWait = !!(wait && hasRealOutboundAttempt(orbit, active) && !wait.refused);
-        var showPeerHint = !!(peerCallerid && !realWait && !blockedByPeer
+        var realWait = !!(wait && hasRealOutboundAttempt(orbit, active) && !wait.refused && !storedBlock);
+        var showPeerHint = !!(peerCallerid && !realWait && !blockedByPeer && !storedBlock
           && !bufferHasPeerOutbound(orbit, active));
         if (realWait || showPeerHint || blockedByPeer) {
           var waitTxt;
@@ -2028,7 +2383,11 @@
               ? h('button', {
                 type: 'button',
                 className: 'ocid-banner__btn',
-                onClick: function () { setOutgoing(active, null); },
+                onClick: function () {
+                  if (storedBlock) dismissedPeerBlocked[weKey] = true;
+                  setOutgoing(active, null);
+                  bumpDismiss(function (n) { return n + 1; });
+                },
               }, pick(orbit, { fr: 'Masquer', en: 'Dismiss' }))
               : null
           ));
@@ -2275,7 +2634,12 @@
     var orbit = props.orbit;
     useSyncExternalStore(subscribeGate, getGateSnap, getGateSnap);
     useSyncExternalStore(subscribePending, getPendingSnap, getPendingSnap);
+    useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
+    useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
+    var active = useActiveName(orbit);
     if (!gate.callerid && !gate.parental && !listPending().length) return null;
+    var peer = isQueryPeer(active) ? active : '';
+    if (peer) return h(React.Fragment, null, shieldMenuButtons(orbit, peer));
     var n = listPending().length;
     var label = pick(orbit, { fr: 'Liste blanche MP', en: 'PM allow list' });
     if (n) label += ' (' + n + ')';
@@ -2454,6 +2818,7 @@
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
       dismissedWeBlocked = Object.create(null);
+      dismissedPeerBlocked = Object.create(null);
       outboundText = Object.create(null);
       peers.probedAt = Object.create(null);
       peers.loading = Object.create(null);
@@ -2613,6 +2978,11 @@
       if (cmd === '716') {
         var blocked = rememberNickCase(params[1] || '');
         if (blocked) {
+          // +g still sends 716 when we are hard-blocked (not on ACCEPT). That is not an unblock.
+          if (isBlockedBy(orbit, blocked)) {
+            patchPeer(blocked, { nick: blocked, g: true });
+            return;
+          }
           captureOutboundText(orbit, blocked);
           // TAGMSG (accusés de lecture) also hits +g — ignore unless we really wrote.
           if (!hasRealOutboundAttempt(orbit, blocked)) {
@@ -2643,6 +3013,10 @@
       if (cmd === '717') {
         var informed = rememberNickCase(params[1] || '');
         if (informed) {
+          if (isBlockedBy(orbit, informed)) {
+            patchPeer(informed, { nick: informed, g: true });
+            return;
+          }
           captureOutboundText(orbit, informed);
           if (!hasRealOutboundAttempt(orbit, informed)) {
             patchPeer(informed, { nick: informed, g: true });
@@ -2743,9 +3117,11 @@
         // echo-message: our PRIVMSG reached the peer → no longer « en attente ».
         if (fold(msg.nick) === fold(me)) {
           var echoTarget = params[0] || '';
-          if (up === 'PRIVMSG' && isQueryPeer(echoTarget)) {
+          // History replay of our own lines must not wipe « X vous a bloqué ».
+          // A live echo is not an unblock either — only the unblock / accept notice is.
+          if (up === 'PRIVMSG' && isQueryPeer(echoTarget) && !isReplayIrcMsg(msg)
+            && !isBlockedBy(orbit, echoTarget)) {
             clearOutgoingWait(echoTarget);
-            saveBlockedByNick(orbit, echoTarget, false);
           }
           return;
         }
@@ -2795,6 +3171,7 @@
     orbit.addUi('sidebar_room', function () { return h(WhitelistRoomRow, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(MainOverlays, { orbit: orbit }); });
     orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
+    orbit.addUi('topbar_end', function () { return h(QueryUserIconTint, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     registerSettingsMode(orbit);
     registerSettingsAppearance(orbit);
