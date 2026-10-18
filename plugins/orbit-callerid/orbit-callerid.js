@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=41"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=43"]
  */
 (function () {
   'use strict';
@@ -270,8 +270,21 @@
 
   /** Official-channel cache: fold(chan) → { official: bool|null, ts } */
   var officialCache = Object.create(null);
-  /** Channels already warned this session */
-  var channelWarned = Object.create(null);
+  /**
+   * Channel safety banner for this visit: fold(chan) → { chan, hidden }.
+   * hidden = user closed it; cleared on PART/KICK so the next join shows it again.
+   */
+  var channelWarn = { map: Object.create(null), rev: 0, listeners: new Set() };
+  function subscribeChannelWarn(cb) {
+    channelWarn.listeners.add(cb);
+    return function () { channelWarn.listeners.delete(cb); };
+  }
+  function getChannelWarnSnap() { return channelWarn.rev; }
+  function bumpChannelWarn() {
+    channelWarn.rev++;
+    channelWarn.listeners.forEach(function (l) { l(); });
+  }
+  function getChannelWarn(chan) { return channelWarn.map[fold(chan)] || null; }
   /** Pending official checks: fold(chan) → { timer, orbit } */
   var officialPending = Object.create(null);
   var channelWarnOpen = false;
@@ -311,24 +324,16 @@
 
   function warnText(orbit, chan) {
     return pick(orbit, {
-      fr: [
-        'Tu viens d’entrer dans ' + chan + ', un salon où il peut aussi y avoir des adultes.',
-        '',
-        'L’âge affiché sur un profil n’est pas une preuve : sur IRC, on ne peut pas être sûr de qui se cache derrière un pseudo.',
-        '',
-        'Reste prudent·e : ne donne jamais ton adresse, ton école, ton numéro, ni de photos. Si quelqu’un te met mal à l’aise, arrête la discussion, quitte le salon si besoin, et parle-en à un adulte de confiance — ou utilise Signaler.',
-        '',
-        'Le salon #EntreJeunes.chat est pensé pour les plus jeunes. Ici, prends le temps de choisir à qui tu parles.',
-      ].join('\n'),
-      en: [
-        'You just joined ' + chan + ', a channel where adults may also be present.',
-        '',
-        'The age shown on a profile is not proof: on IRC you cannot be sure who is behind a nick.',
-        '',
-        'Stay careful: never share your address, school, phone number, or photos. If someone makes you uncomfortable, stop chatting, leave the channel if needed, and talk to a trusted adult — or use Report.',
-        '',
-        '#EntreJeunes.chat is meant for younger users. Here, take your time choosing who you talk to.',
-      ].join('\n'),
+      fr: 'Tu viens d’entrer dans ' + chan + ', un salon où il peut aussi y avoir des adultes. '
+        + '— L’âge affiché sur un profil n’est pas une preuve : sur le tchat, on ne peut pas être sûr de qui se cache derrière un pseudo. '
+        + '— Reste prudent·e : ne donne jamais ton adresse, ton école, ton numéro, ni de photos. Si quelqu’un te met mal à l’aise, arrête la discussion, quitte le salon si besoin, et parle-en à un adulte de confiance '
+        + '— Plusieurs solutions s\'offre à toi pour signaler un comportement anormal : envoi un message privé à SignalMoi, rejoins #Signalement.chat ou utilise le bouton Signaler dans l\'affichage de l\'utilisateur. '
+        + '— Le salon #EntreJeunes.chat est pensé pour les plus jeunes. Ici, prends le temps de choisir à qui tu parles.',
+      en: 'You just joined ' + chan + ', a channel where adults may also be present. '
+        + '— The age on a profile is not proof: on chat you cannot be sure who is behind a nick. '
+        + '— Stay careful: never share your address, school, phone number, or photos. If someone makes you uncomfortable, stop the chat, leave the channel if needed, and talk to a trusted adult. '
+        + '— To report a problem: private-message SignalMoi, join #Signalement.chat, or use the Report button on the user. '
+        + '— #EntreJeunes.chat is meant for younger users. Here, take your time choosing who you talk to.',
     });
   }
 
@@ -339,61 +344,35 @@
   function setHideChannelWarnPref(orbit, on) {
     try { orbit.storage.set(STORAGE_HIDE_CHANNEL_WARN, !!on); } catch (e) { /* ignore */ }
     if (!on) {
-      channelWarned = Object.create(null);
+      channelWarn.map = Object.create(null);
+      bumpChannelWarn();
       try {
         var active = orbit && orbit.state && orbit.state.active && orbit.state.active();
         if (active && isChannelName(active)) maybeWarnOfficialJoin(orbit, active);
       } catch (e) { /* ignore */ }
     }
     try { window.dispatchEvent(new Event('ocid-channel-warn-pref')); } catch (e) { /* ignore */ }
+    bumpChannelWarn();
   }
 
-  /** True if this salon already has the blue parental tip in its timeline. */
-  function channelHasSafeWarn(orbit, chan) {
-    var key = fold(chan);
-    if (!key) return false;
-    try {
-      var st = orbit.state.get();
-      var buffers = (st && st.buffers) || {};
-      var buf = buffers[chan] || buffers[key];
-      if (!buf) {
-        Object.keys(buffers).forEach(function (k) {
-          if (!buf && fold(k) === key) buf = buffers[k];
-        });
-      }
-      var msgs = (buf && buf.messages) || [];
-      for (var i = 0; i < msgs.length; i++) {
-        var t = String((msgs[i] && msgs[i].text) || '');
-        if (t.indexOf('\x01SAFE\x01') !== -1) return true;
-      }
-    } catch (e) { /* ignore */ }
-    return false;
-  }
-
+  /** Banner under the top bar, plus the existing popup. */
   function showChannelWarn(orbit, chan) {
     var key = fold(chan);
-    if (!key || channelWarned[key]) return;
+    if (!key) return;
     if (!parentalActive) return;
     if (hideChannelWarnPref(orbit)) return;
-    // Reconnect / buffer.active re-fire after boot cleared channelWarned — if the
-    // blue tip is already in the salon history, do not stack another copy.
-    if (channelHasSafeWarn(orbit, chan)) {
-      channelWarned[key] = true;
-      return;
-    }
-    channelWarned[key] = true;
-    var text = warnText(orbit, chan);
-    // \x01SAFE\x01 → Orbit sysline--safe (fond bleu + triangle rouge), lisible sur fond salon.
-    pushLocalLine(orbit, chan, '\x01SAFE\x01' + text.replace(/\n\n/g, ' — ').replace(/\n/g, ' '), 'system');
-    orbit.notify(
-      pick(orbit, { fr: 'Contrôle parental', en: 'Parental controls' }),
-      pick(orbit, {
-        fr: 'Salon mixte : reste prudent·e avec qui tu parles.',
-        en: 'Mixed channel: be careful who you talk to.',
-      })
-    );
+    var cur = channelWarn.map[key];
+    if (cur) return; // already showing, or dismissed until they leave
+    channelWarn.map[key] = { chan: String(chan), hidden: false };
+    bumpChannelWarn();
+    openChannelWarnPopup(orbit, chan);
+  }
+
+  function openChannelWarnPopup(orbit, chan) {
     if (typeof orbit.modal !== 'function' || channelWarnOpen) return;
+    if (hideChannelWarnPref(orbit)) return;
     channelWarnOpen = true;
+    var text = warnText(orbit, chan);
     var dontShow = { current: false };
     var close = orbit.modal(function () {
       return h('div', { className: 'ocid-popup ocid-popup--warn' },
@@ -435,6 +414,22 @@
     });
   }
 
+  function dismissChannelWarn(chan) {
+    var key = fold(chan);
+    var cur = channelWarn.map[key];
+    if (!cur || cur.hidden) return;
+    cur.hidden = true;
+    bumpChannelWarn();
+  }
+
+  /** Leave the channel → next join shows the banner again. */
+  function resetChannelWarnVisit(chan) {
+    var key = fold(chan);
+    if (!key || !channelWarn.map[key]) return;
+    delete channelWarn.map[key];
+    bumpChannelWarn();
+  }
+
   function maybeWarnOfficialJoin(orbit, chan) {
     if (!orbit || !isChannelName(chan)) return;
     if (!cfg(orbit).warnOfficialJoins) return;
@@ -442,11 +437,7 @@
     if (hideChannelWarnPref(orbit)) return;
     if (isSafeChannel(orbit, chan)) return;
     var key = fold(chan);
-    if (channelWarned[key]) return;
-    if (channelHasSafeWarn(orbit, chan)) {
-      channelWarned[key] = true;
-      return;
-    }
+    if (channelWarn.map[key]) return;
 
     // EntreNous: salons réseau (suffixe .chat) = avertir tout de suite, hors liste sûre.
     // Ne pas attendre ChanServ : un INFO « non officiel » annulait sinon le fallback.
@@ -1603,7 +1594,7 @@
       '.ocid-banner{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.55rem .85rem;margin:0;border-bottom:1px solid var(--border,rgba(0,0,0,.1));background:color-mix(in srgb,#0ea5e9 12%,var(--bg,#fff));color:var(--ink,inherit);font-size:.92rem;flex:none}',
       '.ocid-banner--wait{background:color-mix(in srgb,#f59e0b 14%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#f59e0b 30%,var(--border,rgba(0,0,0,.1)))}',
       '.ocid-banner--blocked{background:color-mix(in srgb,#ef4444 12%,var(--bg,#fff));border-bottom-color:color-mix(in srgb,#ef4444 28%,var(--border,rgba(0,0,0,.1)))}',
-      '.ocid-banner__txt{flex:1 1 12rem;min-width:0}',
+      '.ocid-banner__txt{flex:1 1 12rem;min-width:0;line-height:1.4}',
       '.ocid-banner__nick{font-weight:600}',
       '.ocid-banner__actions{display:flex;align-items:center;gap:.35rem;flex:none;margin-left:auto}',
       '.ocid-banner__btn{appearance:none;border:1px solid var(--border,rgba(0,0,0,.15));background:var(--bg,#fff);color:inherit;border-radius:8px;padding:.32rem .75rem;cursor:pointer;font:inherit;font-size:.88rem}',
@@ -1846,6 +1837,7 @@
     useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
     useSyncExternalStore(subscribeAcceptedTips, getAcceptedTipsSnap, getAcceptedTipsSnap);
     useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
+    useSyncExternalStore(subscribeChannelWarn, getChannelWarnSnap, getChannelWarnSnap);
     var [, bumpDismiss] = useState(0);
     var active = useSyncExternalStore(
       function (cb) { return orbit.on('buffer.active', cb); },
@@ -1857,6 +1849,23 @@
     prunePendingAllowed(orbit);
 
     var nodes = [];
+
+    if (isChannelName(active) && parentalActive && !hideChannelWarnPref(orbit)) {
+      var chWarn = getChannelWarn(active);
+      if (chWarn && !chWarn.hidden) {
+        var chName = chWarn.chan || active;
+        nodes.push(h('div', { key: 'chwarn-' + fold(chName), className: 'ocid-banner ocid-banner--chan', role: 'status' },
+          h('span', { className: 'ocid-banner__txt' }, warnText(orbit, chName)),
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__x',
+            'aria-label': pick(orbit, { fr: 'Masquer', en: 'Dismiss' }),
+            title: pick(orbit, { fr: 'Masquer jusqu’à la prochaine entrée', en: 'Hide until you rejoin' }),
+            onClick: function () { dismissChannelWarn(chName); },
+          }, '×')
+        ));
+      }
+    }
 
     if (isQueryPeer(active)) {
       var tip = getAcceptedTip(active);
@@ -2352,8 +2361,8 @@
         ),
         h('div', { className: 'ocid-srow__hint' },
           pick(orbit, {
-            fr: 'Sous contrôle parental : rappeler les consignes de sécurité en rejoignant un salon officiel (hors espace jeunes). Désactivez pour ne plus voir le popup.',
-            en: 'With parental controls: show the safety tip when joining an official channel (outside the youth space). Turn off to hide the popup.',
+            fr: 'Sous contrôle parental : bandeau de sécurité en rejoignant un salon officiel (hors espace jeunes). La croix le masque jusqu’à ce que tu quittes et reviennes. Désactivez pour ne plus le voir.',
+            en: 'With parental controls: a safety banner when joining an official channel (outside the youth space). The close button hides it until you leave and rejoin. Turn off to hide it entirely.',
           })
         )
       ),
@@ -2456,7 +2465,8 @@
       closeListView(orbit, { restore: false });
       Object.keys(officialPending).forEach(function (k) { clearOfficialPending(k); });
       officialPending = Object.create(null);
-      channelWarned = Object.create(null);
+      channelWarn.map = Object.create(null);
+      bumpChannelWarn();
       channelWarnOpen = false;
       ensureOwnerSession(orbit, log);
       var me = orbit.state.nick();
@@ -2719,6 +2729,13 @@
             maybeWarnOfficialJoin(orbit, joined);
           }
         }
+      }
+
+      // Quitter le salon remet le bandeau pour la prochaine entrée.
+      if (String(cmd).toUpperCase() === 'PART' || String(cmd).toUpperCase() === 'KICK') {
+        var leftNick = String(cmd).toUpperCase() === 'KICK' ? (params[1] || '') : (msg.nick || '');
+        var leftChan = params[0] || '';
+        if (fold(leftNick) === fold(me) && leftChan) resetChannelWarnVisit(leftChan);
       }
 
       var up = String(cmd).toUpperCase();

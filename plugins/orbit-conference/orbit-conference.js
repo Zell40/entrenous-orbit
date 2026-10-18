@@ -156,6 +156,8 @@
 
   // Self security-group fragments from WHOIS special lines
   var myGroupsText = '';
+  var selfWhoisDone = false;
+  var selfWhoisAt = 0;
   var groupsState = { rev: 0, listeners: new Set() };
   function subscribeGroups(cb) { groupsState.listeners.add(cb); return function () { groupsState.listeners.delete(cb); }; }
   function getGroupsRev() { return groupsState.rev; }
@@ -164,6 +166,11 @@
     groupsState.listeners.forEach(function (l) { try { l(); } catch (e) { /* ignore */ } });
   }
   function foldNick(n) { return String(n || '').trim().toLowerCase(); }
+  /** WHOIS 320 for peers: fold(nick) → { text, parental, known } */
+  var peerGroups = Object.create(null);
+  var peerWhoisAt = Object.create(null);
+  /** Our ACCEPT list (whitelist), filled by ACCEPT *. */
+  var acceptList = { set: Object.create(null), loading: false, known: false, at: 0 };
   /** Last Meet room id per channel (for -01/-02 collision suffixes). */
   var channelRooms = Object.create(null);
   /** Visio still live in channel (until explicit stop) — keeps rejoin banner after leaving the panel. */
@@ -648,15 +655,155 @@
     return '';
   }
 
+  function denyGroupNames(cfg) {
+    var list = (cfg && cfg.denyGroups && cfg.denyGroups.length) ? cfg.denyGroups : ['controle-parentale'];
+    return list.map(function (g) { return String(g || '').toLowerCase(); }).filter(Boolean);
+  }
+
+  function textHasParentalGroup(text, cfg) {
+    var blob = String(text || '').toLowerCase();
+    var names = denyGroupNames(cfg);
+    for (var i = 0; i < names.length; i++) {
+      if (blob.indexOf(names[i]) > -1) return true;
+    }
+    return false;
+  }
+
+  function selfIsParental(orbit) {
+    return textHasParentalGroup(myGroupsText, confCfg(orbit));
+  }
+
+  function requestPeerWhois(orbit, nick) {
+    var key = foldNick(nick);
+    if (!key || isChannelName(nick)) return;
+    var prev = peerGroups[key];
+    if (prev && prev.known && peerWhoisAt[key] && (Date.now() - peerWhoisAt[key]) < 60000) return;
+    if (peerWhoisAt[key] && (Date.now() - peerWhoisAt[key]) < 2000) return;
+    peerWhoisAt[key] = Date.now();
+    if (!prev || !prev.known) peerGroups[key] = { text: '', parental: false, known: false };
+    try { orbit.irc.send('WHOIS ' + nick); } catch (e) { /* ignore */ }
+  }
+
+  function requestAcceptList(orbit) {
+    if (acceptList.loading) return;
+    if (acceptList.known && (Date.now() - acceptList.at) < 20000) return;
+    acceptList.loading = true;
+    acceptList.known = false;
+    acceptList.set = Object.create(null);
+    try { orbit.irc.send('ACCEPT *'); } catch (e) { acceptList.loading = false; }
+  }
+
+  /** Incoming + outgoing real PM lines → conversation autorisée des deux côtés. */
+  function pmExchange(orbit, buffer) {
+    var fromThem = false;
+    var fromUs = false;
+    try {
+      var st = orbit.state.get();
+      var b = findBuffer(st, buffer);
+      var msgs = (b && b.messages) || [];
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (!m || (m.kind !== 'privmsg' && m.kind !== 'action')) continue;
+        if (m.self) fromUs = true;
+        else fromThem = true;
+      }
+    } catch (e) { /* ignore */ }
+    return { fromThem: fromThem, fromUs: fromUs };
+  }
+
+  /**
+   * Query visio policy.
+   * Both parental → allowed only with mutual whitelist + live conversation, then a confirm popup.
+   * One parental and one not → refused.
+   * Neither parental → unchanged (confirm false).
+   */
+  function pmVisioGate(orbit, buffer) {
+    var cfg = confCfg(orbit);
+    var selfP = selfIsParental(orbit);
+    if (!selfWhoisDone) {
+      if (!selfWhoisAt || Date.now() - selfWhoisAt > 4000) {
+        selfWhoisAt = Date.now();
+        try {
+          var me = orbit.state.nick();
+          if (me) orbit.irc.send('WHOIS ' + me);
+        } catch (e) { /* ignore */ }
+      }
+      return { ok: false, pending: true, reason: 'Vérification du profil en cours…' };
+    }
+    var key = foldNick(buffer);
+    var peer = peerGroups[key];
+    if (!peer || !peer.known) {
+      requestPeerWhois(orbit, buffer);
+      return { ok: false, pending: true, reason: 'Vérification du profil en cours…' };
+    }
+    var peerP = !!peer.parental;
+    if (selfP !== peerP) {
+      return {
+        ok: false,
+        reason: 'La visio n’est pas autorisée entre un utilisateur sous contrôle parental et un utilisateur qui ne l’est pas.',
+      };
+    }
+    if (!selfP) return { ok: true, confirm: false };
+    if (!acceptList.known) {
+      requestAcceptList(orbit);
+      return { ok: false, pending: true, reason: 'Vérification de la liste blanche…' };
+    }
+    var onMine = !!acceptList.set[key];
+    var ex = pmExchange(orbit, buffer);
+    if (!onMine || !ex.fromThem) {
+      return {
+        ok: false,
+        reason: 'La visio n’est possible que si vous êtes chacun dans la liste blanche de l’autre et que la conversation est autorisée.',
+      };
+    }
+    return { ok: true, confirm: true };
+  }
+
+  function confirmPmVisio(orbit, peer, onYes) {
+    var nick = String(peer || '').replace(/^[#&+!]/, '').trim() || 'cet utilisateur';
+    var body = 'Une conversation vidéo va s’ouvrir avec ' + nick
+      + '. Vous êtes tous les deux sous contrôle parental, chacun dans la liste blanche de l’autre. La conversation est autorisée.';
+    if (typeof orbit.modal !== 'function') {
+      if (window.confirm(body)) onYes();
+      return;
+    }
+    var close = orbit.modal(function () {
+      return h('div', { style: { padding: '.15rem .1rem .2rem', lineHeight: '1.45' } },
+        h('p', { style: { margin: '0 0 .9rem' } }, body),
+        h('div', { style: { display: 'flex', gap: '.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' } },
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn',
+            onClick: function () { if (typeof close === 'function') close(); },
+          }, 'Annuler'),
+          h('button', {
+            type: 'button',
+            className: 'ocid-banner__btn ocid-banner__btn--ok',
+            onClick: function () {
+              if (typeof close === 'function') close();
+              onYes();
+            },
+          }, 'Ouvrir la visio')
+        )
+      );
+    }, { title: 'Conversation vidéo', wide: false });
+  }
+
   function canJoin(orbit, buffer) {
     var cfg = confCfg(orbit);
     if (!bufferAllowed(orbit, buffer)) return { ok: false, reason: 'Salon non autorisé pour la visio.' };
     if (requireAccountFor(cfg, buffer) && !orbit.state.account()) {
       return { ok: false, reason: 'Compte IRC enregistré requis pour la visio.' };
     }
+    // MP : visio parentale seulement si les deux le sont, liste blanche mutuelle, conversation ouverte.
+    if (!isChannelName(buffer)) {
+      var pm = pmVisioGate(orbit, buffer);
+      if (!pm.ok) return { ok: false, reason: pm.reason, pending: !!pm.pending };
+      if (pm.confirm) return { ok: true, confirm: true };
+    }
     var g = groupsBlocked(orbit, cfg);
     if (g.indexOf('deny:') === 0) {
-      return { ok: false, reason: 'Visio indisponible pour votre profil (contrôle parental / groupe).' };
+      return { ok: false, reason: 'La visio de salon n’est pas autorisée sous contrôle parental.' };
     }
     if (g === 'require') {
       return { ok: false, reason: 'Votre compte n’a pas les droits nécessaires pour la visio.' };
@@ -679,7 +826,7 @@
         return { ok: false, reason: 'Seuls les opérateurs du salon peuvent démarrer une visio.' };
       }
     }
-    return { ok: true };
+    return join.confirm ? { ok: true, confirm: true } : { ok: true };
   }
 
   function roomNameFor(orbit, buffer) {
@@ -1568,7 +1715,28 @@
     }
     var gate = opts.joinOnly ? canJoin(orbit, buffer) : canStart(orbit, buffer);
     if (!gate.ok) {
+      if (gate.pending && !opts.retried) {
+        var waitPeer = !isChannelName(buffer);
+        var ready = function () {
+          var k = foldNick(buffer);
+          return !waitPeer || ((peerGroups[k] && peerGroups[k].known) && acceptList.known);
+        };
+        var started = Date.now();
+        var timer = window.setInterval(function () {
+          if (ready() || Date.now() - started > 4000) {
+            window.clearInterval(timer);
+            openConference(orbit, buffer, Object.assign({}, opts, { retried: true }));
+          }
+        }, 250);
+        return;
+      }
       orbit.notify('Visio', gate.reason || 'Accès refusé.');
+      return;
+    }
+    if (gate.confirm && !opts.confirmed) {
+      confirmPmVisio(orbit, buffer, function () {
+        openConference(orbit, buffer, Object.assign({}, opts, { confirmed: true }));
+      });
       return;
     }
 
@@ -1665,10 +1833,14 @@
     return groupsBlocked(orbit, confCfg(orbit)).indexOf('deny:') === 0;
   }
 
-  function parentalVisioTip(orbit) {
+  function parentalVisioTip(orbit, buffer) {
+    if (buffer && !isChannelName(buffer)) {
+      var g = pmVisioGate(orbit, buffer);
+      if (!g.ok && !g.pending) return g.reason;
+    }
     return orbit.i18n.pick({
-      fr: 'La visio n’est pas autorisée sous contrôle parental.',
-      en: 'Video calls are not allowed under parental controls.',
+      fr: 'La visio de salon n’est pas autorisée sous contrôle parental.',
+      en: 'Channel video is not allowed under parental controls.',
     });
   }
 
@@ -1704,9 +1876,11 @@
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     if (!bufferAllowed(orbit, activeBuf)) return null;
 
-    // Contrôle parental (denyGroups) : icône visible mais barrée + tip, jamais cliquable.
-    if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
-      var blockTip = parentalVisioTip(orbit);
+    // Salon + contrôle parental : caméra barrée. En MP, la visio dépend du pair.
+    var parentalHere = isDeniedByGroup(orbit);
+    var queryHere = !isChannelName(activeBuf);
+    if (parentalHere && !queryHere && !sessHere && !others.length) {
+      var blockTip = parentalVisioTip(orbit, activeBuf);
       return h('span', { className: 'oconf-cam-wrap oconf-cam-wrap--blocked' },
         h('button', {
           type: 'button',
@@ -1720,6 +1894,24 @@
         }, h(CameraIcon, { barred: true })),
         h('span', { className: 'oconf-cam-tip', role: 'tooltip' }, blockTip)
       );
+    }
+    if (queryHere && !sessHere && !others.length) {
+      var qGate = pmVisioGate(orbit, activeBuf);
+      if (!qGate.ok && !qGate.pending) {
+        return h('span', { className: 'oconf-cam-wrap oconf-cam-wrap--blocked' },
+          h('button', {
+            type: 'button',
+            className: 'topbar__search oconf-cam--blocked',
+            'aria-label': qGate.reason,
+            'aria-disabled': true,
+            disabled: true,
+            onClick: function (e) {
+              try { e.preventDefault(); e.stopPropagation(); } catch (err2) { /* ignore */ }
+            },
+          }, h(CameraIcon, { barred: true })),
+          h('span', { className: 'oconf-cam-tip', role: 'tooltip' }, qGate.reason)
+        );
+      }
     }
 
     if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
@@ -1744,8 +1936,8 @@
               if (others[0]) focusVisioBuffer(orbit, others[0].buffer);
               return;
             }
-            if (isDeniedByGroup(orbit)) {
-              orbit.notify('Visio', parentalVisioTip(orbit));
+            if (isDeniedByGroup(orbit) && isChannelName(activeBuf)) {
+              orbit.notify('Visio', parentalVisioTip(orbit, activeBuf));
               return;
             }
             var liveHere = !!liveVisio[inviteKey(activeBuf)] || !!getInviteFor(activeBuf);
@@ -1769,8 +1961,10 @@
     var hasInvite = !!getInviteFor(activeBuf) || !!liveVisio[inviteKey(activeBuf)];
     var cfg = confCfg(orbit);
     if (!bufferAllowed(orbit, activeBuf)) return null;
-    if (isDeniedByGroup(orbit) && !sessHere && !others.length) {
-      var blockTip = parentalVisioTip(orbit);
+    var parentalHere = isDeniedByGroup(orbit);
+    var queryHere = !isChannelName(activeBuf);
+    if (parentalHere && !queryHere && !sessHere && !others.length) {
+      var blockTip = parentalVisioTip(orbit, activeBuf);
       return h('button', {
         type: 'button',
         className: 'nmenu__item is-disabled',
@@ -1781,6 +1975,21 @@
         h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon, { barred: true })),
         blockTip
       );
+    }
+    if (queryHere && !sessHere && !others.length) {
+      var qGate = pmVisioGate(orbit, activeBuf);
+      if (!qGate.ok && !qGate.pending) {
+        return h('button', {
+          type: 'button',
+          className: 'nmenu__item is-disabled',
+          role: 'menuitem',
+          disabled: true,
+          title: qGate.reason,
+        },
+          h('span', { className: 'nmenu__ic', 'aria-hidden': true }, h(CameraIcon, { barred: true })),
+          qGate.reason
+        );
+      }
     }
     if (!sessHere && !canStart(orbit, activeBuf).ok && !hasInvite && !others.length) return null;
     var joinGate = canJoin(orbit, activeBuf);
@@ -2611,10 +2820,14 @@
     bindIdleActivityListeners();
     var cfg = confCfg(orbit);
     log('conference → ' + cfg.server + ' (tag ' + TAG + '=' + cfg.tagID + ', idle ' + cfg.idleTimeoutSec + 's)');
-    orbit.on('buffer.active', function () {
+    orbit.on('buffer.active', function (name) {
       syncAwayClass(orbit);
       expireStaleInvites(orbit);
       dropVisioIfLeftBuffer(orbit);
+      if (name && !isChannelName(name) && !isConsoleOrPseudo(name)) {
+        requestPeerWhois(orbit, name);
+        if (selfIsParental(orbit)) requestAcceptList(orbit);
+      }
     });
     syncAwayClass(orbit);
     window.setInterval(function () {
@@ -2627,6 +2840,7 @@
 
     function refreshMyGroups() {
       myGroupsText = '';
+      selfWhoisDone = false;
       bumpGroups();
       try {
         var me = orbit.state.nick();
@@ -2662,12 +2876,46 @@
           leaveConference(orbit, ch);
         }
       }
-      // RPL_WHOISSPECIAL — security groups often appear here
-      if (cmd === '320' && msg.params && foldNick(msg.params[1]) === foldNick(orbit.state.nick())) {
-        myGroupsText = (myGroupsText + ' ' + (msg.params[2] || '')).trim();
-        bumpGroups();
+      // RPL_WHOISSPECIAL — security groups (self + peer for PM visio)
+      if (cmd === '320' && msg.params) {
+        var whoNick = msg.params[1] || '';
+        var whoText = msg.params[2] || '';
+        if (foldNick(whoNick) === foldNick(orbit.state.nick())) {
+          myGroupsText = (myGroupsText + ' ' + whoText).trim();
+          bumpGroups();
+        } else if (whoNick) {
+          var pk = foldNick(whoNick);
+          var prevG = peerGroups[pk] || { text: '', parental: false, known: false };
+          prevG.text = (prevG.text + ' ' + whoText).trim();
+          prevG.parental = textHasParentalGroup(prevG.text, confCfg(orbit));
+          peerGroups[pk] = prevG;
+          bumpGroups();
+        }
       }
-      if (cmd === '318' && msg.params && foldNick(msg.params[1]) === foldNick(orbit.state.nick())) {
+      if (cmd === '318' && msg.params) {
+        var endNick = msg.params[1] || '';
+        if (foldNick(endNick) === foldNick(orbit.state.nick())) {
+          selfWhoisDone = true;
+          bumpGroups();
+        } else if (endNick) {
+          var ek = foldNick(endNick);
+          var eg = peerGroups[ek] || { text: '', parental: false, known: false };
+          eg.known = true;
+          eg.parental = textHasParentalGroup(eg.text, confCfg(orbit));
+          peerGroups[ek] = eg;
+          bumpGroups();
+        }
+      }
+      if (cmd === '281' && acceptList.loading) {
+        var acceptedNick = (msg.params && (msg.params[1] || msg.params[0])) || '';
+        if (acceptedNick && foldNick(acceptedNick) !== foldNick(orbit.state.nick())) {
+          acceptList.set[foldNick(acceptedNick)] = acceptedNick;
+        }
+      }
+      if (cmd === '282' && acceptList.loading) {
+        acceptList.loading = false;
+        acceptList.known = true;
+        acceptList.at = Date.now();
         bumpGroups();
       }
       if (String(cmd).toUpperCase() === 'TAGMSG') {
