@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=52"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=53"]
  */
 (function () {
   'use strict';
@@ -74,6 +74,10 @@
   var acceptConfirmed = Object.create(null);
   /** First blocked PM already resent after the peer accepted (nick → true). */
   var resentFirst = Object.create(null);
+  /** « Masquer » on the pending banner, until the next refresh. */
+  var dismissedOutgoingWait = Object.create(null);
+  /** Ignores history replay when deciding who started the PM this session. */
+  var sessionStartedAt = Date.now();
   /** Nicks we already told « blocked » after a refuse (session). */
   var refuseNotified = Object.create(null);
   /** Blocker-side banner dismissed for these nicks (session). */
@@ -636,6 +640,8 @@
       outboundText = Object.create(null);
       acceptConfirmed = Object.create(null);
       resentFirst = Object.create(null);
+      dismissedOutgoingWait = Object.create(null);
+      sessionStartedAt = Date.now();
       nickCase = Object.create(null);
       bumpDeny();
       if (log) log('callerid: compte changé (' + prev + ' → ' + owner + '), listes isolées');
@@ -1232,6 +1238,47 @@
     return !!outboundText[pendingKey(nick)] || bufferHasSelfOutbound(orbit, nick);
   }
 
+  /** Optimistic send still waiting for a server echo (id stays local-). */
+  function hasUnconfirmedSelf(orbit, nick) {
+    return listUnconfirmedTexts(orbit, nick).length > 0;
+  }
+
+  function listUnconfirmedTexts(orbit, nick) {
+    var out = [];
+    try {
+      var buf = getQueryBuffer(orbit, nick);
+      var msgs = (buf && buf.messages) || [];
+      var i;
+      for (i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (!m || !m.self || (m.kind !== 'privmsg' && m.kind !== 'action')) continue;
+        if (String(m.id || '').indexOf('local-') !== 0) continue;
+        if (m.text) out.push(String(m.text));
+      }
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  /**
+   * A PRIVMSG we sent during this connection — not a history replay.
+   * Old lines must not count as « I started the chat » and swallow a new 718.
+   */
+  function hasFreshOutbound(orbit, nick) {
+    if (outboundText[pendingKey(nick)]) return true;
+    try {
+      var buf = getQueryBuffer(orbit, nick);
+      var msgs = (buf && buf.messages) || [];
+      var i;
+      for (i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (!m || !m.self || (m.kind !== 'privmsg' && m.kind !== 'action')) continue;
+        if (String(m.id || '').indexOf('local-') === 0) return true;
+        if (m.ts && sessionStartedAt && m.ts >= sessionStartedAt - 5000) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
   function captureOutboundText(orbit, nick) {
     if (outboundText[pendingKey(nick)]) return;
     try {
@@ -1289,6 +1336,21 @@
     return true;
   }
 
+  /** Replay the PMs the server dropped (+g) once the peer has accepted us. */
+  function resendUnconfirmed(orbit, nick) {
+    var key = pendingKey(nick);
+    if (!key || resentFirst[key]) return;
+    var lines = listUnconfirmedTexts(orbit, nick);
+    var pendingTxt = outboundText[key];
+    if (!lines.length && pendingTxt && !isControlBody(pendingTxt)) lines = [pendingTxt];
+    lines = lines.filter(function (line) { return line && !isControlBody(line); });
+    if (!lines.length) return;
+    resentFirst[key] = true;
+    delete outboundText[key];
+    var i;
+    for (i = 0; i < lines.length; i++) sendQueuedPrivmsg(orbit, nick, lines[i]);
+  }
+
   function isControlBody(body) {
     return isAcceptNotice(body) || isRefuseNotice(body) || isBlockNotice(body)
       || isRevokedNotice(body) || isUnblockNotice(body);
@@ -1322,12 +1384,12 @@
     if (!body) return;
     try {
       var st = orbit.state.get();
-      if (st && typeof st.pushSystem === 'function') {
-        st.pushSystem(STATUS_BUF, body);
+      if (st && typeof st.pushLocal === 'function') {
+        st.pushLocal(STATUS_BUF, body, '', 'info');
         return;
       }
     } catch (e) { /* ignore */ }
-    pushLocalLine(orbit, STATUS_BUF, body, 'system');
+    pushLocalLine(orbit, STATUS_BUF, body, 'info');
   }
 
   function isCalleridControlNotice(text) {
@@ -1510,7 +1572,9 @@
     keys.forEach(function (k) {
       var req = pending.map[k];
       var n = (req && req.nick) || k;
-      if (isAllowedNick(orbit, n)) {
+      // Saved allow-list is not the server list. A 718 means the PM was just
+      // blocked, so only a live ACCEPT entry should dismiss the request.
+      if (isOnAcceptList(n) || acceptConfirmed[pendingKey(n)]) {
         delete pending.map[k];
         delete popupOpenFor[k];
         changed = true;
@@ -1645,13 +1709,7 @@
       openPm(orbit, nick);
       setAcceptedTip(nick, { nick: nick, kind: 'they-accepted' });
       markAcceptConfirmed(nick);
-      var pendingTxt = outboundText[acceptKey];
-      // Their ACCEPT +us is already on the server: this notice was queued behind it.
-      if (pendingTxt && !isControlBody(pendingTxt) && !resentFirst[acceptKey]) {
-        resentFirst[acceptKey] = true;
-        delete outboundText[acceptKey];
-        sendQueuedPrivmsg(orbit, nick, pendingTxt);
-      }
+      resendUnconfirmed(orbit, nick);
       // In-app accepted tip banner — no OS notification.
       return;
     }
@@ -1687,7 +1745,7 @@
   function openRequestPopup(orbit, req) {
     if (!req || !req.nick) return;
     var shown = rememberNickCase(req.nick);
-    if (isAllowedNick(orbit, shown)) {
+    if (isOnAcceptList(shown) || acceptConfirmed[pendingKey(shown)]) {
       setPending(shown, null);
       return;
     }
@@ -2272,6 +2330,32 @@
       function () { return orbit.state.active(); }
     );
 
+    // Composer sends don't go through the plugin hook. A bubble still on local-
+    // was not echoed (+g dropped it) — show « en attente » even if 716 was missed.
+    useEffect(function () {
+      if (!isQueryPeer(active)) return undefined;
+      var key = pendingKey(active);
+      var tick = function () {
+        if (dismissedOutgoingWait[key]) return;
+        if (!hasUnconfirmedSelf(orbit, active)) return;
+        var tipNow = getAcceptedTip(active);
+        if (tipNow && tipNow.kind === 'they-accepted') return;
+        if (isBlockedBy(orbit, active)) return;
+        var cur = getOutgoing(active);
+        if (cur && !cur.refused && !cur.blocked) return;
+        setOutgoing(active, {
+          nick: displayNick(orbit, active) || active,
+          ts: Date.now(),
+          informed: false,
+          refused: false,
+          blocked: false,
+        });
+      };
+      tick();
+      var timer = window.setInterval(tick, 500);
+      return function () { window.clearInterval(timer); };
+    }, [active]);
+
     // Stale 718 while already on the allow list (server race / reconnect).
     prunePendingAllowed(orbit);
 
@@ -2426,7 +2510,8 @@
         // Real outbound wait only (716 after we actually wrote). Peer +g alone is not
         // "message pending" — especially when they already wrote to us first.
         // If the peer already replied, the conversation is live → drop a stale wait.
-        if (wait && !wait.refused && !wait.blocked && bufferHasPeerOutbound(orbit, active)) {
+        if (wait && !wait.refused && !wait.blocked && bufferHasPeerOutbound(orbit, active)
+          && !hasUnconfirmedSelf(orbit, active)) {
           clearOutgoingWait(active);
           wait = null;
         }
@@ -2468,6 +2553,7 @@
                 className: 'ocid-banner__btn',
                 onClick: function () {
                   if (storedBlock) dismissedPeerBlocked[weKey] = true;
+                  else dismissedOutgoingWait[weKey] = true;
                   setOutgoing(active, null);
                   bumpDismiss(function (n) { return n + 1; });
                 },
@@ -2906,6 +2992,8 @@
       outboundText = Object.create(null);
       acceptConfirmed = Object.create(null);
       resentFirst = Object.create(null);
+      dismissedOutgoingWait = Object.create(null);
+      sessionStartedAt = Date.now();
       peers.probedAt = Object.create(null);
       peers.loading = Object.create(null);
       acceptList.nicks = [];
@@ -3076,14 +3164,17 @@
           }
           captureOutboundText(orbit, blocked);
           // TAGMSG (accusés de lecture) also hits +g — ignore unless we really wrote.
-          if (!hasRealOutboundAttempt(orbit, blocked)) {
+          if (!hasRealOutboundAttempt(orbit, blocked) && !hasUnconfirmedSelf(orbit, blocked)) {
             patchPeer(blocked, { nick: blocked, g: true });
             return;
           }
           ensurePendingVisible(orbit, blocked);
-          // Already accepted (tip) or peer already chatting — ignore a transient 716
-          // (e.g. ACCEPT not yet restored after their reconnect).
-          if (getAcceptedTip(blocked) || bufferHasPeerOutbound(orbit, blocked)) {
+          // A live chat can emit a stray 716 (ACCEPT restored a moment later).
+          // An unconfirmed bubble (still local-) means THIS send was dropped: show the wait.
+          var blockedTip = getAcceptedTip(blocked);
+          var liveAlready = (blockedTip && blockedTip.kind === 'they-accepted')
+            || bufferHasPeerOutbound(orbit, blocked);
+          if (liveAlready && !hasUnconfirmedSelf(orbit, blocked) && !hasFreshOutbound(orbit, blocked)) {
             saveBlockedByNick(orbit, blocked, false);
             clearOutgoingWait(blocked);
             return;
@@ -3153,20 +3244,16 @@
           }
           return;
         }
-        // Already on the allow list (live or mémorisé) — never open a 2nd request UI.
-        if (isAllowedNick(orbit, fromNick)) {
-          setPending(fromNick, null);
-          delete popupOpenFor[pendingKey(fromNick)];
-          // Re-assert ACCEPT in case the server list drifted (reconnect / race).
-          // Do not resend the first PM here: a 718 has no message text, so it can
-          // be a read receipt. The accept notice is what releases the stored text.
-          if (!acceptConfirmed[pendingKey(fromNick)]) sendAccept(orbit, fromNick, true);
-          return;
-        }
-        // Parental user already wrote first: this reply is not a new request.
-        if (hasRealOutboundAttempt(orbit, fromNick)) {
+        // 718 means the server did not deliver. A saved allow-list entry is not
+        // enough — the nick is not on the server ACCEPT list right now.
+        // Only skip the request when WE opened the PM during this connection.
+        if (hasFreshOutbound(orbit, fromNick)) {
           allowStartedPeer(orbit, fromNick);
-          if (isAllowedNick(orbit, fromNick)) return;
+          if (isAllowedNick(orbit, fromNick)) {
+            setPending(fromNick, null);
+            delete popupOpenFor[pendingKey(fromNick)];
+            return;
+          }
         }
         activateCallerid(orbit, log, '718');
         setPending(fromNick, { nick: fromNick, host: fromHost, ts: Date.now() });
