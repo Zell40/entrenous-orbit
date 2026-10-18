@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=48"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=50"]
  */
 (function () {
   'use strict';
@@ -66,6 +66,7 @@
   var calleridActive = false;
   var modesApplied = false;
   var restoreDone = false;
+  var denyRestoreDone = false;
   var popupOpenFor = Object.create(null);
   /** Last PRIVMSG text we tried to send while blocked by +g (nick → text). */
   var outboundText = Object.create(null);
@@ -614,6 +615,7 @@
       acceptList.loading = false;
       bumpAccept();
       restoreDone = false;
+      denyRestoreDone = false;
       pending.map = Object.create(null);
       pending.rev++;
       pending.listeners.forEach(function (l) { l(); });
@@ -1225,13 +1227,40 @@
     pushLocalLine(orbit, n, text, 'privmsg', true);
   }
 
+  /**
+   * Parental user opened the PM themselves: they accept this nick on the allow
+   * list, so the peer's reply must not raise a 718 / « souhaite vous écrire ».
+   */
+  function allowStartedPeer(orbit, nick) {
+    var n = rememberNickCase(nick) || String(nick || '').trim();
+    if (!n || !isQueryPeer(n)) return;
+    if (!parentalActive && !isParental(orbit)) return;
+    if (isDenied(orbit, n)) return;
+    if (isAllowedNick(orbit, n)) return;
+    if (!sendAccept(orbit, n, true)) return;
+    setPending(n, null);
+    delete popupOpenFor[pendingKey(n)];
+    setAcceptedTip(n, { nick: n, kind: 'we-started' });
+    pushStatus(orbit, pick(orbit, {
+      fr: n + ' a été ajouté à votre liste blanche, parce que vous avez commencé la conversation.',
+      en: n + ' was added to your allow list because you started the conversation.',
+    }));
+    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+  }
+
   function hookOutboundCapture(orbit) {
     if (!orbit.irc || typeof orbit.irc.msg !== 'function' || orbit.irc.__ocidHooked) return;
     var orig = orbit.irc.msg.bind(orbit.irc);
     orbit.irc.msg = function (target, text) {
       var t = String(target || '').trim();
       var body = String(text || '');
-      if (t && body && isQueryPeer(t)) outboundText[pendingKey(t)] = body;
+      if (t && body && isQueryPeer(t)) {
+        outboundText[pendingKey(t)] = body;
+        if (!isAcceptNotice(body) && !isRefuseNotice(body) && !isBlockNotice(body)
+          && !isRevokedNotice(body) && !isUnblockNotice(body)) {
+          allowStartedPeer(orbit, t);
+        }
+      }
       return orig(target, text);
     };
     orbit.irc.__ocidHooked = true;
@@ -1263,10 +1292,28 @@
   function silenceNick(orbit, nick, add) {
     var n = String(nick || '').trim();
     if (!n) return;
-    // InspIRCd silence: +mask flags — p = private messages. Harmless if module absent.
+    // InspIRCd: P = PRIVMSG utilisateur (p = salon). Ancien « p » retiré au déblocage.
+    var flag = add ? '+' : '-';
+    try { orbit.irc.send('SILENCE ' + flag + n + ' P'); } catch (e) { /* ignore */ }
+    if (!add) {
+      try { orbit.irc.send('SILENCE -' + n + ' p'); } catch (e2) { /* ignore */ }
+    }
+    // Persists on the account so mphistory can refuse the nick while we are offline.
     try {
-      orbit.irc.send('SILENCE ' + (add ? '+' : '-') + n + ' p');
-    } catch (e) { /* ignore */ }
+      orbit.irc.send('METADATA ' + n + ' SET soju.im/blocked ' + (add ? '1' : '0'));
+    } catch (e3) { /* ignore */ }
+  }
+
+  /** Re-apply the block list after connect (SILENCE is session-only). */
+  function restoreSavedDeny(orbit, log) {
+    ensureOwnerSession(orbit, log);
+    if (!storageOwner(orbit)) return;
+    if (denyRestoreDone) return;
+    denyRestoreDone = true;
+    var list = loadSavedDeny(orbit);
+    if (!list.length) return;
+    if (log) log('callerid: restauration blocage (' + list.length + ') pour ' + storageOwner(orbit));
+    list.forEach(function (nick) { silenceNick(orbit, nick, true); });
   }
 
   /** Friends panel → allow-list (ACCEPT). Also clears a prior deny/SILENCE.
@@ -2171,18 +2218,23 @@
             fr: tipNick + ' a accepté votre demande. Vous pouvez dialoguer.',
             en: tipNick + ' accepted your request. You can chat now.',
           })
-          : pick(orbit, {
-            fr: 'Vous avez accepté la conversation avec ' + tipNick + '. '
-              + tipNick + ' a été ajouté à votre liste blanche. '
-              + 'Gérez-la via l’icône bouclier en haut.',
-            en: 'You accepted the conversation with ' + tipNick + '. '
-              + tipNick + ' was added to your allow list. '
-              + 'Manage it via the shield icon in the top bar.',
-          });
+          : tip.kind === 'we-started'
+            ? pick(orbit, {
+              fr: tipNick + ' a été ajouté à votre liste blanche, parce que vous avez commencé la conversation.',
+              en: tipNick + ' was added to your allow list because you started the conversation.',
+            })
+            : pick(orbit, {
+              fr: 'Vous avez accepté la conversation avec ' + tipNick + '. '
+                + tipNick + ' a été ajouté à votre liste blanche. '
+                + 'Gérez-la via l’icône bouclier en haut.',
+              en: 'You accepted the conversation with ' + tipNick + '. '
+                + tipNick + ' was added to your allow list. '
+                + 'Manage it via the shield icon in the top bar.',
+            });
         nodes.push(h('div', { key: 'accepted-' + pendingKey(tipNick), className: 'ocid-banner', role: 'status' },
           h('span', { className: 'ocid-banner__txt' }, tipTxt),
           h('span', { className: 'ocid-banner__actions' },
-            tip.kind === 'we-accepted'
+            tip.kind === 'we-accepted' || tip.kind === 'we-started'
               ? h('button', {
                 type: 'button',
                 className: 'ocid-banner__btn ocid-banner__btn--icon',
@@ -2754,6 +2806,7 @@
       myGroupsText = '';
       modesApplied = false;
       restoreDone = false;
+      denyRestoreDone = false;
       popupOpenFor = Object.create(null);
       refuseNotified = Object.create(null);
       dismissedWeBlocked = Object.create(null);
@@ -2783,6 +2836,7 @@
       else if (hasModeG(orbit)) activateCallerid(orbit, log, 'umodes');
       else window.setTimeout(function () { applyVoluntaryCallerid(orbit, log); }, 600);
       window.setTimeout(function () { syncPrivDeafTip(orbit); }, 800);
+      window.setTimeout(function () { restoreSavedDeny(orbit, log); }, 400);
     }
 
     try {
@@ -2830,6 +2884,10 @@
         if (sessionOwner && sessionOwner !== prevOwner && calleridActive) {
           restoreDone = false;
           restoreSavedAccept(orbit, log);
+        }
+        if (sessionOwner && sessionOwner !== prevOwner) {
+          denyRestoreDone = false;
+          restoreSavedDeny(orbit, log);
         }
       }
 
@@ -3008,6 +3066,11 @@
           // Re-assert ACCEPT in case the server list drifted (reconnect / race).
           sendAccept(orbit, fromNick, true);
           return;
+        }
+        // Parental user already wrote first: this reply is not a new request.
+        if (hasRealOutboundAttempt(orbit, fromNick)) {
+          allowStartedPeer(orbit, fromNick);
+          if (isAllowedNick(orbit, fromNick)) return;
         }
         activateCallerid(orbit, log, '718');
         setPending(fromNick, { nick: fromNick, host: fromHost, ts: Date.now() });
