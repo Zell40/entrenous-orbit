@@ -24,7 +24,6 @@
   var h = React.createElement;
   var useState = React.useState;
   var useEffect = React.useEffect;
-  var useLayoutEffect = React.useLayoutEffect || React.useEffect;
   var useRef = React.useRef;
   var useSyncExternalStore = React.useSyncExternalStore;
 
@@ -1813,10 +1812,12 @@
       /* Desktop: full text, no scrollbar. Mobile: scroll only if the body overflows. */
       '.ocid-warn__body{white-space:pre-wrap;text-align:left;line-height:1.45;max-height:none;overflow:visible}',
       '@media (max-width:560px){.ocid-warn__body{max-height:min(48vh,20rem);overflow:auto;-webkit-overflow-scrolling:touch}}',
-      /* Shield (liste blanche): same chrome as other icons — accent color only when open. */
+      /* Shield: muted by default, blue if this PM is allowed, red if blocked. */
       '.topbar__search.ocid-topbar{position:relative;background:transparent;color:var(--muted)}',
       '.topbar__search.ocid-topbar:hover{background:var(--bg-soft-2);color:var(--ink)}',
       '.topbar__search.ocid-topbar.is-on{background:transparent!important;color:var(--accent-d,var(--accent))!important}',
+      'button.topbar__search.ocid-topbar.ocid-shield--allow,button.topbar__search.ocid-topbar.ocid-shield--allow:hover,button.topbar__search.ocid-topbar.ocid-shield--allow.is-on,button.topbar__search.ocid-topbar.ocid-shield--allow.is-on:hover{color:#2563eb!important}',
+      'button.topbar__search.ocid-topbar.ocid-shield--deny,button.topbar__search.ocid-topbar.ocid-shield--deny:hover,button.topbar__search.ocid-topbar.ocid-shield--deny.is-on,button.topbar__search.ocid-topbar.ocid-shield--deny.is-on:hover{color:#dc2626!important}',
       '.topbar__search.ocid-topbar .ocid-topbar__badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#0ea5e9;color:#fff;font-size:.65rem;font-weight:800;line-height:14px;text-align:center}',
       /* +D enveloppe (MP muets): gris comme les autres / rouge si actif — jamais de fond bleu. */
       '.topbar__search.topbar__privdeaf{background:transparent!important;color:var(--muted)!important}',
@@ -1825,9 +1826,6 @@
       '.topbar__search.topbar__privdeaf.is-on:hover{background:var(--bg-soft-2)!important;color:var(--danger,#d6465f)!important}',
       '.ocid-check--tip{display:flex;align-items:flex-start;gap:.5rem;margin:.35rem 0 0;font-size:.86rem;cursor:pointer;user-select:none;text-align:left}',
       '.ocid-check--tip input{margin:.15rem 0 0;flex:none}',
-      /* PM user-info icon: blue on the allow list, red on the block list. */
-      'button.topbar__search.ocid-userinfo--allow,button.topbar__search.ocid-userinfo--allow:hover,button.nmenu__item.ocid-userinfo--allow,button.nmenu__item.ocid-userinfo--allow:hover{color:#2563eb}',
-      'button.topbar__search.ocid-userinfo--deny,button.topbar__search.ocid-userinfo--deny:hover,button.nmenu__item.ocid-userinfo--deny,button.nmenu__item.ocid-userinfo--deny:hover{color:#dc2626}',
       '.ocid-shield__pop{width:max-content;max-width:min(22rem,calc(100vw - 1rem))}',
       '.ocid-shield__pop .nmenu__txt b{white-space:normal}',
     ].join('');
@@ -1918,84 +1916,12 @@
     );
   }
 
-  /** Active private-message nick, or '' on a channel / server / notices. */
-  function queryPeerNick(orbit) {
-    try {
-      var st = orbit.state.get();
-      var buf = st && st.buffers && st.buffers[st.active];
-      if (!buf || buf.isChannel) return '';
-      var name = String(buf.name || '');
-      if (!name || name.charAt(0) === '#' || name.charAt(0) === '&' || name.charAt(0) === '$') return '';
-      if (fold(name) === fold(ALLOWLIST_BUF)) return '';
-      return name;
-    } catch (e) {
-      return '';
-    }
-  }
-
   /** 'allow' | 'deny' | '' — block list wins if a nick is on both. */
   function queryListKind(orbit, nick) {
     if (!nick) return '';
     if (isDenied(orbit, nick)) return 'deny';
     if (isAllowedNick(orbit, nick)) return 'allow';
     return '';
-  }
-
-  function buttonHasUserIcon(btn) {
-    var svg = btn && btn.querySelector && btn.querySelector('svg');
-    if (!svg) return false;
-    var html = svg.innerHTML || '';
-    return html.indexOf('19.5 20.5') !== -1;
-  }
-
-  /**
-   * Recolor the PM "about this user" icon.
-   * React resets title/class on each topbar render; this runs in useLayoutEffect
-   * (and when the ⋮ menu mounts) so the tint sticks before paint.
-   */
-  function applyQueryUserIcon(orbit) {
-    var root = document.querySelector('.topbar');
-    if (!root) return;
-    var nick = queryPeerNick(orbit);
-    var kind = queryListKind(orbit, nick);
-    var shown = nick ? (displayNick(orbit, nick) || nick) : '';
-    var tip = '';
-    if (kind === 'allow') {
-      tip = pick(orbit, {
-        fr: shown + ' est dans votre liste blanche',
-        en: shown + ' is on your allow list',
-      });
-    } else if (kind === 'deny') {
-      tip = pick(orbit, {
-        fr: shown + ' est dans votre liste des utilisateurs bloqués',
-        en: shown + ' is on your blocked list',
-      });
-    }
-    var buttons = root.querySelectorAll('button.topbar__search, button.nmenu__item');
-    for (var i = 0; i < buttons.length; i++) {
-      var btn = buttons[i];
-      if (!buttonHasUserIcon(btn)) continue;
-      btn.classList.remove('ocid-userinfo--allow', 'ocid-userinfo--deny');
-      if (!tip) continue;
-      btn.classList.add(kind === 'allow' ? 'ocid-userinfo--allow' : 'ocid-userinfo--deny');
-      btn.setAttribute('title', tip);
-      btn.setAttribute('aria-label', tip);
-    }
-  }
-
-  function QueryUserIconTint(props) {
-    var orbit = props.orbit;
-    useSyncExternalStore(subscribeAccept, getAcceptSnap, getAcceptSnap);
-    useSyncExternalStore(subscribeDeny, getDenySnap, getDenySnap);
-    useLayoutEffect(function () { applyQueryUserIcon(orbit); });
-    useEffect(function () {
-      var root = document.querySelector('.topbar');
-      if (!root || typeof MutationObserver !== 'function') return undefined;
-      var obs = new MutationObserver(function () { applyQueryUserIcon(orbit); });
-      obs.observe(root, { childList: true, subtree: true });
-      return function () { obs.disconnect(); };
-    }, [orbit]);
-    return null;
   }
 
   function shieldActions(orbit, nick) {
@@ -2093,13 +2019,26 @@
     if (!gate.callerid && !gate.parental && !listPending().length) return null;
     var n = listPending().length;
     var shown = peer ? (displayNick(orbit, peer) || peer) : '';
+    var kind = queryListKind(orbit, peer);
     var title = peer
       ? pick(orbit, { fr: 'Gérer ' + shown, en: 'Manage ' + shown })
       : pick(orbit, { fr: 'Liste blanche des messages privés', en: 'Private-message allow list' });
+    if (kind === 'allow') {
+      title = pick(orbit, {
+        fr: shown + ' est dans votre liste blanche',
+        en: shown + ' is on your allow list',
+      });
+    } else if (kind === 'deny') {
+      title = pick(orbit, {
+        fr: shown + ' est dans votre liste des utilisateurs bloqués',
+        en: shown + ' is on your blocked list',
+      });
+    }
+    var tone = kind === 'allow' ? ' ocid-shield--allow' : kind === 'deny' ? ' ocid-shield--deny' : '';
     return h('span', { className: 'nmenu ocid-shield', ref: ref },
       h('button', {
         type: 'button',
-        className: 'topbar__search ocid-topbar' + ((n || listView.open || menuOpen) ? ' is-on' : ''),
+        className: 'topbar__search ocid-topbar' + tone + ((n || listView.open || menuOpen) ? ' is-on' : ''),
         title: title,
         'aria-label': title,
         'aria-expanded': peer ? menuOpen : undefined,
@@ -3171,7 +3110,6 @@
     orbit.addUi('sidebar_room', function () { return h(WhitelistRoomRow, { orbit: orbit }); });
     orbit.addUi('overlay', function () { return h(MainOverlays, { orbit: orbit }); });
     orbit.addUi('topbar_item', function () { return h(TopbarButton, { orbit: orbit }); });
-    orbit.addUi('topbar_end', function () { return h(QueryUserIconTint, { orbit: orbit }); });
     orbit.addUi('topbar_more_item', function () { return h(MoreMenuItem, { orbit: orbit }); });
     registerSettingsMode(orbit);
     registerSettingsAppearance(orbit);

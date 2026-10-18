@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var OEC_VER = 62;
+  var OEC_VER = 63;
 
   function boot(retry) {
     if (typeof Orbit === 'undefined' || !Orbit.plugin) {
@@ -2527,7 +2527,7 @@
     var busy = !!ui.ccFindBusy;
     var find = game.ccFind;
     var err = game.ccFindErr || '';
-    var html = '<div class="oec-card oec-card--wide"><h3>Rechercher un joueur Chess.com</h3>' +
+    var html = '<div class="oec-card"><h3>Rechercher un joueur Chess.com</h3>' +
       '<p class="oec-home-lead">Consulte les classements publics d’un joueur, sans lier de compte.</p>' +
       '<div class="oec-link"><input id="oec-cc-find" type="text" maxlength="25" autocomplete="off" spellcheck="false" ' +
       'placeholder="pseudo Chess.com" value="' +
@@ -2584,7 +2584,7 @@
     var enMeta = loading && !game.elo
       ? '<span class="oec-spin"></span> Chargement…'
       : (gamesN ? gamesN + ' partie' + (gamesN > 1 ? 's' : '') + ' classée' + (gamesN > 1 ? 's' : '') : 'Aucune partie classée');
-    var enCard = '<div class="oec-card oec-card--en' + (showCc ? '' : ' oec-card--wide') + (loading && !game.elo ? ' is-loading' : '') + '">' +
+    var enCard = '<div class="oec-card oec-card--en' + (loading && !game.elo ? ' is-loading' : '') + '">' +
       '<h3>Classement EntreNous</h3>' +
       (game.enName ? '<p class="oec-en__name">' + escHtml(game.enName) + '</p>' : '') +
       '<p class="oec-en__elo">' + escHtml(String(elo)) + '</p>' +
@@ -2604,7 +2604,7 @@
         : missing ? 'Compte Chess.com'
         : linked ? 'Classement Chess.com'
         : 'Chess.com';
-      var ccCls = 'oec-card' + (loading ? ' oec-card--load' : '') +
+      var ccCls = 'oec-card oec-card--wide' + (loading ? ' oec-card--load' : '') +
         (!loading && (preview || verify || missing || (linked && !isCcVerified(game))) ? ' oec-card--ask' : '') +
         (linked && isCcVerified(game) ? ' oec-card--ok' : '');
       var ccBody = '';
@@ -2683,8 +2683,8 @@
       pill('setup-tc', 'rapide15', 'Rapide 15+10', s.tc) +
       '</div></div>' +
       renderHomeLaunch(game, 'oec-home-actions--inflow') +
-      enCard + ccCard +
-      renderCcFind(game) +
+      enCard + renderCcFind(game) +
+      ccCard +
       renderHistory(game) +
       '</div>' +
       (game.flash ? '<div class="oec-flash">' + escHtml(game.flash) + '</div>' : '') +
