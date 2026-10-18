@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=50"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=52"]
  */
 (function () {
   'use strict';
@@ -70,6 +70,10 @@
   var popupOpenFor = Object.create(null);
   /** Last PRIVMSG text we tried to send while blocked by +g (nick → text). */
   var outboundText = Object.create(null);
+  /** Nicks the server confirmed on our ACCEPT list (not the optimistic local copy). */
+  var acceptConfirmed = Object.create(null);
+  /** First blocked PM already resent after the peer accepted (nick → true). */
+  var resentFirst = Object.create(null);
   /** Nicks we already told « blocked » after a refuse (session). */
   var refuseNotified = Object.create(null);
   /** Blocker-side banner dismissed for these nicks (session). */
@@ -630,6 +634,8 @@
       dismissedWeBlocked = Object.create(null);
       dismissedPeerBlocked = Object.create(null);
       outboundText = Object.create(null);
+      acceptConfirmed = Object.create(null);
+      resentFirst = Object.create(null);
       nickCase = Object.create(null);
       bumpDeny();
       if (log) log('callerid: compte changé (' + prev + ' → ' + owner + '), listes isolées');
@@ -955,11 +961,36 @@
       orbit.irc.send('ACCEPT ' + (add ? '+' : '-') + n);
       saveAcceptNick(orbit, n, add);
       if (add) pushAcceptNick(n);
-      else forgetAcceptNick(n);
+      else {
+        forgetAcceptNick(n);
+        delete acceptConfirmed[pendingKey(n)];
+      }
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  /** Same queue as ACCEPT. privmsg() jumps the line (sendFirst) and would race +g. */
+  function sendQueuedPrivmsg(orbit, nick, body) {
+    var n = String(nick || '').trim();
+    var lines = String(body || '').split(/\r?\n/);
+    var i;
+    var sent = false;
+    if (!n) return false;
+    for (i = 0; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      try {
+        orbit.irc.send('PRIVMSG ' + n + ' :' + lines[i]);
+        sent = true;
+      } catch (e) { /* ignore */ }
+    }
+    return sent;
+  }
+
+  function markAcceptConfirmed(nick) {
+    var key = pendingKey(nick);
+    if (key) acceptConfirmed[key] = true;
   }
 
   function refreshAcceptList(orbit) {
@@ -1231,21 +1262,36 @@
    * Parental user opened the PM themselves: they accept this nick on the allow
    * list, so the peer's reply must not raise a 718 / « souhaite vous écrire ».
    */
+  /**
+   * Parental user opened the PM themselves. Returns true when ACCEPT was just
+   * queued and the PRIVMSG must stay behind it (same slow queue, not sendFirst).
+   */
   function allowStartedPeer(orbit, nick) {
     var n = rememberNickCase(nick) || String(nick || '').trim();
-    if (!n || !isQueryPeer(n)) return;
-    if (!parentalActive && !isParental(orbit)) return;
-    if (isDenied(orbit, n)) return;
-    if (isAllowedNick(orbit, n)) return;
-    if (!sendAccept(orbit, n, true)) return;
+    if (!n || !isQueryPeer(n)) return false;
+    if (!parentalActive && !isParental(orbit)) return false;
+    if (isDenied(orbit, n)) return false;
+    // Optimistic savedAccept is not enough: the server list is empty after a reconnect
+    // until ACCEPT is actually processed. sendFirst would jump ahead of that command.
+    if (acceptConfirmed[pendingKey(n)]) return false;
+    var already = isAllowedNick(orbit, n);
+    if (!sendAccept(orbit, n, true)) return false;
     setPending(n, null);
     delete popupOpenFor[pendingKey(n)];
-    setAcceptedTip(n, { nick: n, kind: 'we-started' });
-    pushStatus(orbit, pick(orbit, {
-      fr: n + ' a été ajouté à votre liste blanche, parce que vous avez commencé la conversation.',
-      en: n + ' was added to your allow list because you started the conversation.',
-    }));
-    window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+    if (!already) {
+      setAcceptedTip(n, { nick: n, kind: 'we-started' });
+      pushStatus(orbit, pick(orbit, {
+        fr: n + ' a été ajouté à votre liste blanche, parce que vous avez commencé la conversation.',
+        en: n + ' was added to your allow list because you started the conversation.',
+      }));
+      window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
+    }
+    return true;
+  }
+
+  function isControlBody(body) {
+    return isAcceptNotice(body) || isRefuseNotice(body) || isBlockNotice(body)
+      || isRevokedNotice(body) || isUnblockNotice(body);
   }
 
   function hookOutboundCapture(orbit) {
@@ -1254,11 +1300,11 @@
     orbit.irc.msg = function (target, text) {
       var t = String(target || '').trim();
       var body = String(text || '');
-      if (t && body && isQueryPeer(t)) {
+      if (t && body && isQueryPeer(t) && !isControlBody(body)) {
         outboundText[pendingKey(t)] = body;
-        if (!isAcceptNotice(body) && !isRefuseNotice(body) && !isBlockNotice(body)
-          && !isRevokedNotice(body) && !isUnblockNotice(body)) {
-          allowStartedPeer(orbit, t);
+        if (allowStartedPeer(orbit, t)) {
+          sendQueuedPrivmsg(orbit, t, body);
+          return;
         }
       }
       return orig(target, text);
@@ -1399,8 +1445,9 @@
       fr: MARK_ACCEPT_FR + '. Vous pouvez écrire.',
       en: MARK_ACCEPT_EN + '. You can write now.',
     });
-    // PRIVMSG so their client opens the PM and they can reply (message was never delivered by +g).
-    try { orbit.irc.msg(n, acceptMsg); } catch (e) { noticePeer(orbit, n, acceptMsg); }
+    // Same queue as ACCEPT +nick above. irc.msg uses sendFirst and would reach
+    // their +g before this ACCEPT, so they never see it and never resend.
+    if (!sendQueuedPrivmsg(orbit, n, acceptMsg)) noticePeer(orbit, n, acceptMsg);
 
     window.setTimeout(function () { refreshAcceptList(orbit); }, 250);
   }
@@ -1592,14 +1639,18 @@
     if (!fromNick) return;
     var nick = rememberNickCase(fromNick);
     if (isAcceptNotice(text)) {
+      var acceptKey = pendingKey(nick);
       saveBlockedByNick(orbit, nick, false);
       setOutgoing(nick, null);
       openPm(orbit, nick);
       setAcceptedTip(nick, { nick: nick, kind: 'they-accepted' });
-      var pendingTxt = outboundText[pendingKey(nick)];
-      if (pendingTxt) {
-        delete outboundText[pendingKey(nick)];
-        try { orbit.irc.msg(nick, pendingTxt); } catch (e) { /* ignore */ }
+      markAcceptConfirmed(nick);
+      var pendingTxt = outboundText[acceptKey];
+      // Their ACCEPT +us is already on the server: this notice was queued behind it.
+      if (pendingTxt && !isControlBody(pendingTxt) && !resentFirst[acceptKey]) {
+        resentFirst[acceptKey] = true;
+        delete outboundText[acceptKey];
+        sendQueuedPrivmsg(orbit, nick, pendingTxt);
       }
       // In-app accepted tip banner — no OS notification.
       return;
@@ -1875,6 +1926,9 @@
       '.ocid-check--tip input{margin:.15rem 0 0;flex:none}',
       '.ocid-shield__pop{width:max-content;max-width:min(22rem,calc(100vw - 1rem))}',
       '.ocid-shield__pop .nmenu__txt b{white-space:normal}',
+      '.ocid-menuic--allow,.ocid-menuic--list,.ocid-menuic--unblock{color:#2563eb}',
+      '.ocid-menuic--remove{color:#b45309}',
+      '.nmenu__item--danger .ocid-menuic{color:var(--danger,#dc2626)}',
     ].join('');
   }
 
@@ -1887,6 +1941,41 @@
     },
       h('path', { d: 'M12 3 5 6.5v5.2c0 4.2 2.8 7.4 7 8.8 4.2-1.4 7-4.6 7-8.8V6.5L12 3z' })
     );
+  }
+
+  function MenuGlyph(props) {
+    var name = props && props.name;
+    var common = {
+      viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none',
+      stroke: 'currentColor', strokeWidth: '1.9', strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': 'true',
+    };
+    if (name === 'allow') {
+      return h('svg', common,
+        h('circle', { cx: '12', cy: '12', r: '8' }),
+        h('path', { d: 'M8.4 12.2 11 14.7 15.7 9.5' })
+      );
+    }
+    if (name === 'block') {
+      return h('svg', common,
+        h('circle', { cx: '12', cy: '12', r: '8' }),
+        h('path', { d: 'm7.4 7.4 9.2 9.2' })
+      );
+    }
+    if (name === 'unblock') {
+      return h('svg', common,
+        h('rect', { x: '5', y: '11', width: '14', height: '9', rx: '2' }),
+        h('path', { d: 'M8 11V8.2a4 4 0 0 1 7.4-2' })
+      );
+    }
+    if (name === 'remove') {
+      return h('svg', common,
+        h('path', { d: 'M16 21v-1.5A3.5 3.5 0 0 0 12.5 16H7.4A3.5 3.5 0 0 0 4 19.5V21' }),
+        h('circle', { cx: '10', cy: '8', r: '3' }),
+        h('path', { d: 'M17 8h5' })
+      );
+    }
+    return h(ShieldIcon, { size: 18 });
   }
 
   function SideBadge(props) {
@@ -2022,7 +2111,10 @@
           if (onDone) onDone();
           a.run();
         },
-      }, h('span', { className: 'nmenu__txt' }, h('b', null, a.label)));
+      }, h('span', { className: 'nmenu__ic ocid-menuic ocid-menuic--' + a.id, 'aria-hidden': true },
+        h(MenuGlyph, { name: a.id })
+      ),
+      h('span', { className: 'nmenu__txt' }, h('b', null, a.label)));
     });
   }
 
@@ -2812,6 +2904,8 @@
       dismissedWeBlocked = Object.create(null);
       dismissedPeerBlocked = Object.create(null);
       outboundText = Object.create(null);
+      acceptConfirmed = Object.create(null);
+      resentFirst = Object.create(null);
       peers.probedAt = Object.create(null);
       peers.loading = Object.create(null);
       acceptList.nicks = [];
@@ -3064,7 +3158,9 @@
           setPending(fromNick, null);
           delete popupOpenFor[pendingKey(fromNick)];
           // Re-assert ACCEPT in case the server list drifted (reconnect / race).
-          sendAccept(orbit, fromNick, true);
+          // Do not resend the first PM here: a 718 has no message text, so it can
+          // be a read receipt. The accept notice is what releases the stored text.
+          if (!acceptConfirmed[pendingKey(fromNick)]) sendAccept(orbit, fromNick, true);
           return;
         }
         // Parental user already wrote first: this reply is not a new request.
@@ -3083,8 +3179,15 @@
           var accepted = params.length >= 2 ? params[1] : params[0];
           if (accepted && (params.length < 2 || fold(accepted) !== fold(me))) {
             pushAcceptNick(accepted);
+            markAcceptConfirmed(accepted);
           }
         }
+        return;
+      }
+      // 457 ERR_ACCEPTEXIST — the nick is already on the server ACCEPT list.
+      if (cmd === '457') {
+        var existNick = params.length >= 2 ? params[1] : params[0];
+        if (existNick && fold(existNick) !== fold(me)) markAcceptConfirmed(existNick);
         return;
       }
       if (cmd === '282') {
@@ -3143,6 +3246,8 @@
             }
           }
         }
+        var listed = String(body || '').match(/^(\S+) is now on your accept list/i);
+        if (listed) markAcceptConfirmed(listed[1]);
         var isControl = isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body)
           || isBlockNotice(body) || isUnblockNotice(body);
         if (isControl) {

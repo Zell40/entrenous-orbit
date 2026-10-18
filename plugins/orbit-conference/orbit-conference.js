@@ -635,7 +635,45 @@
     } catch (e) { return ''; }
   }
 
+  function whoisSpecialText(params) {
+    var parts = [];
+    var list = params || [];
+    for (var i = 2; i < list.length; i++) {
+      var s = String(list[i] || '').trim();
+      if (s && s !== '*') parts.push(s);
+    }
+    return parts.join(' ').trim();
+  }
+
+  /** Same package as callerid (+ixIgcRw). The WHOIS group line often starts with "*". */
+  function parentalModePack(orbit) {
+    try {
+      var c = (orbit.config() || {}).callerid || {};
+      return String(c.modes || '+ixIgcRw').replace(/^[+-]+/, '');
+    } catch (e) { return 'ixIgcRw'; }
+  }
+
+  function modesAreParentalPack(orbit, letters) {
+    var pack = parentalModePack(orbit);
+    if (pack.length < 2) return false;
+    var um = String(letters || '').replace(/^\+/, '');
+    for (var i = 0; i < pack.length; i++) {
+      if (um.indexOf(pack.charAt(i)) < 0) return false;
+    }
+    return true;
+  }
+
+  function selfUmodes(orbit) {
+    try {
+      var st = orbit.state.get();
+      return (st && st.umodes) || '';
+    } catch (e) { return ''; }
+  }
+
   function groupsBlocked(orbit, cfg) {
+    if (modesAreParentalPack(orbit, selfUmodes(orbit))) {
+      return 'deny:' + ((denyGroupNames(cfg)[0]) || 'controle-parentale');
+    }
     var blob = (myGroupsText || '').toLowerCase();
     var deny = cfg.denyGroups || [];
     for (var i = 0; i < deny.length; i++) {
@@ -670,7 +708,15 @@
   }
 
   function selfIsParental(orbit) {
-    return textHasParentalGroup(myGroupsText, confCfg(orbit));
+    return textHasParentalGroup(myGroupsText, confCfg(orbit))
+      || modesAreParentalPack(orbit, selfUmodes(orbit));
+  }
+
+  function peerIsParental(orbit, peer) {
+    if (!peer) return false;
+    return !!(peer.parental
+      || textHasParentalGroup(peer.text, confCfg(orbit))
+      || modesAreParentalPack(orbit, peer.modes));
   }
 
   function requestPeerWhois(orbit, nick) {
@@ -736,7 +782,7 @@
       requestPeerWhois(orbit, buffer);
       return { ok: false, pending: true, reason: 'Vérification du profil en cours…' };
     }
-    var peerP = !!peer.parental;
+    var peerP = peerIsParental(orbit, peer);
     if (selfP !== peerP) {
       return {
         ok: false,
@@ -1897,7 +1943,7 @@
     }
     if (queryHere && !sessHere && !others.length) {
       var qGate = pmVisioGate(orbit, activeBuf);
-      if (!qGate.ok && !qGate.pending) {
+      if (!qGate.ok && (!qGate.pending || selfIsParental(orbit))) {
         return h('span', { className: 'oconf-cam-wrap oconf-cam-wrap--blocked' },
           h('button', {
             type: 'button',
@@ -1978,7 +2024,7 @@
     }
     if (queryHere && !sessHere && !others.length) {
       var qGate = pmVisioGate(orbit, activeBuf);
-      if (!qGate.ok && !qGate.pending) {
+      if (!qGate.ok && (!qGate.pending || selfIsParental(orbit))) {
         return h('button', {
           type: 'button',
           className: 'nmenu__item is-disabled',
@@ -2879,7 +2925,7 @@
       // RPL_WHOISSPECIAL — security groups (self + peer for PM visio)
       if (cmd === '320' && msg.params) {
         var whoNick = msg.params[1] || '';
-        var whoText = msg.params[2] || '';
+        var whoText = whoisSpecialText(msg.params);
         if (foldNick(whoNick) === foldNick(orbit.state.nick())) {
           myGroupsText = (myGroupsText + ' ' + whoText).trim();
           bumpGroups();
@@ -2887,7 +2933,8 @@
           var pk = foldNick(whoNick);
           var prevG = peerGroups[pk] || { text: '', parental: false, known: false };
           prevG.text = (prevG.text + ' ' + whoText).trim();
-          prevG.parental = textHasParentalGroup(prevG.text, confCfg(orbit));
+          prevG.parental = textHasParentalGroup(prevG.text, confCfg(orbit))
+            || modesAreParentalPack(orbit, prevG.modes);
           peerGroups[pk] = prevG;
           bumpGroups();
         }
@@ -2901,8 +2948,25 @@
           var ek = foldNick(endNick);
           var eg = peerGroups[ek] || { text: '', parental: false, known: false };
           eg.known = true;
-          eg.parental = textHasParentalGroup(eg.text, confCfg(orbit));
+          eg.parental = textHasParentalGroup(eg.text, confCfg(orbit))
+            || modesAreParentalPack(orbit, eg.modes);
           peerGroups[ek] = eg;
+          bumpGroups();
+        }
+      }
+      if (cmd === '379' && msg.params) {
+        var modeNick = msg.params[1] || '';
+        var modeLine = whoisSpecialText(msg.params) || msg.params[2] || '';
+        var modeLetters = String(modeLine).replace(/^.*modes\s*/i, '').replace(/^\+/, '');
+        if (foldNick(modeNick) && foldNick(modeNick) !== foldNick(orbit.state.nick())) {
+          var mk = foldNick(modeNick);
+          var mg = peerGroups[mk] || { text: '', parental: false, known: false };
+          mg.modes = modeLetters;
+          mg.parental = textHasParentalGroup(mg.text, confCfg(orbit))
+            || modesAreParentalPack(orbit, modeLetters);
+          peerGroups[mk] = mg;
+          bumpGroups();
+        } else if (modeNick) {
           bumpGroups();
         }
       }
