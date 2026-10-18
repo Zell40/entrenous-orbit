@@ -1669,21 +1669,6 @@
           }, pick({ fr: 'Envoyer un mémo', en: 'Send a memo' }));
         });
       }
-      if (typeof orbit.addUserAction === 'function') {
-        orbit.addUserAction(function (ctx) {
-          if (!registered()) return null;
-          var nick = ctx && ctx.nick;
-          if (!nick || isSvc(nick)) return null;
-          return h('button', {
-            type: 'button',
-            className: 'pm-chip',
-            onClick: function () {
-              if (ctx.close) ctx.close();
-              openCompose(nick);
-            },
-          }, pick({ fr: 'Mémo', en: 'Memo' }));
-        });
-      }
       if (typeof orbit.addCommand === 'function') {
         orbit.addCommand('memo', {
           help: pick({ fr: '/memo — boîte. /memo pseudo texte — envoyer.', en: '/memo — inbox. /memo nick text — send.' }),
