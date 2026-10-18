@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=40"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=41"]
  */
 (function () {
   'use strict';
@@ -1391,6 +1391,23 @@
     return t.indexOf(MARK_UNBLOCK_FR) > -1 || t.indexOf(MARK_UNBLOCK_EN) > -1;
   }
 
+  /** CHATHISTORY / mphistory replay — must not reopen accept/wait banners. */
+  function isReplayIrcMsg(msg) {
+    var tags = (msg && msg.tags) || {};
+    if (tags['+entrenous/mphistory'] !== undefined) return true;
+    if (tags.batch) return true;
+    return false;
+  }
+
+  /** Peer already accepted us / conversation is live — drop stale « en attente ». */
+  function clearOutgoingWait(nick) {
+    var n = String(nick || '').trim();
+    if (!n) return;
+    var cur = getOutgoing(n);
+    if (!cur || cur.refused || cur.blocked) return;
+    setOutgoing(n, null);
+  }
+
   function handlePeerDecision(orbit, fromNick, text) {
     if (!fromNick) return;
     var nick = rememberNickCase(fromNick);
@@ -1843,6 +1860,8 @@
 
     if (isQueryPeer(active)) {
       var tip = getAcceptedTip(active);
+      // Accept tip and « en attente » must never stack (refresh / 716 race).
+      if (tip) clearOutgoingWait(active);
       if (tip) {
         var tipNick = tip.nick || active;
         var tipTxt = tip.kind === 'they-accepted'
@@ -1956,9 +1975,14 @@
             },
           }, pick(orbit, { fr: 'Débloquer', en: 'Unblock' }))
         ));
-      } else {
+      } else if (!getAcceptedTip(active)) {
         // Real outbound wait only (716 after we actually wrote). Peer +g alone is not
         // "message pending" — especially when they already wrote to us first.
+        // If the peer already replied, the conversation is live → drop a stale wait.
+        if (wait && !wait.refused && !wait.blocked && bufferHasPeerOutbound(orbit, active)) {
+          clearOutgoingWait(active);
+          wait = null;
+        }
         var realWait = !!(wait && hasRealOutboundAttempt(orbit, active) && !wait.refused);
         var showPeerHint = !!(peerCallerid && !realWait && !blockedByPeer
           && !bufferHasPeerOutbound(orbit, active));
@@ -2586,6 +2610,13 @@
             return;
           }
           ensurePendingVisible(orbit, blocked);
+          // Already accepted (tip) or peer already chatting — ignore a transient 716
+          // (e.g. ACCEPT not yet restored after their reconnect).
+          if (getAcceptedTip(blocked) || bufferHasPeerOutbound(orbit, blocked)) {
+            saveBlockedByNick(orbit, blocked, false);
+            clearOutgoingWait(blocked);
+            return;
+          }
           // 716 = wait for ACCEPT, never a hard block. Clear a stale « blocked by »
           // after the peer unblocked us (SILENCE gone) so the wait banner returns.
           saveBlockedByNick(orbit, blocked, false);
@@ -2608,6 +2639,11 @@
             return;
           }
           ensurePendingVisible(orbit, informed);
+          if (getAcceptedTip(informed) || bufferHasPeerOutbound(orbit, informed)) {
+            saveBlockedByNick(orbit, informed, false);
+            clearOutgoingWait(informed);
+            return;
+          }
           saveBlockedByNick(orbit, informed, false);
           var prev = getOutgoing(informed) || { nick: informed, ts: Date.now() };
           setOutgoing(informed, {
@@ -2687,7 +2723,15 @@
 
       var up = String(cmd).toUpperCase();
       if ((up === 'PRIVMSG' || up === 'NOTICE') && msg.nick) {
-        if (fold(msg.nick) === fold(me)) return;
+        // echo-message: our PRIVMSG reached the peer → no longer « en attente ».
+        if (fold(msg.nick) === fold(me)) {
+          var echoTarget = params[0] || '';
+          if (up === 'PRIVMSG' && isQueryPeer(echoTarget)) {
+            clearOutgoingWait(echoTarget);
+            saveBlockedByNick(orbit, echoTarget, false);
+          }
+          return;
+        }
         rememberNickCase(msg.nick);
         var body = (params.length >= 2 ? params[1] : '') || '';
         // Backup: parse ChanServ INFO Options for « official » when plugin emit is missing
@@ -2704,8 +2748,11 @@
             }
           }
         }
-        if (isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body) || isBlockNotice(body)) {
-          handlePeerDecision(orbit, msg.nick, body);
+        var isControl = isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body)
+          || isBlockNotice(body) || isUnblockNotice(body);
+        if (isControl) {
+          // History / mphistory replay must not reopen banners after refresh.
+          if (!isReplayIrcMsg(msg)) handlePeerDecision(orbit, msg.nick, body);
           return;
         }
         if (up === 'PRIVMSG' && getOutgoing(msg.nick) && !getOutgoing(msg.nick).refused) {
