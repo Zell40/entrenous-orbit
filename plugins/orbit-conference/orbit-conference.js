@@ -714,9 +714,26 @@
 
   function peerIsParental(orbit, peer) {
     if (!peer) return false;
-    return !!(peer.parental
+    return !!(peer.parental || peer.metaParental
       || textHasParentalGroup(peer.text, confCfg(orbit))
       || modesAreParentalPack(orbit, peer.modes));
+  }
+
+  function rememberPeerParental(orbit, nick, patch) {
+    var key = foldNick(nick);
+    if (!key || key === foldNick(orbit.state.nick())) return;
+    var prev = peerGroups[key] || { text: '', parental: false, known: false };
+    if (patch) {
+      if (patch.text) prev.text = (prev.text ? prev.text + ' ' : '') + patch.text;
+      if (patch.modes) prev.modes = patch.modes;
+      if (patch.metaParental != null) prev.metaParental = !!patch.metaParental;
+      if (patch.known) prev.known = true;
+    }
+    prev.parental = !!(prev.metaParental
+      || textHasParentalGroup(prev.text, confCfg(orbit))
+      || modesAreParentalPack(orbit, prev.modes));
+    peerGroups[key] = prev;
+    bumpGroups();
   }
 
   function requestPeerWhois(orbit, nick) {
@@ -1104,6 +1121,66 @@
     if (getSession(buffer)) {
       removeConf(buffer);
     }
+  }
+
+  /** True only when this conversation already proved the peer is not parental. */
+  function peerPositivelyNotParental(orbit, peer) {
+    if (!peer || peer.metaParental === true || peerIsParental(orbit, peer)) return false;
+    if (peer.metaParental === false) return true;
+    var blob = String(peer.text || '');
+    return /security groups/i.test(blob) && !textHasParentalGroup(blob, confCfg(orbit));
+  }
+
+  /** Tell the open PM peer that we are under parental control (client tag, no WHOIS leak). */
+  var parentalAnnounced = Object.create(null);
+  function announceParentalPeer(orbit, nick) {
+    var n = String(nick || '').trim();
+    if (!n || isChannelName(n) || !selfIsParental(orbit)) return;
+    var key = foldNick(n);
+    if (!key || parentalAnnounced[key]) return;
+    parentalAnnounced[key] = true;
+    try { orbit.irc.send('@+entrenous.fr/parental=1 TAGMSG ' + n); }
+    catch (e) { delete parentalAnnounced[key]; }
+  }
+
+  function closeMixedVisio(orbit, nick) {
+    var n = String(nick || '').trim();
+    if (!n || selfIsParental(orbit)) return;
+    var reason = 'La visio n’est pas autorisée entre un utilisateur sous contrôle parental et un utilisateur qui ne l’est pas.';
+    clearLiveVisio(n);
+    setInvite(n, null);
+    if (getSession(n)) removeConf(n);
+    try { orbit.notify('Visio', reason); } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * Parental user + caller we know is not parental: refuse.
+   * Unknown peer (group hidden) still shows the invite; the client tag closes a mixed call.
+   */
+  function acceptQueryInvite(orbit, buffer, fromNick, apply) {
+    if (!buffer || isChannelName(buffer) || !fromNick || !selfIsParental(orbit)) {
+      apply();
+      return;
+    }
+    announceParentalPeer(orbit, fromNick);
+    var decide = function (peer) {
+      if (peerPositivelyNotParental(orbit, peer)) refuseConference(orbit, buffer);
+      else apply();
+    };
+    var knownPeer = peerGroups[foldNick(fromNick)];
+    if (knownPeer && knownPeer.known) {
+      decide(knownPeer);
+      return;
+    }
+    requestPeerWhois(orbit, fromNick);
+    var started = Date.now();
+    var timer = window.setInterval(function () {
+      var p = peerGroups[foldNick(fromNick)];
+      if ((p && p.known) || Date.now() - started > 3500) {
+        window.clearInterval(timer);
+        decide(p);
+      }
+    }, 200);
   }
 
   /** Decline a query visio invite and tell the caller. */
@@ -1925,6 +2002,7 @@
     // Salon + contrôle parental : caméra barrée. En MP, la visio dépend du pair.
     var parentalHere = isDeniedByGroup(orbit);
     var queryHere = !isChannelName(activeBuf);
+    if (queryHere) announceParentalPeer(orbit, activeBuf);
     if (parentalHere && !queryHere && !sessHere && !others.length) {
       var blockTip = parentalVisioTip(orbit, activeBuf);
       return h('span', { className: 'oconf-cam-wrap oconf-cam-wrap--blocked' },
@@ -2009,6 +2087,7 @@
     if (!bufferAllowed(orbit, activeBuf)) return null;
     var parentalHere = isDeniedByGroup(orbit);
     var queryHere = !isChannelName(activeBuf);
+    if (queryHere) announceParentalPeer(orbit, activeBuf);
     if (parentalHere && !queryHere && !sessHere && !others.length) {
       var blockTip = parentalVisioTip(orbit, activeBuf);
       return h('button', {
@@ -2930,13 +3009,7 @@
           myGroupsText = (myGroupsText + ' ' + whoText).trim();
           bumpGroups();
         } else if (whoNick) {
-          var pk = foldNick(whoNick);
-          var prevG = peerGroups[pk] || { text: '', parental: false, known: false };
-          prevG.text = (prevG.text + ' ' + whoText).trim();
-          prevG.parental = textHasParentalGroup(prevG.text, confCfg(orbit))
-            || modesAreParentalPack(orbit, prevG.modes);
-          peerGroups[pk] = prevG;
-          bumpGroups();
+          rememberPeerParental(orbit, whoNick, { text: whoText });
         }
       }
       if (cmd === '318' && msg.params) {
@@ -2945,13 +3018,7 @@
           selfWhoisDone = true;
           bumpGroups();
         } else if (endNick) {
-          var ek = foldNick(endNick);
-          var eg = peerGroups[ek] || { text: '', parental: false, known: false };
-          eg.known = true;
-          eg.parental = textHasParentalGroup(eg.text, confCfg(orbit))
-            || modesAreParentalPack(orbit, eg.modes);
-          peerGroups[ek] = eg;
-          bumpGroups();
+          rememberPeerParental(orbit, endNick, { known: true });
         }
       }
       if (cmd === '379' && msg.params) {
@@ -2959,13 +3026,7 @@
         var modeLine = whoisSpecialText(msg.params) || msg.params[2] || '';
         var modeLetters = String(modeLine).replace(/^.*modes\s*/i, '').replace(/^\+/, '');
         if (foldNick(modeNick) && foldNick(modeNick) !== foldNick(orbit.state.nick())) {
-          var mk = foldNick(modeNick);
-          var mg = peerGroups[mk] || { text: '', parental: false, known: false };
-          mg.modes = modeLetters;
-          mg.parental = textHasParentalGroup(mg.text, confCfg(orbit))
-            || modesAreParentalPack(orbit, modeLetters);
-          peerGroups[mk] = mg;
-          bumpGroups();
+          rememberPeerParental(orbit, modeNick, { modes: modeLetters });
         } else if (modeNick) {
           bumpGroups();
         }
@@ -2984,6 +3045,15 @@
       }
       if (String(cmd).toUpperCase() === 'TAGMSG') {
         var tagTags = msg.tags || {};
+        if (String(tagTags['+entrenous.fr/parental'] || '') === '1' && msg.nick
+            && foldNick(msg.nick) !== foldNick(orbit.state.nick())) {
+          rememberPeerParental(orbit, msg.nick, { metaParental: true, known: true });
+          closeMixedVisio(orbit, msg.nick);
+        }
+        if (selfIsParental(orbit) && msg.nick && !isChannelName((msg.params && msg.params[0]) || '')
+            && foldNick(msg.nick) !== foldNick(orbit.state.nick())) {
+          announceParentalPeer(orbit, msg.nick);
+        }
         var replyVal = String(tagTags[REPLY_TAG] || '').toLowerCase();
         if (!Object.prototype.hasOwnProperty.call(tagTags, TAG)
             && replyVal !== 'refuse' && replyVal !== 'stop' && replyVal !== 'alive') return;
@@ -3021,18 +3091,25 @@
         bindQueryRoom(tagBuf, meetId, sid, msg.nick || '');
         delete dismissed[inviteKey(tagBuf)];
         setStoppedNote(tagBuf, null);
-        setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf), sid: sid });
-        if (!isChannelName(tagBuf)) {
-          try {
-            orbit.notify('Visio', orbit.i18n.pick({
-              fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
-              en: (msg.nick || 'Someone') + ' sent you a video call request.',
-            }));
-          } catch (eN) { /* ignore */ }
-        }
+        acceptQueryInvite(orbit, tagBuf, msg.nick || '', function () {
+          setInvite(tagBuf, { nick: msg.nick || '', link: publicLink(orbit, tagBuf), sid: sid });
+          if (!isChannelName(tagBuf)) {
+            try {
+              orbit.notify('Visio', orbit.i18n.pick({
+                fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
+                en: (msg.nick || 'Someone') + ' sent you a video call request.',
+              }));
+            } catch (eN) { /* ignore */ }
+          }
+        });
         return;
       }
       if (String(cmd).toUpperCase() !== 'PRIVMSG') return;
+      if (selfIsParental(orbit)) {
+        var pmTarget = (msg.params && msg.params[0]) || '';
+        var pmPeer = (msg.nick && foldNick(msg.nick) === foldNick(orbit.state.nick())) ? pmTarget : (msg.nick || '');
+        if (pmPeer && !isChannelName(pmPeer) && !isChannelName(pmTarget)) announceParentalPeer(orbit, pmPeer);
+      }
       var tags = msg.tags || {};
       var text = (msg.params && msg.params[1]) || '';
       if (isStaleConferenceEvent(tags, orbit)) return;
@@ -3074,15 +3151,17 @@
       bindQueryRoom(buf, privRoom, privSid, msg.nick || '');
       delete dismissed[inviteKey(buf)];
       setStoppedNote(buf, null);
-      setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf), sid: privSid });
-      if (!isChannelName(buf)) {
-        try {
-          orbit.notify('Visio', orbit.i18n.pick({
-            fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
-            en: (msg.nick || 'Someone') + ' sent you a video call request.',
-          }));
-        } catch (eN2) { /* ignore */ }
-      }
+      acceptQueryInvite(orbit, buf, msg.nick || '', function () {
+        setInvite(buf, { nick: msg.nick || '', link: linkMatch ? linkMatch[0] : publicLink(orbit, buf), sid: privSid });
+        if (!isChannelName(buf)) {
+          try {
+            orbit.notify('Visio', orbit.i18n.pick({
+              fr: (msg.nick || 'Quelqu’un') + ' vous a envoyé une demande de visio.',
+              en: (msg.nick || 'Someone') + ' sent you a video call request.',
+            }));
+          } catch (eN2) { /* ignore */ }
+        }
+      });
     });
 
     orbit.on('raw', function (msg) {

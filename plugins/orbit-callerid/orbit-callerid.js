@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=53"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=56"]
  */
 (function () {
   'use strict';
@@ -219,6 +219,7 @@
     gate.listeners.forEach(function (l) { l(); });
   }
   var lastOrbit = null;
+
   function setParental(on) {
     parentalActive = !!on;
     bumpGate();
@@ -543,8 +544,23 @@
     bumpChannelWarn();
   }
 
+  /** True only after the server accepted the join. A refused salon has no banner. */
+  function channelJoined(orbit, chan) {
+    try {
+      var st = orbit.state.get();
+      var buffers = (st && st.buffers) || {};
+      var want = fold(chan);
+      var buf = null;
+      Object.keys(buffers).forEach(function (k) {
+        if (fold(k) === want) buf = buffers[k];
+      });
+      return !!(buf && buf.isChannel && buf.joined && !buf.joinDenied);
+    } catch (e) { return false; }
+  }
+
   function maybeWarnOfficialJoin(orbit, chan) {
     if (!orbit || !isChannelName(chan)) return;
+    if (!channelJoined(orbit, chan)) return;
     if (!cfg(orbit).warnOfficialJoins) return;
     if (!parentalActive) return;
     if (hideChannelWarnPref(orbit)) return;
@@ -1033,7 +1049,9 @@
 
   function syncFromWhois(orbit, log) {
     if (isParental(orbit)) activateParental(orbit, log, isParentalGroup(orbit) ? 'groupe' : 'paquet-modes');
-    else if (parentalActive) setParental(false);
+    else {
+      if (parentalActive) setParental(false);
+    }
 
     if (hasModeG(orbit)) activateCallerid(orbit, log, '+g');
     else if (wantCallerid(orbit) && !isParental(orbit)) applyVoluntaryCallerid(orbit, log);
@@ -2361,7 +2379,7 @@
 
     var nodes = [];
 
-    if (isChannelName(active) && parentalActive && !hideChannelWarnPref(orbit)) {
+    if (isChannelName(active) && parentalActive && channelJoined(orbit, active) && !hideChannelWarnPref(orbit)) {
       var chWarn = getChannelWarn(active);
       if (chWarn && !chWarn.hidden) {
         var chName = chWarn.chan || active;
@@ -3163,6 +3181,8 @@
             return;
           }
           captureOutboundText(orbit, blocked);
+          // A dropped replay must be allowed to run again (accept notice eaten by +g).
+          if (hasUnconfirmedSelf(orbit, blocked)) resentFirst[pendingKey(blocked)] = false;
           // TAGMSG (accusés de lecture) also hits +g — ignore unless we really wrote.
           if (!hasRealOutboundAttempt(orbit, blocked) && !hasUnconfirmedSelf(orbit, blocked)) {
             patchPeer(blocked, { nick: blocked, g: true });
@@ -3247,13 +3267,15 @@
         // 718 means the server did not deliver. A saved allow-list entry is not
         // enough — the nick is not on the server ACCEPT list right now.
         // Only skip the request when WE opened the PM during this connection.
-        if (hasFreshOutbound(orbit, fromNick)) {
+        if (hasFreshOutbound(orbit, fromNick) && (parentalActive || isParental(orbit))) {
           allowStartedPeer(orbit, fromNick);
-          if (isAllowedNick(orbit, fromNick)) {
-            setPending(fromNick, null);
-            delete popupOpenFor[pendingKey(fromNick)];
-            return;
-          }
+          setPending(fromNick, null);
+          delete popupOpenFor[pendingKey(fromNick)];
+          // Nael's accept PRIVMSG hits our +g before ACCEPT +Nael is on the server,
+          // so the notice never arrives and the first PM stays local-. Replay it
+          // behind the ACCEPT we just queued.
+          resendUnconfirmed(orbit, fromNick);
+          return;
         }
         activateCallerid(orbit, log, '718');
         setPending(fromNick, { nick: fromNick, host: fromHost, ts: Date.now() });
@@ -3280,6 +3302,13 @@
       if (cmd === '282') {
         endAcceptList();
         return;
+      }
+
+      // Join refused (limit, ban, invite, key, …) → no parental banner.
+      if (cmd === '405' || cmd === '471' || cmd === '473' || cmd === '474' || cmd === '475'
+          || cmd === '476' || cmd === '477' || cmd === '489' || cmd === '519' || cmd === '520' || cmd === '926') {
+        var deniedChan = params[1] || '';
+        if (isChannelName(deniedChan)) resetChannelWarnVisit(deniedChan);
       }
 
       // Self JOIN → avertissement salons officiels (hors salons « sûrs »)
