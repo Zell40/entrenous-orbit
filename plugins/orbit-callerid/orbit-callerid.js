@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=56"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=58"]
  */
 (function () {
   'use strict';
@@ -938,9 +938,10 @@
     }
     log('callerid: restauration ACCEPT (' + list.length + ') pour ' + storageOwner(orbit));
     list.forEach(function (nick) {
+      pushAcceptNick(nick);
       try { orbit.irc.send('ACCEPT +' + nick); } catch (e) { /* ignore */ }
     });
-    window.setTimeout(function () { refreshAcceptList(orbit); }, 400);
+    window.setTimeout(function () { refreshAcceptList(orbit); }, 1500);
   }
 
   /** Apply the parental *mode package* — only when the security group is confirmed. */
@@ -2379,6 +2380,17 @@
 
     var nodes = [];
 
+    // joinDenied updates the chat store without re-rendering this plugin.
+    // Drop the banner as soon as the server refused the salon.
+    useEffect(function () {
+      var timer = window.setInterval(function () {
+        var cur = orbit.state.active();
+        if (!isChannelName(cur) || !getChannelWarn(cur)) return;
+        if (!channelJoined(orbit, cur)) resetChannelWarnVisit(cur);
+      }, 400);
+      return function () { window.clearInterval(timer); };
+    }, []);
+
     if (isChannelName(active) && parentalActive && channelJoined(orbit, active) && !hideChannelWarnPref(orbit)) {
       var chWarn = getChannelWarn(active);
       if (chWarn && !chWarn.hidden) {
@@ -2597,6 +2609,15 @@
     var pendingItems = listPending();
     var saved = loadSavedAccept(orbit);
     var denied = loadSavedDeny(orbit);
+    var deniedFold = Object.create(null);
+    denied.forEach(function (n) { deniedFold[fold(n)] = true; });
+    if (persist) {
+      saved.forEach(function (s) {
+        if (!s || deniedFold[fold(s)]) return;
+        if (nicks.some(function (n) { return fold(n) === fold(s); })) return;
+        nicks.push(s);
+      });
+    }
 
     function doAllow(nick) {
       var n = String(nick || '').trim();
@@ -2672,14 +2693,6 @@
               en: 'Keep allowed nicks across connections',
             })
           ),
-          persist && saved.length
-            ? h('p', { className: 'ocid-card__hint' },
-              pick(orbit, {
-                fr: 'Mémorisés : ' + saved.join(', '),
-                en: 'Remembered: ' + saved.join(', '),
-              })
-            )
-            : null
         )
       ),
 
@@ -3296,7 +3309,28 @@
       // 457 ERR_ACCEPTEXIST — the nick is already on the server ACCEPT list.
       if (cmd === '457') {
         var existNick = params.length >= 2 ? params[1] : params[0];
-        if (existNick && fold(existNick) !== fold(me)) markAcceptConfirmed(existNick);
+        if (existNick && fold(existNick) !== fold(me)) {
+          markAcceptConfirmed(existNick);
+          pushAcceptNick(existNick);
+        }
+        return;
+      }
+      // ACCEPT +nick while they are offline → 401. Retry when MONITOR sees them.
+      if (cmd === '401') {
+        var missingNick = params[1] || '';
+        if (missingNick && loadSavedAccept(orbit).some(function (n) { return fold(n) === fold(missingNick); })) {
+          try { orbit.irc.send('MONITOR + ' + missingNick); } catch (e401) { /* ignore */ }
+        }
+        return;
+      }
+      if (cmd === '730') {
+        var onlineBlob = String(params[params.length - 1] || '');
+        onlineBlob.split(',').forEach(function (item) {
+          var onlineNick = String(item || '').split('!')[0].trim();
+          if (!onlineNick) return;
+          if (!loadSavedAccept(orbit).some(function (n) { return fold(n) === fold(onlineNick); })) return;
+          sendAccept(orbit, onlineNick, true);
+        });
         return;
       }
       if (cmd === '282') {

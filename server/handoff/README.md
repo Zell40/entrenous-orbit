@@ -42,7 +42,21 @@ cookie HttpOnly `orbit_en_listen` (Domain `.entrenous.chat`). Apache sur
 `irc.entrenous.chat` (`kiwiirc.websocket.irc.conf`) le lit et route le
 websocket vers le listen InspIRCd contrôle parental (`8197`) ou normal (`8107`).
 Si l’âge est connu (≥ 17 → `reg`, &lt; 17 → `cp`), il prime sur un `listen=cp`
-erroné. `chat-resume.php` **rafraîchit** ce cookie à chaque reprise de session
+erroné. Ce cookie est **unique pour tout le navigateur** : deux comptes
+ouverts en même temps (un mineur, un adulte) se l’écrasent. Le dernier
+`chat_listen` décide du serveur du prochain handshake, y compris la
+reconnexion de l’autre onglet. Orbit ajoute donc `?listen=cp` ou
+`?listen=reg` sur l’URL websocket de **cet** onglet. Apache doit faire
+gagner ce paramètre sur le cookie, avant la règle cookie :
+
+```
+RewriteCond %{QUERY_STRING} (?:^|&)listen=cp(?:&|$)
+RewriteRule ^/?(?:websocket)?$ ws://127.0.0.1:8197/ [P,L]
+RewriteCond %{QUERY_STRING} (?:^|&)listen=reg(?:&|$)
+RewriteRule ^/?(?:websocket)?$ ws://127.0.0.1:8107/ [P,L]
+```
+
+`chat-resume.php` **rafraîchit** ce cookie à chaque reprise de session
 depuis le profil WordPress (évite un adulte coincé sur Websocket-CP après un
 ancien cookie `cp`). `chat-listen.php` (`/accounts/api/chat_listen/?account=`
 ou `?age=`) fait la même chose **avant** l’ouverture du WebSocket quand Orbit
