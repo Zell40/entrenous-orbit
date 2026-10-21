@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=106"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=107"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST / ACCESS / ENTRYMSG: JSON-RPC Anope via chanserv-rpc.php (pas de MP).

@@ -310,7 +310,7 @@ if (!valid_account($account)) {
   fail(400, 'bad_params');
 }
 $nsActions = ['nsaccount', 'nsinfo', 'nsalist', 'nshelp', 'nsglist', 'nslist', 'nsajoin', 'nsset', 'nsrecover'];
-if ($action !== 'probe' && $action !== 'botlist' && $action !== 'access' && $action !== 'entrymsg'
+if ($action !== 'probe' && $action !== 'csinfo' && $action !== 'botlist' && $action !== 'access' && $action !== 'entrymsg'
   && !in_array($action, $nsActions, true)) {
   fail(400, 'bad_action');
 }
@@ -608,12 +608,33 @@ try {
     exit;
   }
 
-  $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-    $account, 'ChanServ', 'INFO', $channel,
-  ]));
-  $status = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-    $account, 'ChanServ', 'STATUS', $channel,
-  ]));
+  if ($action === 'csinfo') {
+    $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+      $account, 'ChanServ', 'INFO', $channel,
+    ]));
+    echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  $info = '';
+  $status = '';
+  try {
+    $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+      $account, 'ChanServ', 'INFO', $channel,
+    ]));
+  } catch (Throwable $e) {
+    $info = '';
+  }
+  try {
+    $status = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+      $account, 'ChanServ', 'STATUS', $channel,
+    ]));
+  } catch (Throwable $e) {
+    $status = '';
+  }
+  if ($info === '' && $status === '') {
+    fail(502, 'rpc_failed');
+  }
   echo json_encode([
     'ok' => true,
     'info' => $info,
