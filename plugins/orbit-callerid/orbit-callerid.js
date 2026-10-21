@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=58"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=59"]
  */
 (function () {
   'use strict';
@@ -161,8 +161,11 @@
     bumpPeers();
   }
 
-  /** ACCEPT whitelist from RPL_ACCEPTLIST (281) */
-  var acceptList = { nicks: [], rev: 0, listeners: new Set(), loading: false };
+  /** ACCEPT whitelist from RPL_ACCEPTLIST (281). onServer = last confirmed server set. */
+  var acceptList = {
+    nicks: [], rev: 0, listeners: new Set(), loading: false, known: false,
+    onServer: Object.create(null), pendingServer: Object.create(null),
+  };
   function subscribeAccept(cb) { acceptList.listeners.add(cb); return function () { acceptList.listeners.delete(cb); }; }
   function getAcceptSnap() { return acceptList.rev; }
   function bumpAccept() {
@@ -171,8 +174,33 @@
   }
   function beginAcceptList() {
     acceptList.nicks = [];
+    acceptList.pendingServer = Object.create(null);
     acceptList.loading = true;
     bumpAccept();
+  }
+  /** Server really has this nick (281, 457, or the accept notice) — not a local memory. */
+  function noteServerAccept(nick) {
+    var n = String(nick || '').trim();
+    var low = fold(n);
+    if (!low) return;
+    if (acceptList.loading) acceptList.pendingServer[low] = n;
+    else acceptList.onServer[low] = n;
+    markAcceptConfirmed(n);
+    pushAcceptNick(n);
+  }
+  function clearServerAccept(nick) {
+    var low = fold(nick);
+    if (!low) return;
+    delete acceptList.onServer[low];
+    delete acceptList.pendingServer[low];
+    delete acceptConfirmed[low];
+    delete acceptConfirmed[pendingKey(nick)];
+  }
+  function isServerAccept(nick) {
+    var low = fold(nick);
+    if (!low) return false;
+    if (acceptList.loading) return !!(acceptList.onServer[low] || acceptList.pendingServer[low]);
+    return !!acceptList.onServer[low];
   }
   function pushAcceptNick(nick) {
     if (!nick) return;
@@ -200,9 +228,14 @@
       if (fold(acceptList.nicks[i]) !== low) next.push(acceptList.nicks[i]);
     }
     acceptList.nicks = next;
+    delete acceptList.onServer[low];
+    delete acceptList.pendingServer[low];
     bumpAccept();
   }
   function endAcceptList() {
+    acceptList.onServer = acceptList.pendingServer || Object.create(null);
+    acceptList.pendingServer = Object.create(null);
+    acceptList.known = true;
     acceptList.loading = false;
     prunePendingAllowed(lastOrbit);
     bumpAccept();
@@ -637,6 +670,9 @@
     if (prev) {
       acceptList.nicks = [];
       acceptList.loading = false;
+      acceptList.known = false;
+      acceptList.onServer = Object.create(null);
+      acceptList.pendingServer = Object.create(null);
       bumpAccept();
       restoreDone = false;
       denyRestoreDone = false;
@@ -1955,6 +1991,8 @@
       '.ocid-row--blocked{background:color-mix(in srgb,#ef4444 9%,var(--bg,#fff));border-color:color-mix(in srgb,#ef4444 32%,var(--border,rgba(0,0,0,.12)))}',
       '.ocid-row--blocked:hover{background:color-mix(in srgb,#ef4444 14%,var(--bg,#fff));border-color:color-mix(in srgb,#ef4444 45%,var(--border))}',
       '.ocid-row--ok{background:color-mix(in srgb,#0ea5e9 8%,var(--bg,#fff));border-color:color-mix(in srgb,#0ea5e9 28%,var(--border,rgba(0,0,0,.12)))}',
+      '.ocid-row--wait{background:color-mix(in srgb,#f59e0b 10%,var(--bg,#fff));border-color:color-mix(in srgb,#f59e0b 42%,var(--border,rgba(0,0,0,.12)));border-style:dashed}',
+      '.ocid-row--wait .ocid-row__av{background:#d97706}',
       '.ocid-row__who{display:flex;align-items:center;gap:.55rem;min-width:0;flex:1}',
       '.ocid-row__av{flex:none;width:2rem;height:2rem;border-radius:9px;display:grid;place-items:center;font-size:.85rem;font-weight:800;color:#fff;background:#0ea5e9}',
       '.ocid-row--blocked .ocid-row__av{background:#dc2626}',
@@ -2756,13 +2794,16 @@
             : null,
           nicks.map(function (nick) {
             var initial = String(nick || '?').charAt(0).toUpperCase();
-            return h('div', { key: nick, className: 'ocid-row ocid-row--ok' },
+            var onServer = isServerAccept(nick);
+            return h('div', { key: nick, className: 'ocid-row ' + (onServer ? 'ocid-row--ok' : 'ocid-row--wait') },
               h('div', { className: 'ocid-row__who' },
                 h('span', { className: 'ocid-row__av', 'aria-hidden': true }, initial),
                 h('div', { style: { minWidth: 0 } },
                   h('div', { className: 'ocid-row__nick' }, nick),
                   h('div', { className: 'ocid-row__meta' },
-                    pick(orbit, { fr: 'Autorisé à vous écrire', en: 'Allowed to message you' })
+                    onServer
+                      ? pick(orbit, { fr: 'Inscrit sur le serveur — peut vous écrire', en: 'On the server list — can message you' })
+                      : pick(orbit, { fr: 'Hors ligne — pas encore inscrit sur le serveur', en: 'Offline — not on the server list yet' })
                   )
                 )
               ),
@@ -3029,6 +3070,9 @@
       peers.loading = Object.create(null);
       acceptList.nicks = [];
       acceptList.loading = false;
+      acceptList.known = false;
+      acceptList.onServer = Object.create(null);
+      acceptList.pendingServer = Object.create(null);
       bumpAccept();
       setParental(false);
       setCallerid(false);
@@ -3300,8 +3344,7 @@
         if (acceptList.loading) {
           var accepted = params.length >= 2 ? params[1] : params[0];
           if (accepted && (params.length < 2 || fold(accepted) !== fold(me))) {
-            pushAcceptNick(accepted);
-            markAcceptConfirmed(accepted);
+            noteServerAccept(accepted);
           }
         }
         return;
@@ -3309,16 +3352,15 @@
       // 457 ERR_ACCEPTEXIST — the nick is already on the server ACCEPT list.
       if (cmd === '457') {
         var existNick = params.length >= 2 ? params[1] : params[0];
-        if (existNick && fold(existNick) !== fold(me)) {
-          markAcceptConfirmed(existNick);
-          pushAcceptNick(existNick);
-        }
+        if (existNick && fold(existNick) !== fold(me)) noteServerAccept(existNick);
         return;
       }
       // ACCEPT +nick while they are offline → 401. Retry when MONITOR sees them.
       if (cmd === '401') {
         var missingNick = params[1] || '';
         if (missingNick && loadSavedAccept(orbit).some(function (n) { return fold(n) === fold(missingNick); })) {
+          clearServerAccept(missingNick);
+          bumpAccept();
           try { orbit.irc.send('MONITOR + ' + missingNick); } catch (e401) { /* ignore */ }
         }
         return;
@@ -3397,7 +3439,7 @@
           }
         }
         var listed = String(body || '').match(/^(\S+) is now on your accept list/i);
-        if (listed) markAcceptConfirmed(listed[1]);
+        if (listed) noteServerAccept(listed[1]);
         var isControl = isAcceptNotice(body) || isRefuseNotice(body) || isRevokedNotice(body)
           || isBlockNotice(body) || isUnblockNotice(body);
         if (isControl) {
