@@ -8,7 +8,7 @@
  * Salon enregistré → commandes filtrées (VOP/HOP/AOP/SOP/fondateur) + bot.
  *
  * config.json:
- *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=105"]
+ *   "plugins": [".../orbit-chanserv/orbit-chanserv.js?v=106"]
  *   "chanserv": { "kickReason": "Vous n'êtes pas le bienvenu sur ce salon" }
  *
  * INFO / STATUS / BOTLIST / ACCESS / ENTRYMSG: JSON-RPC Anope via chanserv-rpc.php (pas de MP).
@@ -190,17 +190,7 @@
       if (foldText(ui.chan) === foldText(chan) && (ui.founder || ui.infoText) && !ui.loading) {
         publishChanInfo();
       }
-      if (identified()) {
-        queryInfo(chan);
-        return;
-      }
-      if (applyCache(chan)) {
-        publishChanInfo();
-        return;
-      }
-      patchUi({ chan: chan, loading: true, flash: '' });
-      // Guest chaninfo: IRC is the only source; replies stay hidden via beginExpect.
-      queryInfo(chan, { allowIrc: true });
+      queryInfo(chan, { noIrc: true });
     }
     function patchUi(partial) {
       Object.keys(partial).forEach(function (k) { ui[k] = partial[k]; });
@@ -603,17 +593,20 @@
     }
     function rpcCall(action, chan, extra) {
       if (rpcState === 'off') return Promise.resolve(null);
-      var account = orbit.state.account();
-      if (!account) return Promise.resolve(null);
+      var account = orbit.state.account() || '';
+      var nick = orbit.state.nick() || '';
+      var source = account || nick;
+      if (!source) return Promise.resolve(null);
+      if (!account && action !== 'probe') return Promise.resolve(null);
       var key = action + ':' + String(chan || '').toLowerCase();
       if (extra && extra.op) key += ':' + String(extra.op).toLowerCase();
       if (extra && extra.n) key += ':' + String(extra.n);
       if (rpcInflight[key]) return rpcInflight[key];
       var body = Object.assign({
-        account: account,
+        account: source,
         channel: chan,
         action: action,
-        nick: orbit.state.nick() || '',
+        nick: nick || source,
       }, extra || {});
       var p = rpcPost(body)
         .then(function (data) {
@@ -800,36 +793,21 @@
         patchUi({ chan: chan, loading: false, registered: null, access: 'none', bot: '', founder: '', infoText: '', botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [], akickList: [] });
         return;
       }
-      if (applyCache(chan)) return;
+      if (applyCache(chan)) {
+        publishChanInfo();
+        return;
+      }
       var next = { chan: chan, loading: true, botInfo: '', ytStats: '', entryMsgs: [], badwords: [], topicHistory: [] };
       if (!(opts && opts.keepFlash)) next.flash = '';
       patchUi(next);
-      // Background probes (RegisterWatch) must never hit IRC — INFO notices flood the salon.
-      var allowIrc = !(opts && opts.noIrc) && (panelOpen() || !!(opts && opts.allowIrc));
-      if (!identified()) {
-        // Guests: never IRC-probe in the background.
-        // Chaninfo / panel refresh may still request INFO explicitly via queryPublicInfo.
-        if (!allowIrc) {
-          patchUi({ loading: false });
-          return;
-        }
-        beginExpect('info', chan);
-        cs('INFO ' + chan);
-        return;
-      }
       rpcCall('probe', chan).then(function (data) {
         if (ui.chan !== chan) return;
         if (data && data.ok && (data.info || data.status)) {
           applyProbeTexts(chan, data.info, data.status);
+          publishChanInfo();
           return;
         }
-        // RPC down: only fall back to IRC INFO when the panel / chaninfo asked for it.
-        if (!allowIrc) {
-          patchUi({ loading: false });
-          return;
-        }
-        beginExpect('info', chan);
-        cs('INFO ' + chan);
+        patchUi({ loading: false });
       });
     }
 
@@ -1030,7 +1008,7 @@
     function parseInfo(text) {
       var raw = stripIrc(text);
       var out = { registered: true, founder: '', bot: '', infoText: raw.trim() };
-      if (looksLikeAccessDenied(raw) && !/(fondateur|founder)\s*:/i.test(raw)) {
+      if (looksLikeAccessDenied(raw) && !/(fondateur(?:ice)?|fondatrice|founder)\s*:/i.test(raw)) {
         out.registered = null;
         out.infoText = '';
         return out;
@@ -1039,7 +1017,7 @@
         out.registered = false;
         return out;
       }
-      var fm = raw.match(/(?:fondateur|founder)\s*:\s*(\S+)/i);
+      var fm = raw.match(/(?:fondateur(?:ice)?|fondatrice|founder)\s*:\s*(\S+)/i);
       if (fm) out.founder = fm[1].replace(/[.,;]+$/, '');
       out.bot = parseBotNick(raw);
       return out;
@@ -1058,7 +1036,7 @@
         if (m) {
           var key = foldText(m[1]);
           var row = { k: m[1], v: m[2] };
-          if (/fondateur|founder|pseudo|bot\b/.test(key)) row.hi = true;
+          if (/fondateur|fondatrice|founder|pseudo|bot\b/.test(key)) row.hi = true;
           if (/^options?$/.test(key) && m[2]) {
             row.pills = m[2].split(/\s*,\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
           }
@@ -3615,9 +3593,7 @@
             body.push(h('div', { className: 'ocs-info' }, infoCardNodes(s.infoText)));
           }
           pushBtn(body, '', function () {
-            beginExpect('info', ch);
-            patchUi({ loading: true });
-            cs('INFO ' + ch);
+            queryInfo(ch, { noIrc: true });
           }, 'info', pick('Actualiser l’info', 'Refresh info'));
         }
 

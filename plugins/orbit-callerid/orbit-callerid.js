@@ -14,7 +14,7 @@
  *     "group": "controle-parentale", "modes": "+ixIgcRw", "autoMode": true,
  *     "safeChannels": ["#EntreJeunes.chat"], "warnOfficialJoins": true
  *   }
- *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=59"]
+ *   "plugins": [".../orbit-callerid/orbit-callerid.js?v=60"]
  */
 (function () {
   'use strict';
@@ -624,7 +624,23 @@
       }, CHAN_WARN_TIMEOUT_MS),
     };
     try {
-      orbit.irc.send('PRIVMSG ChanServ :INFO ' + chan);
+      var acct = '';
+      var nick = '';
+      try { acct = String(orbit.state.account && orbit.state.account() || ''); } catch (e2) { /* ignore */ }
+      try { nick = String(orbit.state.nick && orbit.state.nick() || ''); } catch (e3) { /* ignore */ }
+      var source = acct || nick;
+      if (!source) return;
+      fetch('/app/plugins/third/orbit-chanserv/chanserv-rpc.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ account: source, nick: nick || source, channel: chan, action: 'probe' }),
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (!data || !data.ok) return;
+        var blob = String(data.info || '').toLowerCase();
+        var official = blob.indexOf('salon officiel') > -1 || blob.indexOf('cs_official') > -1
+          || /(^|[\s,])official([\s,]|$)/.test(blob) || /(^|[\s,])officiel([\s,]|$)/.test(blob);
+        onOfficialInfo(orbit, { chan: chan, official: official });
+      }).catch(function () { /* RPC down — no IRC INFO (FILTER *.chat) */ });
     } catch (e) { /* ignore */ }
   }
 

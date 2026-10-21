@@ -46,14 +46,24 @@ erroné. Ce cookie est **unique pour tout le navigateur** : deux comptes
 ouverts en même temps (un mineur, un adulte) se l’écrasent. Le dernier
 `chat_listen` décide du serveur du prochain handshake, y compris la
 reconnexion de l’autre onglet. Orbit ajoute donc `?listen=cp` ou
-`?listen=reg` sur l’URL websocket de **cet** onglet. Apache doit faire
-gagner ce paramètre sur le cookie, avant la règle cookie :
+`?listen=reg` sur l’URL websocket de **cet** onglet. Sur le vhost
+`irc.entrenous.chat`, ce paramètre doit passer avant le cookie, en
+réécrivant vers `/__ws_cp/` (8197) ou en laissant le `ProxyPass` normal
+(8107) :
 
 ```
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
 RewriteCond %{QUERY_STRING} (?:^|&)listen=cp(?:&|$)
-RewriteRule ^/?(?:websocket)?$ ws://127.0.0.1:8197/ [P,L]
+RewriteRule ^/?(.*)$ /__ws_cp/$1 [PT,E=EN_LISTEN:cp,L]
+
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
 RewriteCond %{QUERY_STRING} (?:^|&)listen=reg(?:&|$)
-RewriteRule ^/?(?:websocket)?$ ws://127.0.0.1:8107/ [P,L]
+RewriteRule ^ - [E=EN_LISTEN:reg]
+
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteCond %{HTTP_COOKIE} (?:^|;\s*)orbit_en_listen=cp(?:;|$)
+RewriteCond %{QUERY_STRING} !(?:^|&)listen=(?:cp|reg)(?:&|$)
+RewriteRule ^/?(.*)$ /__ws_cp/$1 [PT,E=EN_LISTEN:cp,L]
 ```
 
 `chat-resume.php` **rafraîchit** ce cookie à chaque reprise de session
