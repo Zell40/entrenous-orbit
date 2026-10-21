@@ -145,7 +145,8 @@
     "requireAge": true,
     "requireGender": true,
     "requireCity": true,
-    "minAge": 10
+    "minAge": 10,
+    "parentalUnder": 17
   },
   "callerid": {
     "group": "controle-parentale",
