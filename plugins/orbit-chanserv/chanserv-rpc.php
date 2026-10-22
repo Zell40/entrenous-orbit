@@ -609,9 +609,39 @@ try {
   }
 
   if ($action === 'csinfo') {
-    $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
-      $account, 'ChanServ', 'INFO', $channel,
-    ]));
+    // anope.command's first parameter is a NickServ account. A guest nick
+    // ("oups") is "No such account" and the whole call becomes rpc_failed.
+    // Public INFO allows an empty source; a real account is tried first so
+    // identified users still receive the fuller listing.
+    $sources = [];
+    if ($account !== '') {
+      $sources[] = $account;
+    }
+    $sources[] = '';
+    $info = '';
+    $detail = '';
+    foreach ($sources as $as) {
+      try {
+        $info = flatten_rpc(anope_rpc($url, $token, $ANOPE_RPC_BEARER_B64, 'anope.command', [
+          $as, 'ChanServ', 'INFO', $channel,
+        ]));
+        if ($info !== '') {
+          $detail = '';
+          break;
+        }
+      } catch (Throwable $e) {
+        $detail = $e->getMessage();
+      }
+    }
+    if ($info === '') {
+      http_response_code(200);
+      echo json_encode([
+        'ok' => false,
+        'error' => 'rpc_failed',
+        'detail' => $detail,
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      exit;
+    }
     echo json_encode(['ok' => true, 'info' => $info], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
   }
