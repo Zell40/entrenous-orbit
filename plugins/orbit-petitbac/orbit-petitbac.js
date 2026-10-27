@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 92;
+  var PBAC_VER = 93;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2568,6 +2568,13 @@
       '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
       '.opbac-panel--round-end .opbac-end{flex:0 1 auto;min-height:0;overflow:auto}',
       '.opbac-panel--round-end .opbac-live{flex:1 1 40%;min-height:8rem}',
+      '.opbac-panel--game-end .opbac-body{display:flex;flex-direction:column;overflow:hidden;min-height:0}',
+      '.opbac-panel--game-end .opbac-end{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0}',
+      '.opbac-end__scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:.85rem .9rem .55rem}',
+      '.opbac-end__foot{flex:0 0 auto;z-index:4;padding:.55rem .9rem max(.7rem,env(safe-area-inset-bottom,0px));border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));background:var(--bg,#fff);box-shadow:0 -12px 24px -16px rgba(15,23,42,.4)}',
+      '.opbac-end__foot .opbac-idle__launch{margin:0 auto;width:100%;max-width:28rem}',
+      '.opbac-end__foot .opbac-idle__cta{width:100%;max-width:none}',
+      '.opbac-end__foot .opbac-end__chat-hint{margin:.4rem 0 0}',
       '.opbac-end{padding:.85rem .9rem 1rem;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif}',
       '.opbac-end--enter{animation:opbacFadeIn .35s ease 1 both}',
       '@keyframes opbacFadeIn{0%{opacity:0}100%{opacity:1}}',
@@ -5562,18 +5569,21 @@
     }
   }
 
-  function buildReplaySectionHtml(selectedMode) {
+  function buildReplaySectionHtml(selectedMode, opts) {
     selectedMode = sanitizeModeId(selectedMode);
+    var includeLaunch = !opts || opts.includeLaunch !== false;
     return '<div class="opbac-replay" data-opbac-replay>' +
       '<h3 class="opbac-replay__q">' + escHtml(pick({ fr: 'Une nouvelle partie ?', en: 'Play again?' })) + '</h3>' +
       '<p class="opbac-replay__sub">' + escHtml(pick({
         fr: 'Choisissez un niveau, un jeu personnalisé, ou créez le vôtre.',
         en: 'Choose a level, a custom game, or create your own.',
       })) + '</p>' +
-      buildPlayPickerHtml(selectedMode, buildLaunchHtml(pick({
-        fr: '▶ Oui, lancer une partie',
-        en: '▶ Yes, start a game',
-      }))) +
+      buildPlayPickerHtml(selectedMode, includeLaunch
+        ? buildLaunchHtml(pick({
+          fr: '▶ Oui, lancer une partie',
+          en: '▶ Yes, start a game',
+        }))
+        : '') +
       '</div>';
   }
 
@@ -6346,7 +6356,10 @@
 
   function buildEndScreenHtml(game, myNick, selectedMode, animate) {
     var isGameEnd = game.phase === 'game_end';
-    var html = '<div class="opbac-end' + (animate ? ' opbac-end--enter' : '') + '" data-opbac-end role="status" aria-live="polite">';
+    var html = '<div class="opbac-end' + (isGameEnd ? ' opbac-end--game' : '') +
+      (animate ? ' opbac-end--enter' : '') + '" data-opbac-end role="status" aria-live="polite">';
+
+    if (isGameEnd) html += '<div class="opbac-end__scroll">';
 
     if (isGameEnd) {
       html += '<div class="opbac-end__hero opbac-end__hero--game">' +
@@ -6407,11 +6420,18 @@
 
     if (isGameEnd) {
       html += buildFeedbackBlockHtml();
-      html += buildReplaySectionHtml(selectedMode);
-      html += '<p class="opbac-end__chat-hint">' +
-        '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
-          escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
-        '</button></p>';
+      html += buildReplaySectionHtml(selectedMode, { includeLaunch: false });
+      html += '</div>';
+      html += '<div class="opbac-end__foot">' +
+        buildLaunchHtml(pick({
+          fr: '▶ Oui, lancer une partie',
+          en: '▶ Yes, start a game',
+        })) +
+        '<p class="opbac-end__chat-hint">' +
+          '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
+            escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
+          '</button></p>' +
+        '</div>';
     } else {
       html += '<div class="opbac-end__wait" role="status" aria-live="polite">' +
         refreshSpinnerHtml() +
