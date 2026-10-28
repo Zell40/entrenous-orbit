@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 93;
+  var PBAC_VER = 94;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2568,13 +2568,14 @@
       '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
       '.opbac-panel--round-end .opbac-end{flex:0 1 auto;min-height:0;overflow:auto}',
       '.opbac-panel--round-end .opbac-live{flex:1 1 40%;min-height:8rem}',
-      '.opbac-panel--game-end .opbac-body{display:flex;flex-direction:column;overflow:hidden;min-height:0}',
-      '.opbac-panel--game-end .opbac-end{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0}',
-      '.opbac-end__scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:.85rem .9rem .55rem}',
-      '.opbac-end__foot{flex:0 0 auto;z-index:4;padding:.55rem .9rem max(.7rem,env(safe-area-inset-bottom,0px));border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));background:var(--bg,#fff);box-shadow:0 -12px 24px -16px rgba(15,23,42,.4)}',
-      '.opbac-end__foot .opbac-idle__launch{margin:0 auto;width:100%;max-width:28rem}',
+      '.opbac-panel--full.opbac-panel--game-end .opbac-head,.opbac-panel--split.opbac-panel--game-end .opbac-head{flex:0 0 auto}',
+      '.opbac-panel--full.opbac-panel--game-end .opbac-body,.opbac-panel--split.opbac-panel--game-end .opbac-body{display:flex;flex-direction:column;flex:1 1 0%!important;height:0!important;max-height:none!important;min-height:0;overflow:hidden}',
+      '.opbac-panel--game-end .opbac-end{flex:1 1 0%;min-height:0;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;padding:0}',
+      '.opbac-end__scroll{flex:1 1 0%;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:.85rem .9rem .55rem}',
+      '.opbac-end__foot{flex:0 0 auto;margin-top:auto;z-index:4;padding:.5rem .9rem max(.65rem,env(safe-area-inset-bottom,0px));border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));background:var(--bg,#fff);box-shadow:0 -12px 24px -16px rgba(15,23,42,.4)}',
+      '.opbac-end__foot .opbac-idle__launch{margin:0 auto;width:100%;max-width:28rem;gap:.2rem}',
       '.opbac-end__foot .opbac-idle__cta{width:100%;max-width:none}',
-      '.opbac-end__foot .opbac-end__chat-hint{margin:.4rem 0 0}',
+      '.opbac-end__foot .opbac-skip-rules{margin:0;max-width:none;width:100%;justify-content:center;background:transparent;border:0;padding:.2rem .1rem;font-size:.72rem}',
       '.opbac-end{padding:.85rem .9rem 1rem;font-family:ui-sans-serif,system-ui,Segoe UI,sans-serif}',
       '.opbac-end--enter{animation:opbacFadeIn .35s ease 1 both}',
       '@keyframes opbacFadeIn{0%{opacity:0}100%{opacity:1}}',
@@ -6427,10 +6428,6 @@
           fr: '▶ Oui, lancer une partie',
           en: '▶ Yes, start a game',
         })) +
-        '<p class="opbac-end__chat-hint">' +
-          '<button type="button" class="opbac-end__chat-btn" data-act="collapse">' +
-            escHtml(pick({ fr: '↩ Revoir le tchat', en: '↩ Show chat' })) +
-          '</button></p>' +
         '</div>';
     } else {
       html += '<div class="opbac-end__wait" role="status" aria-live="polite">' +
