@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 95;
+  var PBAC_VER = 96;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2568,12 +2568,13 @@
       '.opbac-panel--round-end{border-bottom-color:color-mix(in srgb,#6366f1 35%,var(--border,#ddd))}',
       '.opbac-panel--round-end .opbac-end{flex:0 1 auto;min-height:0;overflow:auto}',
       '.opbac-panel--round-end .opbac-live{flex:1 1 40%;min-height:8rem}',
-      '.opbac-panel--full.opbac-panel--game-end,.opbac-panel--split.opbac-panel--game-end{display:grid!important;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;min-height:0}',
-      '.opbac-panel--full.opbac-panel--game-end .opbac-head,.opbac-panel--split.opbac-panel--game-end .opbac-head{flex:none}',
-      '.opbac-panel--full.opbac-panel--game-end .opbac-body,.opbac-panel--split.opbac-panel--game-end .opbac-body{display:grid!important;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1fr);align-content:stretch;justify-items:stretch;flex:unset;height:auto!important;max-height:none!important;min-height:0;overflow:hidden;container-type:normal}',
-      '.opbac-panel--game-end .opbac-end--game{display:grid;grid-template-rows:minmax(0,1fr) auto;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;align-self:stretch;padding:0;overflow:hidden}',
-      '.opbac-end__scroll{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:.85rem .9rem .55rem}',
-      '.opbac-end__foot{z-index:4;width:100%;box-sizing:border-box;padding:.5rem .9rem max(.65rem,env(safe-area-inset-bottom,0px));border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));background:var(--bg,#fff);box-shadow:0 -12px 24px -16px rgba(15,23,42,.4)}',
+      '.opbac-panel--game-end{position:relative;overflow:hidden}',
+      '.opbac-panel--full.opbac-panel--game-end,.opbac-panel--split.opbac-panel--game-end{display:flex!important;flex-direction:column!important;min-height:0}',
+      '.opbac-panel--full.opbac-panel--game-end .opbac-head,.opbac-panel--split.opbac-panel--game-end .opbac-head{flex:0 0 auto}',
+      '.opbac-panel--full.opbac-panel--game-end .opbac-body,.opbac-panel--split.opbac-panel--game-end .opbac-body{display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;container-type:normal}',
+      '.opbac-panel--game-end .opbac-end--game{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;padding:0;overflow:hidden}',
+      '.opbac-end__scroll{flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:.85rem .9rem .55rem;box-sizing:border-box}',
+      '.opbac-panel--game-end .opbac-end__foot{position:absolute;left:0;right:0;bottom:0;z-index:8;width:100%;box-sizing:border-box;padding:.5rem .9rem max(.65rem,env(safe-area-inset-bottom,0px));border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));background:var(--bg,#fff);box-shadow:0 -12px 24px -16px rgba(15,23,42,.4)}',
       '.opbac-end__foot .opbac-idle__launch{margin:0 auto;width:100%;max-width:28rem;gap:.2rem}',
       '.opbac-end__foot .opbac-idle__cta{width:100%;max-width:none}',
       '.opbac-end__foot .opbac-skip-rules{margin:0;max-width:none;width:100%;justify-content:center;background:transparent;border:0;padding:.2rem .1rem;font-size:.72rem}',
@@ -3529,6 +3530,43 @@
     }
   }
 
+  function clearGameEndLayoutStyles(root) {
+    if (!root || !root.querySelectorAll) return;
+    var els = root.querySelectorAll('.opbac-body, .opbac-end--game, .opbac-end__scroll');
+    for (var i = 0; i < els.length; i++) {
+      els[i].style.removeProperty('height');
+      els[i].style.removeProperty('max-height');
+    }
+  }
+
+  function layoutGameEndDock(root) {
+    if (!root) return;
+    var foot = root.querySelector('.opbac-end__foot');
+    var scroll = root.querySelector('.opbac-end__scroll');
+    if (!root.classList.contains('opbac-panel--game-end') || !foot || !scroll) {
+      clearGameEndLayoutStyles(root);
+      return;
+    }
+    var head = root.querySelector('.opbac-head');
+    var body = root.querySelector('.opbac-body');
+    var end = root.querySelector('.opbac-end--game');
+    var panelH = root.clientHeight;
+    var headH = head ? Math.round(head.getBoundingClientRect().height) : 0;
+    var footH = Math.round(foot.getBoundingClientRect().height) || 96;
+    var bodyH = Math.max(72, panelH - headH);
+    var scrollH = Math.max(64, bodyH - footH);
+    if (body) {
+      body.style.setProperty('height', bodyH + 'px', 'important');
+      body.style.setProperty('max-height', bodyH + 'px', 'important');
+    }
+    if (end) {
+      end.style.setProperty('height', bodyH + 'px', 'important');
+      end.style.setProperty('max-height', bodyH + 'px', 'important');
+    }
+    scroll.style.setProperty('height', scrollH + 'px', 'important');
+    scroll.style.setProperty('max-height', scrollH + 'px', 'important');
+  }
+
   function fitBacPanelToViewport() {
     var root = document.getElementById('opbac-dom-panel');
     var main = document.querySelector('.main');
@@ -3536,10 +3574,12 @@
     var full = document.body.classList.contains('opbac-full');
     var split = document.body.classList.contains('opbac-split');
     if (!full && !split) {
+      clearGameEndLayoutStyles(root);
       clearBacPanelBox(root, main);
       return;
     }
     if (split && !full && window.matchMedia('(min-width:1000px)').matches) {
+      clearGameEndLayoutStyles(root);
       clearBacPanelBox(root, main);
       return;
     }
@@ -3549,7 +3589,8 @@
     var top = topbar ? Math.round(topbar.getBoundingClientRect().bottom) : Math.round(root.getBoundingClientRect().top);
     if (vv) top -= Math.round(vv.offsetTop || 0);
     top = Math.max(0, top);
-    var bottom = orbitChromeBottom();
+    var gameEnd = root.classList.contains('opbac-panel--game-end');
+    var bottom = (full && gameEnd) ? 0 : orbitChromeBottom();
     var h = Math.floor(vh - top - bottom);
     if (split && !full && window.matchMedia('(max-width:999px)').matches) {
       h = Math.min(h, Math.floor(vh * 0.58));
@@ -3562,6 +3603,10 @@
       root.style.setProperty('height', h + 'px', 'important');
       root.style.setProperty('max-height', h + 'px', 'important');
       root.style.setProperty('width', '100%', 'important');
+    }
+    layoutGameEndDock(root);
+    if (gameEnd) {
+      requestAnimationFrame(function () { layoutGameEndDock(root); });
     }
   }
 
@@ -3591,6 +3636,7 @@
     if (mode === VIEW_CHAT) {
       root.classList.add('opbac-panel--chat', 'opbac-panel--collapsed');
       root.style.removeProperty('--opbac-h');
+      clearGameEndLayoutStyles(root);
       clearBacPanelBox(root, document.querySelector('.main'));
       return;
     }
