@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 96;
+  var PBAC_VER = 97;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -2668,7 +2668,8 @@
       '@media(max-width:760px){.opbac-setup{grid-template-columns:1fr;overflow:auto}}',
       '.opbac-setup__modes,.opbac-setup__create{display:flex;flex-direction:column;padding:.45rem .5rem .5rem;border-radius:12px;border:1px solid color-mix(in srgb,#6366f1 16%,var(--border,#e5e5e5));background:color-mix(in srgb,#6366f1 5%,var(--bg,#fff));min-width:0;min-height:0;overflow:auto}',
       '.opbac-create-ok{margin:.35rem 0 0;padding:.35rem .45rem;border-radius:10px;background:#ecfdf5;border:1px solid #86efac;color:#166534;font-size:.72rem;font-weight:800;line-height:1.35}',
-      '.opbac-recap{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;text-align:left;position:relative;z-index:5;margin:0 -.65rem 0;padding:0 .55rem .3rem;background:var(--bg,#fff);border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));border-radius:16px 16px 0 0;box-shadow:0 -8px 22px rgba(15,23,42,.08)}',
+      '.opbac-panel--full .opbac-body>.opbac-idle,.opbac-panel--split .opbac-body>.opbac-idle{flex:1 1 auto;min-height:0;height:100%;max-height:100%;overflow:hidden}',
+      '.opbac-recap{flex:0 0 auto;min-height:0;margin-top:auto;display:flex;flex-direction:column;text-align:left;position:relative;z-index:5;margin-left:-.65rem;margin-right:-.65rem;padding:0 .55rem max(.35rem,env(safe-area-inset-bottom,0px));background:var(--bg,#fff);border-top:1px solid color-mix(in srgb,#6366f1 18%,var(--border,#e5e5e5));border-radius:16px 16px 0 0;box-shadow:0 -8px 22px rgba(15,23,42,.08)}',
       '.opbac-recap__tabs{display:flex;gap:.3rem;flex:0 0 auto;margin:0;padding:.4rem 0 .1rem;order:2;justify-content:stretch}',
       '.opbac-recap__tab{flex:1;border:1px solid color-mix(in srgb,#6366f1 22%,var(--border,#ddd));background:var(--bg,#fff);color:var(--ink,#333);border-radius:10px;padding:.32rem .45rem;font-size:.72rem;font-weight:800;cursor:pointer;min-height:36px}',
       '.opbac-recap__tab--on{background:#4f46e5;border-color:#4f46e5;color:#fff}',
@@ -3532,18 +3533,27 @@
 
   function clearGameEndLayoutStyles(root) {
     if (!root || !root.querySelectorAll) return;
-    var els = root.querySelectorAll('.opbac-body, .opbac-end--game, .opbac-end__scroll');
+    var els = root.querySelectorAll('.opbac-body, .opbac-idle, .opbac-end--game, .opbac-end__scroll');
     for (var i = 0; i < els.length; i++) {
       els[i].style.removeProperty('height');
       els[i].style.removeProperty('max-height');
     }
   }
 
+  function isIdleLobbyPanel(root) {
+    return !!(root && root.querySelector && root.querySelector('.opbac-idle')
+      && !root.classList.contains('opbac-panel--playing')
+      && !root.classList.contains('opbac-panel--round-end'));
+  }
+
   function layoutGameEndDock(root) {
     if (!root) return;
     var foot = root.querySelector('.opbac-end__foot');
     var scroll = root.querySelector('.opbac-end__scroll');
-    if (!root.classList.contains('opbac-panel--game-end') || !foot || !scroll) {
+    var idle = root.querySelector('.opbac-idle');
+    var gameEnd = root.classList.contains('opbac-panel--game-end') && foot && scroll;
+    var idleFill = isIdleLobbyPanel(root) && idle;
+    if (!gameEnd && !idleFill) {
       clearGameEndLayoutStyles(root);
       return;
     }
@@ -3552,13 +3562,18 @@
     var end = root.querySelector('.opbac-end--game');
     var panelH = root.clientHeight;
     var headH = head ? Math.round(head.getBoundingClientRect().height) : 0;
-    var footH = Math.round(foot.getBoundingClientRect().height) || 96;
     var bodyH = Math.max(72, panelH - headH);
-    var scrollH = Math.max(64, bodyH - footH);
     if (body) {
       body.style.setProperty('height', bodyH + 'px', 'important');
       body.style.setProperty('max-height', bodyH + 'px', 'important');
     }
+    if (idleFill) {
+      idle.style.setProperty('height', bodyH + 'px', 'important');
+      idle.style.setProperty('max-height', bodyH + 'px', 'important');
+      return;
+    }
+    var footH = Math.round(foot.getBoundingClientRect().height) || 96;
+    var scrollH = Math.max(64, bodyH - footH);
     if (end) {
       end.style.setProperty('height', bodyH + 'px', 'important');
       end.style.setProperty('max-height', bodyH + 'px', 'important');
@@ -3590,7 +3605,8 @@
     if (vv) top -= Math.round(vv.offsetTop || 0);
     top = Math.max(0, top);
     var gameEnd = root.classList.contains('opbac-panel--game-end');
-    var bottom = (full && gameEnd) ? 0 : orbitChromeBottom();
+    var idleFill = isIdleLobbyPanel(root);
+    var bottom = (full && (gameEnd || idleFill)) ? 0 : orbitChromeBottom();
     var h = Math.floor(vh - top - bottom);
     if (split && !full && window.matchMedia('(max-width:999px)').matches) {
       h = Math.min(h, Math.floor(vh * 0.58));
@@ -3605,7 +3621,7 @@
       root.style.setProperty('width', '100%', 'important');
     }
     layoutGameEndDock(root);
-    if (gameEnd) {
+    if (gameEnd || idleFill) {
       requestAnimationFrame(function () { layoutGameEndDock(root); });
     }
   }
