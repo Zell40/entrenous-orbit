@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var PBAC_VER = 97;
+  var PBAC_VER = 98;
   var syncRequestAt = Object.create(null);
   var STORAGE_PANEL_HEIGHT = 'opbacPanelHeightV2';
   var STORAGE_VIEW_MODE = 'opbacViewMode';
@@ -3546,13 +3546,18 @@
       && !root.classList.contains('opbac-panel--round-end'));
   }
 
+  function isCompactBacScreen() {
+    return window.matchMedia('(max-width:879px)').matches;
+  }
+
   function layoutGameEndDock(root) {
     if (!root) return;
     var foot = root.querySelector('.opbac-end__foot');
     var scroll = root.querySelector('.opbac-end__scroll');
     var idle = root.querySelector('.opbac-idle');
+    var compact = isCompactBacScreen();
     var gameEnd = root.classList.contains('opbac-panel--game-end') && foot && scroll;
-    var idleFill = isIdleLobbyPanel(root) && idle;
+    var idleFill = compact && isIdleLobbyPanel(root) && idle;
     if (!gameEnd && !idleFill) {
       clearGameEndLayoutStyles(root);
       return;
@@ -3605,8 +3610,11 @@
     if (vv) top -= Math.round(vv.offsetTop || 0);
     top = Math.max(0, top);
     var gameEnd = root.classList.contains('opbac-panel--game-end');
-    var idleFill = isIdleLobbyPanel(root);
-    var bottom = (full && (gameEnd || idleFill)) ? 0 : orbitChromeBottom();
+    var compact = isCompactBacScreen();
+    var idleFill = compact && isIdleLobbyPanel(root);
+    var bottom = orbitChromeBottom();
+    if (full && compact && (gameEnd || idleFill)) bottom = 0;
+    else if (full && !compact && !bottom) bottom = 64;
     var h = Math.floor(vh - top - bottom);
     if (split && !full && window.matchMedia('(max-width:999px)').matches) {
       h = Math.min(h, Math.floor(vh * 0.58));
