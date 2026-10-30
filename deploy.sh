@@ -602,4 +602,32 @@ if [ ! -f "$WEBROOT/$CHANSERV_DIR/chanserv-rpc.php" ]; then
 fi
 log "verified orbit-chanserv (plugin file + config.json entry + rpc sidecar)"
 
+# The running app offers a reload when sw.js changes. An entrenous-orbit-only
+# deploy does not change the Orbit commit baked into sw.js, so stamp both SHAs
+# into the worker and version.json. The client treats that id as a new deploy.
+log "stamp reload id"
+DEPLOY_ID="${ORBIT_HEAD:0:12}-${PLUGINS_HEAD:0:12}"
+ORBIT_SHORT="${ORBIT_HEAD:0:12}"
+PLUGINS_SHORT="${PLUGINS_HEAD:0:12}"
+if [ -f "$WEBROOT/sw.js" ] && grep -q "^const CACHE = 'orbit-" "$WEBROOT/sw.js"; then
+  sed -i "s|^const CACHE = 'orbit-[^']*';|const CACHE = 'orbit-${DEPLOY_ID}';|" "$WEBROOT/sw.js"
+else
+  log "WARN: $WEBROOT/sw.js has no orbit cache line — reload banner may miss this deploy"
+fi
+VERSION_PATH="$WEBROOT/version.json" \
+DEPLOY_ID="$DEPLOY_ID" \
+ORBIT_SHORT="$ORBIT_SHORT" \
+PLUGINS_SHORT="$PLUGINS_SHORT" \
+node <<'EOF'
+const fs = require('fs');
+const p = process.env.VERSION_PATH;
+let j = {};
+try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { j = {}; }
+j.commit = process.env.ORBIT_SHORT;
+j.plugins = process.env.PLUGINS_SHORT;
+j.id = process.env.DEPLOY_ID;
+if (!j.builtAt) j.builtAt = new Date().toISOString();
+fs.writeFileSync(p, JSON.stringify(j) + '\n');
+EOF
+
 log "deployed orbit=$(cd "$ORBIT_REPO" && git rev-parse --short HEAD) plugins=$(cd "$PLUGINS_REPO" && git rev-parse --short HEAD) webroot=$WEBROOT"
