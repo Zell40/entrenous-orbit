@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 33;
+  var ORX_VER = 34;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -1160,6 +1160,20 @@
       };
     }
 
+    function stopGameWatch() {
+      if (gameWatch) gameWatch.disconnect();
+      gameWatch = null;
+      gameWatchEl = null;
+    }
+
+    function dropChip() {
+      stopGameWatch();
+      if (!root) return;
+      root.classList.remove('orx--game', 'orx--set');
+      root.__orxPlace = '';
+      if (root.parentNode) root.parentNode.removeChild(root);
+    }
+
     function watchGameHost(head) {
       var panel = head && head.closest
         ? head.closest('#ohp-dom-panel, #oec-dom-panel, #opbac-dom-panel')
@@ -1170,9 +1184,19 @@
       gameWatchEl = el;
       gameWatch = new MutationObserver(function () {
         if (!root || !root.classList.contains('orx--game')) return;
+        var chan = root.getAttribute('data-chan') || activeChan();
+        if (!gate(chan)) {
+          dropChip();
+          return;
+        }
         if (root.isConnected && root.closest('.ohp-head, .oec-head, .opbac-head')) return;
         var next = visibleGameHead();
-        if (next) dockInHead(next);
+        if (!next) return;
+        var hero = document.querySelector('.chan-hero');
+        var shown = hero && (hero.getAttribute('data-chan') || '');
+        if (shown && chanKey(shown) !== chanKey(chan)) return;
+        if (hero && next.closest('.main') !== hero.closest('.main')) return;
+        dockInHead(next);
       });
       gameWatch.observe(el, { childList: true, subtree: true });
     }
@@ -1395,13 +1419,13 @@
         }
         gateMiss = 0;
         conceal();
-        if ((!hero || !main || !canAsk(chan)) && root && root.parentNode) root.parentNode.removeChild(root);
+        if (!hero || !main || !canAsk(chan)) dropChip();
         return;
       }
       if (!channelOn(chan)) {
         requestHistory(chan);
         conceal();
-        if (root && root.parentNode) root.parentNode.removeChild(root);
+        dropChip();
         return;
       }
       gateMiss = 0;
