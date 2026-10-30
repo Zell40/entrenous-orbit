@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var ORX_VER = 32;
+  var ORX_VER = 33;
   var RSS = '+rss';
   var EV = '+ev';
   var MAX_ITEMS = 40;
@@ -121,8 +121,29 @@
       return false;
     }
 
-    function gate(chan) {
+    function setChannelOn(chan, on) {
+      if (!db.on || typeof db.on !== 'object') db.on = {};
+      var key = chanKey(chan);
+      var next = on ? 1 : 0;
+      if (db.on[key] === next) return;
+      db.on[key] = next;
+      saveDb();
+      ui.rev++;
+    }
+
+    function channelOn(chan) {
+      var flag = db.on && db.on[chanKey(chan)];
+      if (flag === 0) return false;
+      if (flag === 1) return true;
+      return itemsOf(chan).length > 0;
+    }
+
+    function canAsk(chan) {
       return !!(chan && chan.charAt(0) === '#' && tagsOn() && botInChannel(chan));
+    }
+
+    function gate(chan) {
+      return canAsk(chan) && channelOn(chan);
     }
 
     function hasLink(it) {
@@ -134,10 +155,11 @@
       try {
         if (pluginOrbit && pluginOrbit.storage) stored = pluginOrbit.storage.get('feeds', null);
       } catch (e) { stored = null; }
-      if (!stored || typeof stored !== 'object') stored = { seen: {}, items: {}, gone: {} };
+      if (!stored || typeof stored !== 'object') stored = { seen: {}, items: {}, gone: {}, on: {} };
       if (!stored.seen || typeof stored.seen !== 'object') stored.seen = {};
       if (!stored.items || typeof stored.items !== 'object') stored.items = {};
       if (!stored.gone || typeof stored.gone !== 'object') stored.gone = {};
+      if (!stored.on || typeof stored.on !== 'object') stored.on = {};
       db = stored;
       var changed = false;
       Object.keys(db.items).forEach(function (key) {
@@ -368,7 +390,17 @@
     function rememberHist(chan, tags) {
       if (tagVal(tags, EV) !== 'hist') return;
       if (!chan || chan.charAt(0) !== '#') return;
-      if (!tagVal(tags, '+title')) return;
+      var on = tagVal(tags, '+on');
+      if (on === '0') {
+        setChannelOn(chan, false);
+        return;
+      }
+      if (!tagVal(tags, '+title')) {
+        if (on === '1') setChannelOn(chan, true);
+        else if (tagVal(tags, '+n') === '0' && !itemsOf(chan).length) setChannelOn(chan, false);
+        return;
+      }
+      setChannelOn(chan, true);
       var item = itemFromTags(tags);
       if (!item) return;
       var added = remember(chan, item);
@@ -393,6 +425,7 @@
       if (tagVal(tags, EV) !== 'item') return false;
       var item = itemFromTags(tags);
       if (!item) return false;
+      setChannelOn(chan, true);
       remember(chan, item);
       return true;
     }
@@ -463,7 +496,7 @@
       css.textContent = [
         '.main > .orx{position:absolute;z-index:30;right:.7rem;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;width:min(240px,72vw);max-height:min(70%,520px);pointer-events:none;visibility:hidden}',
         '.main > .orx.orx--set{visibility:visible}',
-        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0;visibility:visible}',
+        '.ohp-head > .orx,.oec-head > .orx,.opbac-head > .orx,.ohp-head__actions > .orx,.oec-head__actions > .orx,.opbac-head__actions > .orx{position:relative;top:auto;right:auto;left:auto;bottom:auto;z-index:5;width:auto;max-width:none;max-height:none;flex:none;margin:0;overflow:visible;visibility:visible}',
         '.orx--game .orx__stack,.orx--game .orx__arch{display:none}',
         '.orx-arch-layer{position:fixed;z-index:400;box-sizing:border-box;width:min(360px,92vw);max-height:min(52vh,380px);overflow-x:hidden;overflow-y:scroll;overflow-anchor:none;display:flex;flex-direction:column;gap:.45rem;padding:0 .35rem 0 0;-webkit-overflow-scrolling:touch;pointer-events:auto;background:transparent;border:0;box-shadow:none;scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.45) rgba(15,23,42,.08)}',
         '.orx-arch-layer::-webkit-scrollbar{width:7px}',
@@ -518,7 +551,7 @@
         '.orx--game .orx__chip.is-on{background:#1e3a8a}',
         '.orx--game .orx__chip svg{width:18px;height:18px;min-width:18px;min-height:18px;display:block;flex:none;margin:0}',
         '.orx--game .orx__chip-x{display:none}',
-        '.orx--game .orx__n{position:absolute;top:-5px;right:-5px;min-width:1.15rem;height:1.15rem;padding:0 .22rem;font-size:.62rem;line-height:1.15rem;box-shadow:0 0 0 2px #2563eb}',
+        '.orx--game .orx__n{position:absolute;top:-6px;right:-6px;z-index:3;display:inline-flex;align-items:center;justify-content:center;min-width:1.15rem;height:1.15rem;padding:0 .22rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.62rem;font-weight:800;line-height:1;box-shadow:0 0 0 2px #fff}',
         '.orx-stack-layer{position:fixed;z-index:45;right:.7rem;box-sizing:border-box;width:min(240px,72vw);max-height:min(70vh,520px);display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}',
         '.orx-stack-layer[hidden]{display:none!important}',
         '.orx-stack-layer .orx__stack{pointer-events:auto;width:100%}',
@@ -1354,7 +1387,7 @@
       var chan = hero ? (hero.getAttribute('data-chan') || activeChan()) : '';
       var live = chanKey(activeChan());
       var shown = chanKey(chan);
-      if (!hero || !main || !gate(chan) || (live && shown && live !== shown)) {
+      if (!hero || !main || !canAsk(chan) || (live && shown && live !== shown)) {
         var keep = !!(root && root.classList.contains('orx--set') && hero && main && !(live && shown && live !== shown));
         if (keep && gateMiss < 4) {
           gateMiss++;
@@ -1362,7 +1395,13 @@
         }
         gateMiss = 0;
         conceal();
-        if ((!hero || !main || !gate(chan)) && root && root.parentNode) root.parentNode.removeChild(root);
+        if ((!hero || !main || !canAsk(chan)) && root && root.parentNode) root.parentNode.removeChild(root);
+        return;
+      }
+      if (!channelOn(chan)) {
+        requestHistory(chan);
+        conceal();
+        if (root && root.parentNode) root.parentNode.removeChild(root);
         return;
       }
       gateMiss = 0;

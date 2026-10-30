@@ -2,7 +2,7 @@
 
 Bulles **Actualités** pour le bot Limnoria **RSS_ircv3**.
 
-Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Le texte porte aussi `+rss=v1` : ce plugin masque cette ligne et affiche la bulle sous le topic. Un client sans `message-tags` ne voit que le texte. Une bulle lue ou fermée ne revient pas. Le bouton **Actualités** reste affiché pour relire l’historique, tant que le bot est dans le salon et que la capacité `message-tags` est négociée.
+Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMSG IRCv3 (`+rss=v1`, `+ev=item`). Le texte porte aussi `+rss=v1` : ce plugin masque cette ligne et affiche la bulle sous le topic. Un client sans `message-tags` ne voit que le texte. Une bulle lue ou fermée ne revient pas. Le bouton **Actualités** reste affiché pour relire l’historique, seulement sur un salon où Actu annonce un flux, tant que le bot est présent et que la capacité `message-tags` est négociée. Dans la barre d’un jeu, un chiffre rouge indique les actus pas encore fermées.
 
 ## Prérequis
 
@@ -18,11 +18,11 @@ Le bot envoie chaque titre en texte IRC et, si `tagAnnounce` est actif, en TAGMS
 ```json
 "rss": { "bot": "Actu", "max": 10 },
 "plugins": [
-  "/app/plugins/third/orbit-rss/orbit-rss.js?v=32",
+  "/app/plugins/third/orbit-rss/orbit-rss.js?v=33"
 ]
 ```
 
-`bot` est le nick dont la présence affiche le bouton Actualités. `max` est le nombre de titres gardés dans la liste. À l’ouverture du salon, Orbit envoie un TAGMSG **sur le salon** (`+ev=recent`). Actu répond sur le même salon (`+ev=hist`). Rien n’est envoyé en privé : un TAGMSG vers un nick déclencherait le contrôle parental / callerid (`+g`).
+`bot` est le nick Actu. Le bouton n’apparaît que si ce bot annonce un flux sur le salon. `max` est le nombre de titres gardés dans la liste. À l’ouverture du salon, Orbit envoie un TAGMSG **sur le salon** (`+ev=recent`). Actu répond sur le même salon (`+ev=hist`). Rien n’est envoyé en privé : un TAGMSG vers un nick déclencherait le contrôle parental / callerid (`+g`).
 
 ## Protocole
 
