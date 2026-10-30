@@ -21,7 +21,7 @@ declare(strict_types=1);
 $WP_PROFILE_URL = 'https://www.reseau-entrenous.fr/wp-json/entrenous/v1/profile';
 $HTTP_TIMEOUT   = 2.5;   // seconds per WP request
 $MAX_ACCOUNTS   = 200;   // matches Orbit client cap
-$CACHE_TTL      = 1800;  // seconds (30 min) — busy channels re-batch often
+$CACHE_TTL      = 120;   // seconds — a website photo change should show up quickly
 $CACHE_DIR      = sys_get_temp_dir() . '/orbit-avatars-cache';
 
 $__avatars_local = __DIR__ . '/avatars.local.php';
@@ -85,7 +85,7 @@ if ($need) {
     $fetched = avatar_fetch_batch($WP_PROFILE_URL, $need, $HTTP_TIMEOUT);
     foreach ($need as $key => $_orig) {
         $url = array_key_exists($key, $fetched) ? $fetched[$key] : null;
-        avatar_cache_set($CACHE_DIR, $key, $url);
+        avatar_cache_set($CACHE_DIR, $key, $url, $CACHE_TTL);
         $out[$key] = $url;
     }
 }
@@ -211,11 +211,10 @@ function avatar_cache_get(string $dir, string $key, int $ttl)
     return $data['u']; // string|null
 }
 
-function avatar_cache_set(string $dir, string $key, ?string $url): void
+function avatar_cache_set(string $dir, string $key, ?string $url, int $ttl): void
 {
     if (function_exists('apcu_store')) {
-        // TTL mirrored from caller defaults; APCu ignores if extension missing.
-        apcu_store('orbit-av:' . $key, $url, 1800);
+        apcu_store('orbit-av:' . $key, $url, max(1, $ttl));
     }
     if (!is_dir($dir)) {
         @mkdir($dir, 0775, true);
